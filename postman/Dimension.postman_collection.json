@@ -1,0 +1,93 @@
+{
+  "info": {
+    "name": "Crux Garden API - Dimension",
+    "_postman_id": "dimension-collection-001",
+    "description": "Collection of API endpoints for managing dimensions (relationships between cruxes) in CruxGarden",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "dimensionKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cruxKey",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Get Dimension by Key",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/dimensions/{{dimensionKey}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["dimensions", "{{dimensionKey}}"]
+        },
+        "description": "Retrieves a specific dimension by its unique key"
+      },
+      "response": []
+    },
+    {
+      "name": "Update Dimension",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"garden\",\n  \"weight\": 2,\n  \"note\": \"Updated relationship note\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/dimensions/{{dimensionKey}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["dimensions", "{{dimensionKey}}"]
+        },
+        "description": "Updates an existing dimension. Requires authentication and ownership of the source crux."
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Dimension",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/dimensions/{{dimensionKey}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["dimensions", "{{dimensionKey}}"]
+        },
+        "description": "Deletes an existing dimension. Requires authentication and ownership of the source crux."
+      },
+      "response": []
+    }
+  ]
+}

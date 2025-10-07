@@ -1,0 +1,151 @@
+{
+  "info": {
+    "name": "Crux Garden API - Tag",
+    "_postman_id": "tag-collection-001",
+    "description": "Collection of API endpoints for managing tags in CruxGarden (Admin-only operations)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tag_key",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "List All Tags",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/tags?page=1&perPage=25&sort=count",
+          "host": ["{{base_url}}"],
+          "path": ["tags"],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "perPage",
+              "value": "25",
+              "description": "Items per page (default: 25)"
+            },
+            {
+              "key": "sort",
+              "value": "count",
+              "description": "Sort order: alpha or count (default: count)"
+            },
+            {
+              "key": "resourceType",
+              "value": "crux",
+              "description": "Filter by resource type (crux, path, or theme)",
+              "disabled": true
+            },
+            {
+              "key": "search",
+              "value": "javascript",
+              "description": "Search term to filter tags by label",
+              "disabled": true
+            },
+            {
+              "key": "label",
+              "value": "web-development",
+              "description": "Filter by exact label match",
+              "disabled": true
+            }
+          ]
+        },
+        "description": "Retrieves all tags with optional filtering by resource type, search term, and sorting. Requires authentication."
+      },
+      "response": []
+    },
+    {
+      "name": "Get Tag by Key",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/tags/{{tag_key}}",
+          "host": ["{{base_url}}"],
+          "path": ["tags", "{{tag_key}}"]
+        },
+        "description": "Retrieves a specific tag by its unique key. Requires authentication."
+      },
+      "response": []
+    },
+    {
+      "name": "Update Tag",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const response = pm.response.json();",
+              "    pm.collectionVariables.set('tag_key', response.key);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"label\": \"updated-tag-label\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/tags/{{tag_key}}",
+          "host": ["{{base_url}}"],
+          "path": ["tags", "{{tag_key}}"]
+        },
+        "description": "Updates the label of an existing tag by its key. This is an admin-only operation and affects ALL resources using this tag."
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Tag",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/tags/{{tag_key}}",
+          "host": ["{{base_url}}"],
+          "path": ["tags", "{{tag_key}}"]
+        },
+        "description": "Deletes an existing tag by its key (soft delete). This is an admin-only operation and affects ALL resources using this tag."
+      },
+      "response": []
+    }
+  ]
+}

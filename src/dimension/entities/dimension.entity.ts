@@ -1,0 +1,23 @@
+export default class Dimension {
+  id: string;
+  key: string;
+  sourceId: string;
+  targetId: string;
+  type: 'gate' | 'garden' | 'growth' | 'graft';
+  weight?: number;
+  authorId?: string;
+  note?: string;
+  created: Date;
+  updated: Date;
+  deleted?: Date;
+
+  constructor(partial: Partial<Dimension>) {
+    Object.assign(this, partial);
+  }
+
+  toJSON() {
+    /* eslint-disable @typescript-eslint/no-unused-vars */
+    const { deleted, ...rest } = this;
+    return rest;
+  }
+}

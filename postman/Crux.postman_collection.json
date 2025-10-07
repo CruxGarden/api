@@ -1,0 +1,233 @@
+{
+  "info": {
+    "name": "Crux Garden API - Crux",
+    "_postman_id": "crux-collection-001",
+    "description": "Collection of API endpoints for managing cruxes in CruxGarden",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "crux_key",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Get All Cruxes",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/cruxes?page=1&perPage=25",
+          "host": ["{{base_url}}"],
+          "path": ["cruxes"],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "perPage",
+              "value": "25",
+              "description": "Items per page (default: 25)"
+            }
+          ]
+        },
+        "description": "Retrieves a paginated list of all cruxes"
+      },
+      "response": []
+    },
+    {
+      "name": "Get Crux by Key",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/cruxes/{{crux_key}}",
+          "host": ["{{base_url}}"],
+          "path": ["cruxes", "{{crux_key}}"]
+        },
+        "description": "Retrieves a specific crux by its unique key"
+      },
+      "response": []
+    },
+    {
+      "name": "Create Crux",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 201) {",
+              "    const response = pm.response.json();",
+              "    pm.collectionVariables.set('crux_key', response.key);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"slug\": \"my-awesome-crux\",\n  \"title\": \"My Awesome Crux\",\n  \"description\": \"This is a description of my crux\",\n  \"data\": \"This is the content of my crux\",\n  \"type\": \"text\",\n  \"status\": \"living\",\n  \"visibility\": \"public\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/cruxes",
+          "host": ["{{base_url}}"],
+          "path": ["cruxes"]
+        },
+        "description": "Creates a new crux with the provided data. Requires authentication."
+      },
+      "response": []
+    },
+    {
+      "name": "Update Crux",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"My Updated Crux\",\n  \"description\": \"This is an updated description\",\n  \"data\": \"This is the updated content of my crux\",\n  \"status\": \"living\",\n  \"visibility\": \"private\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/cruxes/{{crux_key}}",
+          "host": ["{{base_url}}"],
+          "path": ["cruxes", "{{crux_key}}"]
+        },
+        "description": "Updates an existing crux with the provided data. Requires authentication and ownership."
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Crux",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/cruxes/{{crux_key}}",
+          "host": ["{{base_url}}"],
+          "path": ["cruxes", "{{crux_key}}"]
+        },
+        "description": "Deletes an existing crux. Requires authentication and ownership."
+      },
+      "response": []
+    },
+    {
+      "name": "Get Crux Tags",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/cruxes/{{crux_key}}/tags",
+          "host": ["{{base_url}}"],
+          "path": ["cruxes", "{{crux_key}}", "tags"]
+        },
+        "description": "Retrieves all tags associated with a specific crux"
+      },
+      "response": []
+    },
+    {
+      "name": "Sync Crux Tags",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"labels\": [\"web-development\", \"javascript\", \"tutorial\"]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/cruxes/{{crux_key}}/tags",
+          "host": ["{{base_url}}"],
+          "path": ["cruxes", "{{crux_key}}", "tags"]
+        },
+        "description": "Replaces all tags for a crux with the provided list. Requires authentication and ownership."
+      },
+      "response": []
+    },
+    {
+      "name": "Get Crux Dimensions",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/cruxes/{{crux_key}}/dimensions?type=gate",
+          "host": ["{{base_url}}"],
+          "path": ["cruxes", "{{crux_key}}", "dimensions"],
+          "query": [
+            {
+              "key": "type",
+              "value": "gate",
+              "description": "Filter by dimension type (gate, garden, growth, graft)",
+              "disabled": true
+            }
+          ]
+        },
+        "description": "Retrieves all dimensional relationships for a crux, optionally filtered by type"
+      },
+      "response": []
+    },
+    {
+      "name": "Create Dimension",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"targetKey\": \"target-crux-key\",\n  \"type\": \"gate\",\n  \"weight\": 1,\n  \"note\": \"Connection note\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/cruxes/{{crux_key}}/dimensions",
+          "host": ["{{base_url}}"],
+          "path": ["cruxes", "{{crux_key}}", "dimensions"]
+        },
+        "description": "Creates a new dimensional relationship from this crux to another crux. Requires authentication and ownership."
+      },
+      "response": []
+    }
+  ]
+}

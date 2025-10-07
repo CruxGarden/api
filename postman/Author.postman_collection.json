@@ -1,0 +1,273 @@
+{
+	"info": {
+		"_postman_id": "author-collection",
+		"name": "Crux Garden API - Author",
+		"description": "Complete API collection for Author management in CruxGarden",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{auth_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Set base URL if not already set",
+					"if (!pm.variables.get('base_url')) {",
+					"    pm.variables.set('base_url', 'http://localhost:3000');",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "auth_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "author_key",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Authors",
+			"item": [
+				{
+					"name": "List All Authors",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/authors?page=1&perPage=25",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"authors"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number (default: 1)"
+								},
+								{
+									"key": "perPage",
+									"value": "25",
+									"description": "Items per page (default: 25)"
+								}
+							]
+						},
+						"description": "Retrieves a paginated list of all authors. Returns pagination headers and data."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Author",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// Save created author data for other requests",
+									"if (pm.response.code === 201) {",
+									"    const author = pm.response.json();",
+									"    pm.collectionVariables.set('author_key', author.key);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"johndoe\",\n  \"displayName\": \"John Doe\",\n  \"bio\": \"Software developer and writer passionate about clean code and great user experiences.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/authors",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"authors"
+							]
+						},
+						"description": "Creates a new author profile. Requires authentication."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Author by Key",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/authors/{{author_key}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"authors",
+								"{{author_key}}"
+							]
+						},
+						"description": "Retrieves a specific author by their key."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Author by Username (@prefix)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/authors/@johndoe",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"authors",
+								"@johndoe"
+							]
+						},
+						"description": "Retrieves a specific author by their username (prefixed with @). Most user-friendly lookup method."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Author with Home Embedded",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/authors/{{author_key}}?embed=home",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"authors",
+								"{{author_key}}"
+							],
+							"query": [
+								{
+									"key": "embed",
+									"value": "home",
+									"description": "Include home crux in response"
+								}
+							]
+						},
+						"description": "Retrieves a specific author with their home crux embedded."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Author",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"displayName\": \"John Updated\",\n  \"bio\": \"Updated bio with new information about my journey in software development.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/authors/{{author_key}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"authors",
+								"{{author_key}}"
+							]
+						},
+						"description": "Updates an existing author profile. Requires authentication and ownership."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Author",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/authors/{{author_key}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"authors",
+								"{{author_key}}"
+							]
+						},
+						"description": "Deletes an existing author profile. Requires authentication and ownership."
+					},
+					"response": []
+				}
+			],
+			"description": "All endpoints related to Author management"
+		}
+	]
+}

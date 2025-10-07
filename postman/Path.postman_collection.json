@@ -1,0 +1,218 @@
+{
+  "info": {
+    "name": "Crux Garden API - Path",
+    "_postman_id": "path-collection-001",
+    "description": "Collection of API endpoints for managing paths in CruxGarden",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pathKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "entryMarkerId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Get All Paths",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/paths",
+          "host": ["{{baseUrl}}"],
+          "path": ["paths"]
+        },
+        "description": "Retrieves a paginated list of all paths"
+      },
+      "response": []
+    },
+    {
+      "name": "Get Path by Key",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/paths/{{pathKey}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["paths", "{{pathKey}}"]
+        },
+        "description": "Retrieves a specific path by its unique key"
+      },
+      "response": []
+    },
+    {
+      "name": "Create Path",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 201) {",
+              "    const response = pm.response.json();",
+              "    pm.collectionVariables.set('pathKey', response.key);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"slug\": \"my-learning-path\",\n  \"title\": \"My Learning Path\",\n  \"description\": \"A curated path through learning materials\",\n  \"type\": \"living\",\n  \"visibility\": \"public\",\n  \"kind\": \"guide\",\n  \"entry\": \"{{entryMarkerId}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/paths",
+          "host": ["{{baseUrl}}"],
+          "path": ["paths"]
+        },
+        "description": "Creates a new path with the provided data. Requires authentication."
+      },
+      "response": []
+    },
+    {
+      "name": "Update Path",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"My Updated Learning Path\",\n  \"description\": \"An improved curated path\",\n  \"type\": \"frozen\",\n  \"visibility\": \"private\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/paths/{{pathKey}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["paths", "{{pathKey}}"]
+        },
+        "description": "Updates an existing path with the provided data. Requires authentication and ownership."
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Path",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/paths/{{pathKey}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["paths", "{{pathKey}}"]
+        },
+        "description": "Deletes an existing path. Requires authentication and ownership."
+      },
+      "response": []
+    },
+    {
+      "name": "Get Path Markers",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/paths/{{pathKey}}/markers",
+          "host": ["{{baseUrl}}"],
+          "path": ["paths", "{{pathKey}}", "markers"]
+        },
+        "description": "Retrieves all markers (crux references) for a specific path in order"
+      },
+      "response": []
+    },
+    {
+      "name": "Sync Path Markers",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"markers\": [\n    {\n      \"cruxKey\": \"crux-key-1\",\n      \"order\": 0,\n      \"note\": \"Start here\"\n    },\n    {\n      \"cruxKey\": \"crux-key-2\",\n      \"order\": 1,\n      \"note\": \"Next step\"\n    },\n    {\n      \"cruxKey\": \"crux-key-3\",\n      \"order\": 2\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/paths/{{pathKey}}/markers",
+          "host": ["{{baseUrl}}"],
+          "path": ["paths", "{{pathKey}}", "markers"]
+        },
+        "description": "Replaces all markers for a path with the provided list. Requires authentication and ownership."
+      },
+      "response": []
+    },
+    {
+      "name": "Get Path Tags",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/paths/{{pathKey}}/tags",
+          "host": ["{{baseUrl}}"],
+          "path": ["paths", "{{pathKey}}", "tags"]
+        },
+        "description": "Retrieves all tags associated with a specific path"
+      },
+      "response": []
+    },
+    {
+      "name": "Sync Path Tags",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"labels\": [\"tutorial\", \"beginner\", \"learning-path\"]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/paths/{{pathKey}}/tags",
+          "host": ["{{baseUrl}}"],
+          "path": ["paths", "{{pathKey}}", "tags"]
+        },
+        "description": "Replaces all tags for a path with the provided list. Requires authentication and ownership."
+      },
+      "response": []
+    }
+  ]
+}

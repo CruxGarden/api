@@ -1,0 +1,188 @@
+{
+  "info": {
+    "name": "Crux Garden API - Theme",
+    "_postman_id": "theme-collection-001",
+    "description": "Collection of API endpoints for managing themes in CruxGarden",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "theme_key",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Get All Themes",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/themes?page=1&perPage=25",
+          "host": ["{{base_url}}"],
+          "path": ["themes"],
+          "query": [
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Page number (default: 1)"
+            },
+            {
+              "key": "perPage",
+              "value": "25",
+              "description": "Items per page (default: 25)"
+            }
+          ]
+        },
+        "description": "Retrieves a paginated list of all themes"
+      },
+      "response": []
+    },
+    {
+      "name": "Get Theme by Key",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/themes/{{theme_key}}",
+          "host": ["{{base_url}}"],
+          "path": ["themes", "{{theme_key}}"]
+        },
+        "description": "Retrieves a specific theme by its unique key"
+      },
+      "response": []
+    },
+    {
+      "name": "Create Theme",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 201) {",
+              "    const response = pm.response.json();",
+              "    pm.collectionVariables.set('theme_key', response.key);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Ocean Blue\",\n  \"description\": \"A calming blue theme inspired by ocean waters\",\n  \"primaryColor\": \"#2563eb\",\n  \"secondaryColor\": \"#3b82f6\",\n  \"tertiaryColor\": \"#60a5fa\",\n  \"quaternaryColor\": \"#93c5fd\",\n  \"borderRadius\": \"8px\",\n  \"backgroundColor\": \"#ffffff\",\n  \"panelColor\": \"#f5f5f5\",\n  \"textColor\": \"#000000\",\n  \"font\": \"Inter\",\n  \"mode\": \"light\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/themes",
+          "host": ["{{base_url}}"],
+          "path": ["themes"]
+        },
+        "description": "Creates a new theme with the provided data. Requires authentication."
+      },
+      "response": []
+    },
+    {
+      "name": "Update Theme",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Ocean Blue Updated\",\n  \"description\": \"An updated calming blue theme\",\n  \"primaryColor\": \"#1e40af\",\n  \"mode\": \"dark\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/themes/{{theme_key}}",
+          "host": ["{{base_url}}"],
+          "path": ["themes", "{{theme_key}}"]
+        },
+        "description": "Updates an existing theme with the provided data. Requires authentication and ownership."
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Theme",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/themes/{{theme_key}}",
+          "host": ["{{base_url}}"],
+          "path": ["themes", "{{theme_key}}"]
+        },
+        "description": "Deletes an existing theme. Requires authentication and ownership."
+      },
+      "response": []
+    },
+    {
+      "name": "Get Theme Tags",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/themes/{{theme_key}}/tags",
+          "host": ["{{base_url}}"],
+          "path": ["themes", "{{theme_key}}", "tags"]
+        },
+        "description": "Retrieves all tags associated with a specific theme"
+      },
+      "response": []
+    },
+    {
+      "name": "Sync Theme Tags",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"labels\": [\"dark-mode\", \"minimalist\", \"professional\"]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/themes/{{theme_key}}/tags",
+          "host": ["{{base_url}}"],
+          "path": ["themes", "{{theme_key}}", "tags"]
+        },
+        "description": "Replaces all tags for a theme with the provided list. Requires authentication and ownership."
+      },
+      "response": []
+    }
+  ]
+}
