@@ -44,11 +44,12 @@
     "db:stop": "npx supabase stop",
     "db:link": "npx supabase link --project-ref <project_ref>",
     "db:reset": "./scripts/reset_supabase.sh",
+    "migrate:prod": "npx knex migrate:latest --env production --verbose && npx knex seed:run --env production --verbose",
     "migrate:make": "npx knex migrate:make --env development",
     "migrate:latest": "npx knex migrate:latest --env development",
     "migrate:rollback": "npx knex migrate:rollback --env development",
     "migrate:status": "npx knex migrate:status --env development",
-    "migrate:seed": "npx knex migrate:latest --env development --verbose && npx knex seed:run --env development --verbose",
+    "migrate:seed": "npx knex seed:run --env development",
     "seed:make": "npx knex seed:make --env development",
     "seed:run": "npx knex seed:run --env development"
   },
