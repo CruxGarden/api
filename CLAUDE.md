@@ -14,28 +14,35 @@ Crux Garden is a system for managing interconnected ideas through **Cruxes** (at
 
 ```bash
 # Development
-npm run crux:dev          # Start with hot reload
-npm run crux:debug        # Start in debug mode
+npm run start:dev         # Start with hot reload
+npm run start:debug       # Start in debug mode
 
 # Testing
 npm test                  # Run all unit tests
 npm run test:watch        # Run tests in watch mode
-npm run test:module <module-name>  # Run specific module tests
+npm run test:module       # Run specific module tests
 npm run test:cov          # Run with coverage (excludes .spec, swagger, DTOs, entities)
+npm run test:e2e          # Run end-to-end tests
 
 # Code Quality
 npm run lint              # ESLint with auto-fix
 npm run format            # Format with Prettier
 
 # Database
+npm run db:start          # Start local Supabase
+npm run db:stop           # Stop local Supabase
+npm run db:reset          # Reset Supabase database
+
+# Migrations & Seeds
 npm run migrate:latest    # Run all migrations
 npm run migrate:rollback  # Rollback last migration
 npm run migrate:make <migration-name>  # Create new migration
-npm run seed:run          # Run seeds
+npm run migrate:seed      # Run migrations + seeds
+npm run seed:run          # Run seeds only
 
 # Production
-npm run crux:build        # Build for production
-npm run crux:start:prod   # Start production server
+npm run build             # Build for production
+npm run start:prod        # Start production server
 ```
 
 ## Architecture Patterns

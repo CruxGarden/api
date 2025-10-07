@@ -62,7 +62,7 @@ These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate
 
 5. **Start the development server**
    ```bash
-   npm run crux:dev
+   npm run start:dev
    ```
 
 The API will be available at `http://localhost:3000`
@@ -89,27 +89,35 @@ Optional environment variables:
 
 ```bash
 # Development
-npm run crux:dev          # Start with hot reload
-npm run crux:debug        # Start in debug mode
+npm run start:dev         # Start with hot reload
+npm run start:debug       # Start in debug mode
 
 # Testing
 npm test                  # Run unit tests
 npm run test:watch        # Run tests in watch mode
 npm run test:cov          # Run tests with coverage
 npm run test:e2e          # Run end-to-end tests
+npm run test:module       # Run specific module tests
 
 # Code Quality
 npm run lint              # Run ESLint with auto-fix
 npm run format            # Format code with Prettier
 
 # Database
+npm run db:start          # Start local Supabase
+npm run db:stop           # Stop local Supabase
+npm run db:reset          # Reset Supabase database
+
+# Migrations & Seeds
 npm run migrate:latest    # Run migrations
 npm run migrate:rollback  # Rollback last migration
 npm run migrate:make      # Create new migration
+npm run migrate:seed      # Run migrations + seeds
+npm run seed:run          # Run seeds only
 
 # Production
-npm run crux:build        # Build for production
-npm run crux:start:prod   # Start production server
+npm run build             # Build for production
+npm run start:prod        # Start production server
 ```
 
 ## API Documentation
