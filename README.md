@@ -10,15 +10,15 @@
 
 ## What is Crux Garden?
 
-Crux Garden is a model of how ideas manifest and develop over time. It is a pattern of mind and memory that exists independent of any medium, though it has been realized as an open-source technology for the modern web.
+At its most fundamental level, Crux Garden is a model of how ideas manifest and develop over time. It is a pattern of mind and memory that exists independent of medium, though we have made it into an open-source technology for the modern web.
 
-The heart of the model is the **Crux**, an atomic representation of an idea. In our implementation, a Crux can be text, media, code, or any digital content worth preserving.
+The heart of the Crux Garden model is the **Crux**, an atomic representation of an idea. In our implementation, a Crux can be text, media, code, or any digital content worth preserving.
 
-But Cruxes, just like ideas, don't exist in isolation. Ideas have origins. They come from somewhere. More specifically, ideas come from other ideas. And correspondingly, ideas lead to other ideas.
+But Cruxes, just like ideas, don't exist in isolation. Ideas have origins. They lead to new ideas. They evolve. And often, they randomly connect.
 
 So it is with Cruxes.
 
-There are four relationships that Cruxes can have with other Cruxes. These are called **Dimensions**.
+In Crux Garden, there are four types of relationships Cruxes can have with each other. These are called **Dimensions**:
 
 - **GATES** — Cruxes which influenced or inspired a Crux; its origins and sources.
 - **GARDENS** — Cruxes which emerged or grew from a Crux, its creations and consequences.
