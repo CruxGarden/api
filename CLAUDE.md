@@ -22,7 +22,7 @@ npm test                  # Run all unit tests
 npm run test:watch        # Run tests in watch mode
 npm run test:module       # Run specific module tests
 npm run test:cov          # Run with coverage (excludes .spec, swagger, DTOs, entities)
-npm run test:e2e          # Run end-to-end tests
+npm run test:integration  # Run integration tests
 
 # Code Quality
 npm run lint              # ESLint with auto-fix

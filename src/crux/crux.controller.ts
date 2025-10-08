@@ -171,6 +171,7 @@ export class CruxController {
     @Param('cruxKey') cruxKey: string,
     @Query('filter') filter?: string,
   ): Promise<Tag[]> {
+    await this.getCruxByKey(cruxKey);
     return this.cruxService.getTags(cruxKey, filter);
   }
 

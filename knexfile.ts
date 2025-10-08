@@ -37,17 +37,15 @@ const config: { [key: string]: Knex.Config } = {
 
   production: {
     client: 'postgresql',
-    connection: {
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    },
+    connection: process.env.DATABASE_URL,
     pool: poolConfig,
     migrations: {
       directory: './db/migrations',
-      extension: 'ts',
+      extension: 'js',
     },
     seeds: {
       directory: './db/seeds',
+      extension: 'js',
     },
     acquireConnectionTimeout: poolConfig.acquireTimeoutMillis,
     asyncStackTraces: true,

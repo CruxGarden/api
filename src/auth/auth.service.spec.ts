@@ -10,10 +10,7 @@ import { AccountRole } from '../common/types/enums';
 
 // Mock jwt module
 jest.mock('jsonwebtoken', () => ({
-  __esModule: true,
-  default: {
-    sign: jest.fn(() => 'mocked-jwt-token'),
-  },
+  sign: jest.fn(() => 'mocked-jwt-token'),
 }));
 
 describe('AuthService', () => {

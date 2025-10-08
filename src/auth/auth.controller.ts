@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Request,
   UseGuards,
@@ -9,6 +10,8 @@ import {
   ValidationPipe,
   UnauthorizedException,
   NotFoundException,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthCodeDto } from './dto/auth-code.dto';
@@ -42,6 +45,7 @@ export class AuthController {
   }
 
   @Post('code')
+  @HttpCode(HttpStatus.OK)
   @AuthSwagger.RequestCode()
   async code(@Body() codeDto: AuthCodeDto): Promise<{ message: string }> {
     const message = await this.authService.code(codeDto);
@@ -49,6 +53,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   @AuthSwagger.Login()
   async login(@Body() loginDto: AuthLoginDto): Promise<AuthCredentials | null> {
     const creds = await this.authService.login(loginDto);
@@ -58,6 +63,7 @@ export class AuthController {
   }
 
   @Post('token')
+  @HttpCode(HttpStatus.OK)
   @AuthSwagger.Token()
   async token(@Body() tokenDto: AuthTokenDto): Promise<AuthCredentials | null> {
     const creds = await this.authService.token(tokenDto);
@@ -76,10 +82,12 @@ export class AuthController {
     return accountProfile;
   }
 
-  @Post('logout')
+  @Delete('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(AuthGuard)
   @AuthSwagger.Logout()
-  async logout(@Request() req: AuthRequest): Promise<{ message: string }> {
-    return this.authService.logout(req.account.email);
+  async logout(@Request() req: AuthRequest): Promise<null> {
+    await this.authService.logout(req.account.email);
+    return null;
   }
 }

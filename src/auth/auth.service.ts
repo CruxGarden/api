@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import jwt from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 import { AuthCodeDto } from './dto/auth-code.dto';
 import { AuthLoginDto } from './dto/auth-login.dto';
 import { AuthTokenDto } from './dto/auth-token.dto';

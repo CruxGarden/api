@@ -35,7 +35,7 @@ export const AuthSwagger = {
       }),
       ApiBody({ type: AuthCodeDto }),
       ApiResponse({
-        status: 201,
+        status: 200,
         description: 'Authentication code sent successfully',
         schema: {
           type: 'object',
@@ -59,7 +59,7 @@ export const AuthSwagger = {
       }),
       ApiBody({ type: AuthLoginDto }),
       ApiResponse({
-        status: 201,
+        status: 200,
         description: 'Login successful',
         schema: {
           type: 'object',
@@ -96,7 +96,7 @@ export const AuthSwagger = {
       }),
       ApiBody({ type: AuthTokenDto }),
       ApiResponse({
-        status: 201,
+        status: 200,
         description: 'Token refreshed successfully',
         schema: {
           type: 'object',
@@ -179,17 +179,8 @@ export const AuthSwagger = {
       }),
       ApiBearerAuth(),
       ApiResponse({
-        status: 201,
-        description: 'Logout successful',
-        schema: {
-          type: 'object',
-          properties: {
-            message: {
-              type: 'string',
-              example: 'Logged out',
-            },
-          },
-        },
+        status: 204,
+        description: 'Logout successful - no content returned',
       }),
       ApiUnauthorizedResponse({ description: 'Authentication required' }),
     ),

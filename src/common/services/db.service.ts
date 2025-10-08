@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { Knex, knex } from 'knex';
+// import { Knex, knex } from 'knex';
+import knex, { Knex } from 'knex';
 import knexConfig from '../../../knexfile';
 import { attachPaginate } from 'knex-paginate';
 import { URL } from 'url';

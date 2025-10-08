@@ -54,4 +54,17 @@ export class RedisService {
     await this.connect();
     return redis.ping();
   }
+
+  async flushDb(): Promise<void> {
+    await this.connect();
+    return redis.flushDb();
+  }
+
+  async disconnect(): Promise<void> {
+    if (connected) {
+      await redis.disconnect();
+      connected = false;
+      this.logger.debug('Redis connection closed');
+    }
+  }
 }

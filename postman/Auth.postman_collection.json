@@ -97,8 +97,8 @@
               "path": ["auth", "code"]
             }
           },
-          "status": "Created",
-          "code": 201,
+          "status": "OK",
+          "code": 200,
           "_postman_previewlanguage": "json",
           "header": [
             {
@@ -118,7 +118,7 @@
           "listen": "test",
           "script": {
             "exec": [
-              "if (pm.response.code === 201) {",
+              "if (pm.response.code === 200) {",
               "    const response = pm.response.json();",
               "    pm.collectionVariables.set('auth_token', response.accessToken);",
               "    pm.collectionVariables.set('refresh_token', response.refreshToken);",
@@ -180,8 +180,8 @@
               "path": ["auth", "login"]
             }
           },
-          "status": "Created",
-          "code": 201,
+          "status": "OK",
+          "code": 200,
           "_postman_previewlanguage": "json",
           "header": [
             {
@@ -201,7 +201,7 @@
           "listen": "test",
           "script": {
             "exec": [
-              "if (pm.response.code === 201) {",
+              "if (pm.response.code === 200) {",
               "    const response = pm.response.json();",
               "    pm.collectionVariables.set('auth_token', response.accessToken);",
               "    pm.collectionVariables.set('refresh_token', response.refreshToken);",
@@ -263,8 +263,8 @@
               "path": ["auth", "token"]
             }
           },
-          "status": "Created",
-          "code": 201,
+          "status": "OK",
+          "code": 200,
           "_postman_previewlanguage": "json",
           "header": [
             {
@@ -339,7 +339,7 @@
           "listen": "test",
           "script": {
             "exec": [
-              "if (pm.response.code === 201) {",
+              "if (pm.response.code === 204) {",
               "    pm.collectionVariables.set('auth_token', '');",
               "    pm.collectionVariables.set('refresh_token', '');",
               "}"
@@ -349,7 +349,7 @@
         }
       ],
       "request": {
-        "method": "POST",
+        "method": "DELETE",
         "header": [
           {
             "key": "Authorization",
@@ -382,7 +382,7 @@
         {
           "name": "Success Response",
           "originalRequest": {
-            "method": "POST",
+            "method": "DELETE",
             "header": [
               {
                 "key": "Authorization",
@@ -390,32 +390,18 @@
                 "type": "text"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
             "url": {
               "raw": "{{base_url}}/auth/logout",
               "host": ["{{base_url}}"],
               "path": ["auth", "logout"]
             }
           },
-          "status": "Created",
-          "code": 201,
-          "_postman_previewlanguage": "json",
-          "header": [
-            {
-              "key": "Content-Type",
-              "value": "application/json"
-            }
-          ],
+          "status": "No Content",
+          "code": 204,
+          "_postman_previewlanguage": "text",
+          "header": [],
           "cookie": [],
-          "body": "{\n  \"message\": \"Logged out\"\n}"
+          "body": ""
         }
       ]
     }

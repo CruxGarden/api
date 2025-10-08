@@ -13,7 +13,7 @@ const sesClient = new SESv2Client({
 export class EmailService {
   async send(params) {
     const emailCommand = new SendEmailCommand({
-      FromEmailAddress: process.env.FROM_EMAIL_ADDRESS || 'noreply@example.com',
+      FromEmailAddress: process.env.FROM_EMAIL_ADDRESS,
       Destination: {
         ToAddresses: [params.email],
       },

@@ -32,7 +32,7 @@ This project adheres to a code of conduct that all contributors are expected to 
 
 - Node.js (v18 or higher)
 - npm or yarn
-- PostgreSQL (via Supabase)
+- PostgreSQL
 - Redis (for caching)
 
 ### Installation
@@ -45,25 +45,24 @@ npm install
 cp .env.example .env
 # Edit .env with your local configuration
 
-# Start local Supabase
-npm run db:start
-
-# Run database migrations
-npm run db:reset
+# Run migrations and seeds
+npm run migrate:latest && npm run migrate:seed
 
 # Start development server
-npm run crux:dev
+npm run start:dev
 ```
 
 ### Environment Variables
 
 Ensure you have the following environment variables configured in your `.env` file:
 
-- `DATABASE_URL` - Supabase database connection string
 - `JWT_SECRET` - Secret key for JWT tokens
+- `DATABASE_URL` - Postgres database connection string
 - `REDIS_URL` - Redis connection string
-- `AWS_SES_*` - Email service configuration
-- `BASE_URL` - Base URL for the API
+- `FROM_EMAIL_ADDRESS` - Email service configuration for SES
+- `AWS_ACCESS_KEY_ID` - AWS Config
+- `AWS_SECRET_ACCESS_KEY` - AWS Config
+- `AWS_REGION` - AWS Config
 
 ## How to Contribute
 

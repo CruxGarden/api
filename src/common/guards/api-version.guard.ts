@@ -15,7 +15,7 @@ export class ApiVersionGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const clientVersion =
-      request.headers['api-version'] || request.headers['x-api-version'];
+      request.headers['api-version'] || request.headers['API-VERSION'];
 
     // If no version specified, assume current version
     if (!clientVersion) {

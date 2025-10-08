@@ -29,7 +29,35 @@ These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate
 
 ## Getting Started
 
-### Prerequisites
+### Quick Start (Recommended)
+
+**The fastest way to get started with everything included:**
+
+```bash
+# Clone the repo
+git clone https://github.com/CruxGarden/api.git
+cd api
+
+# Copy environment template
+cp .env.example .env
+# Edit .env with your AWS credentials (see below)
+
+# Start everything with Docker (includes Postgres + Redis)
+cd docker
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api
+```
+
+**That's it!** The API will be running at <http://localhost:3000>
+
+The only values you need to set in `.env` are:
+
+- `JWT_SECRET` (any random 32+ character string)
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (for email via SES)
+
+### Prerequisites (for manual setup)
 
 - **Node.js** v22 or higher
 - **PostgreSQL** database (any provider - Supabase, AWS RDS, local, etc.)
@@ -55,9 +83,9 @@ These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate
    # Edit .env with your PostgreSQL connection string and other configuration
    ```
 
-4. **Run database migrations**
+4. **Run database migrations and seeds**
    ```bash
-   npm run migrate:latest
+   npm run migrate:latest && npm run migrate:seed
    ```
 
 5. **Start the development server**
@@ -65,7 +93,7 @@ These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate
    npm run start:dev
    ```
 
-The API will be available at `http://localhost:3000`
+The API will be available at <http://localhost:3000>
 
 ### Configuration
 
@@ -124,51 +152,50 @@ npm run start:prod        # Start production server
 
 Once the server is running, access the interactive API documentation:
 
-- **Swagger UI**: http://localhost:3000/api
-- **ReDoc**: http://localhost:3000/api-docs
+- **ReDoc**: <http://localhost:3000/docs>
 
 Or explore the API using the Postman collections in the `/postman` directory.
 
 ## Docker Deployment
 
-### Quick Start with Docker Compose
+### Option 1: Everything Included (Recommended for Development)
 
-1. **Create environment file:**
-   ```bash
-   cd docker
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
-
-2. **Start the stack:**
-   ```bash
-   docker-compose up -d
-   ```
-
-3. **View logs:**
-   ```bash
-   docker-compose logs -f api
-   ```
-
-4. **Stop services:**
-   ```bash
-   docker-compose down
-   ```
-
-The API will be available at `http://localhost:3000`
-
-### Using Pre-built Image
-
-Pull and run the latest published image from GitHub Container Registry:
+**Start the API + PostgreSQL + Redis with one command:**
 
 ```bash
-# Pull the image
+cd docker
+docker-compose up -d
+```
+
+This gives you a complete running environment. No need to install or configure Postgres/Redis separately!
+
+**Stop everything:**
+```bash
+docker-compose down
+```
+
+The API will be available at <http://localhost:3000>
+
+**What's included:**
+
+- API server on port 3000
+- PostgreSQL database on port 5432
+- Redis cache on port 6379
+- Automatic health checks
+- Data persistence with Docker volumes
+
+### Option 2: Pre-built Image with External Services (Production)
+
+**Use this when you have managed Postgres/Redis (AWS RDS, ElastiCache, etc.):**
+
+```bash
+# Pull the latest image
 docker pull ghcr.io/cruxgarden/api:latest
 
-# Run with environment variables (requires external Postgres and Redis)
+# Run with your external services
 docker run -p 3000:3000 \
-  -e DATABASE_URL="postgresql://user:pass@host:5432/db" \
-  -e REDIS_URL="redis://host:6379" \
+  -e DATABASE_URL="postgresql://user:pass@your-db-host:5432/db" \
+  -e REDIS_URL="redis://your-redis-host:6379" \
   -e JWT_SECRET="your-secret-key" \
   -e AWS_ACCESS_KEY_ID="your-key" \
   -e AWS_SECRET_ACCESS_KEY="your-secret" \
@@ -180,40 +207,38 @@ docker run -p 3000:3000 \
 Or use an `.env` file:
 
 ```bash
-docker run -p 3000:3000 --env-file .env ghcr.io/cruxgarden/api:latest
+docker run -p 3000:3000 --env-file .env.production ghcr.io/cruxgarden/api:latest
 ```
 
-### Build Docker Image Locally
+**When to use this:**
+
+- Production deployments with managed databases
+- Kubernetes/cloud environments
+- When you want to manage database/Redis separately
+
+### Option 3: Build Locally (For Contributors)
+
+**If you're making changes to the Docker setup:**
 
 ```bash
-# Build the image
-docker build -f docker/Dockerfile -t crux-garden-api .
+# Build the image from source
+docker build -f docker/Dockerfile -t cruxgarden-api .
 
-# Run the container
-docker run -p 3000:3000 --env-file .env crux-garden-api
+# Run with bundled services
+cd docker
+docker-compose up -d --build
 ```
 
-### Production Deployment
+The `--build` flag rebuilds the image with your local changes.
 
-For production:
+---
 
-1. **Create production env file:**
-   ```bash
-   cd docker
-   cp .env.example .env.production
-   # Update with production values (strong passwords, real AWS keys, etc.)
-   ```
+**For open source contributors: Use Option 1** (`docker-compose up -d`) for the easiest setup!
 
-2. **Deploy:**
-   ```bash
-   docker-compose --env-file .env.production up -d
-   ```
+**For detailed Docker documentation:**
 
-**Important for production:**
-- Use strong, unique passwords for `POSTGRES_PASSWORD` and `JWT_SECRET`
-- Set `NODE_ENV=production`
-- Use a managed database service instead of containerized Postgres
-- Configure proper `CORS_ORIGIN` (not `*`)
+- [Comprehensive Deployment Guide](docker/DOCKER.md) - Production setup, security, troubleshooting
+- [Quick Reference](docker/DOCKER_QUICKSTART.md) - Common commands and one-liners
 
 ## Architecture
 

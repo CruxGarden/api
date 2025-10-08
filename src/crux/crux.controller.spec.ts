@@ -278,12 +278,21 @@ describe('CruxController', () => {
   describe('getTags', () => {
     it('should return tags for a crux', async () => {
       const mockTags = [{ label: 'tag1' }, { label: 'tag2' }] as any;
+      service.findByKey.mockResolvedValue(mockCrux);
       service.getTags.mockResolvedValue(mockTags);
 
       const result = await controller.getTags('crux-key', 'filter');
 
       expect(result).toEqual(mockTags);
       expect(service.getTags).toHaveBeenCalledWith('crux-key', 'filter');
+    });
+
+    it('should throw NotFoundException when crux not found', async () => {
+      service.findByKey.mockResolvedValue(null);
+
+      await expect(controller.getTags('invalid-key')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
