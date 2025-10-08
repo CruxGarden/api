@@ -14,11 +14,11 @@ At its most fundamental level, Crux Garden is a model of how ideas manifest and 
 
 The heart of the Crux Garden model is the **Crux**, an atomic representation of an idea. In our implementation, a Crux can be text, media, code, or any digital content worth preserving.
 
-But Cruxes, just like ideas, don't exist in isolation. Ideas have origins. They lead to new ideas. They evolve. And often they randomly connect.
+But Cruxes, just like ideas, don't exist in isolation. Ideas have origins. They lead to new ideas. They evolve. And often, they randomly connect.
 
 So it is with Cruxes.
 
-In the Crux Garden model, there are four relationships Cruxes can have with each other. These are called **Dimensions**:
+In Crux Garden, there are four types of relationships Cruxes can have with each other. These are called **Dimensions**:
 
 - **GATES** — Cruxes which influenced or inspired a Crux; its origins and sources.
 - **GARDENS** — Cruxes which emerged or grew from a Crux, its creations and consequences.
@@ -27,7 +27,7 @@ In the Crux Garden model, there are four relationships Cruxes can have with each
 
 These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate to one another.
 
-But, what are the benefits of such a system? What problem does modeling ideas in this way solve?
+But, what are the benefits of such a model? What problems does it solve for us?
 
 More to come...
 
