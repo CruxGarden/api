@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+      target: development
+    volumes:
+      # Mount source code for hot reload
+      - ../src:/app/src:ro
+      - ../package.json:/app/package.json:ro
+      - ../tsconfig.json:/app/tsconfig.json:ro
+      - ../nest-cli.json:/app/nest-cli.json:ro
+    environment:
+      NODE_ENV: development
+    command: npm run start:dev

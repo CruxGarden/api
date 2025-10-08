@@ -1,8 +1,8 @@
 {
   "name": "crux-api",
   "version": "0.0.1",
-  "description": "Backend API for Crux Garden - A system for managing interconnected ideas with dimensional relationships",
-  "author": "Crux Garden Contributors",
+  "description": "Crux Garden API - Where Ideas Grow",
+  "author": "The Keeper",
   "private": false,
   "license": "MIT",
   "repository": {
@@ -53,6 +53,14 @@
     "migrate:seed": "npx knex seed:run --env development",
     "seed:make": "npx knex seed:make --env development",
     "seed:run": "npx knex seed:run --env development",
+    "docker:db": "cd docker && docker-compose up -d postgres redis",
+    "docker:db:stop": "cd docker && docker-compose stop postgres redis",
+    "docker:up": "cd docker && docker-compose up -d",
+    "docker:down": "cd docker && docker-compose down",
+    "docker:logs": "cd docker && docker-compose logs -f api",
+    "docker:rebuild": "cd docker && docker-compose up -d --build api",
+    "docker:dev": "cd docker && docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d",
+    "docker:dev:logs": "cd docker && docker-compose -f docker-compose.yml -f docker-compose.dev.yml logs -f api",
     "release:patch": "npm version patch && git push --follow-tag",
     "release:minor": "npm version minor && git push --follow-tag",
     "release:major": "npm version major && git push --follow-tag"

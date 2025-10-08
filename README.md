@@ -10,15 +10,7 @@
 
 ## What is Crux Garden?
 
-At its most fundamental level, Crux Garden is a model of how ideas manifest and develop over time. It is a pattern of mind and memory that exists independent of medium, though we have made it into an open-source technology for the modern web.
-
-The heart of the Crux Garden model is the **Crux**, an atomic representation of an idea. In our implementation, a Crux can be text, media, code, or any digital content worth preserving.
-
-But Cruxes, just like ideas, don't exist in isolation. Ideas have origins. They lead to new ideas. They evolve. And often, they randomly connect.
-
-So it is with Cruxes.
-
-In Crux Garden, there are four types of relationships Cruxes can have with each other. These are called **Dimensions**:
+Crux Garden is a model of how ideas manifest and develop over time. The heart of the Crux Garden model is the **Crux**, an atomic representation of an idea. In our implementation, a Crux can be text, media, code, or any digital content worth preserving. But Cruxes, just like ideas, don't exist in isolation. Ideas have origins. They lead to new ideas. They evolve. And often, they randomly connect. So it is with Cruxes. In Crux Garden, there are four types of relationships Cruxes can have with each other. These are called **Dimensions**:
 
 - **GATES** — Cruxes which influenced or inspired a Crux; its origins and sources.
 - **GARDENS** — Cruxes which emerged or grew from a Crux, its creations and consequences.
@@ -26,6 +18,12 @@ In Crux Garden, there are four types of relationships Cruxes can have with each 
 - **GRAFTS** — Cruxes which connect to a Crux laterally, its associations and resonances.
 
 These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate to one another.
+
+The power of a system that models ideas at this fundamantal level is that anything you can conceive can likely be built inside Crux Garden.
+
+Along with Cruxs and Dimensions, there are several other types which will be discussed in the future. Until then, feel free to look through the schema or the Open API spec to learn how to use the provided tooling.
+
+For further reading on the goals and ambitions of Crux Garden, read up on the history of the [Digital Garden](https://maggieappleton.com/garden-history) movement and become familar with the 1945 essay [As We May Think](https://en.wikipedia.org/wiki/As_We_May_Think) by Vannevar Bush.
 
 ## Getting Started
 
@@ -146,7 +144,72 @@ npm run seed:run          # Run seeds only
 # Production
 npm run build             # Build for production
 npm run start:prod        # Start production server
+
+# Docker
+npm run docker:db         # Start only databases (Postgres + Redis)
+npm run docker:db:stop    # Stop databases
+npm run docker:up         # Start all services (databases + API)
+npm run docker:down       # Stop all services
+npm run docker:logs       # View API logs
+npm run docker:rebuild    # Rebuild and restart API
+npm run docker:dev        # Start in development mode with hot reload
+npm run docker:dev:logs   # View development mode logs
 ```
+
+### Local Development Workflow
+
+You have several options for local development:
+
+#### Option 1: Hybrid (Recommended)
+
+Run databases in Docker, API locally for fastest iteration:
+
+```bash
+# Start databases only
+npm run docker:db
+
+# Run API locally with hot reload
+npm run start:dev
+
+# Stop databases when done
+npm run docker:db:stop
+```
+
+This gives you the convenience of Docker databases with the speed of local development.
+
+#### Option 2: Full Docker with Hot Reload
+
+Run everything in Docker with automatic code reloading:
+
+```bash
+# Start all services in development mode
+npm run docker:dev
+
+# View logs
+npm run docker:dev:logs
+
+# Stop everything
+npm run docker:down
+```
+
+Changes to files in `src/` will automatically reload the API. This uses volume mounting to sync your local code into the container.
+
+#### Option 3: Fully Local
+
+Run everything locally without Docker:
+
+```bash
+# Start local Supabase (requires Supabase CLI)
+npm run db:start
+
+# Run migrations
+npm run migrate:latest && npm run migrate:seed
+
+# Start API
+npm run start:dev
+```
+
+Requires manual setup of PostgreSQL and Redis.
 
 ## API Documentation
 
