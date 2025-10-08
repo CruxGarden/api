@@ -27,10 +27,6 @@ In Crux Garden, there are four types of relationships Cruxes can have with each 
 
 These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate to one another.
 
-But, what are the benefits of such a model? What problems does it solve for us?
-
-More to come...
-
 ## Getting Started
 
 ### Prerequisites
