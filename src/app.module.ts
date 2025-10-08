@@ -8,6 +8,7 @@ import { CommonModule } from './common/common.module';
 import { LoggerModule } from './common/services/logger.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggerService } from './common/services/logger.service';
+import { ApiVersionGuard } from './common/guards/api-version.guard';
 import { AuthModule } from './auth/auth.module';
 import { AccountModule } from './account/account.module';
 import { AuthorModule } from './author/author.module';
@@ -39,6 +40,10 @@ import { ThemeModule } from './theme/theme.module';
   controllers: [AppController],
   providers: [
     AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ApiVersionGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

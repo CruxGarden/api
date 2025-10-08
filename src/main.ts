@@ -6,12 +6,13 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { setupRedoc } from './redoc.middleware';
 import { EnvValidator } from './common/validators/env.validator';
+import { version } from '../package.json';
 
 EnvValidator.validate();
 
 const port = process.env.PORT || 10000;
 const hostname = process.env.HOSTNAME || '0.0.0.0';
-const API_VERSION = '1.0';
+const API_VERSION = version;
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

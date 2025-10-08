@@ -51,7 +51,10 @@
     "migrate:status": "npx knex migrate:status --env development",
     "migrate:seed": "npx knex seed:run --env development",
     "seed:make": "npx knex seed:make --env development",
-    "seed:run": "npx knex seed:run --env development"
+    "seed:run": "npx knex seed:run --env development",
+    "release:patch": "npm version patch && git push && git push --tags",
+    "release:minor": "npm version minor && git push && git push --tags",
+    "release:major": "npm version major && git push && git push --tags"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.849.0",
@@ -153,7 +156,8 @@
       "DB_POOL_ACQUIRE_TIMEOUT",
       "RATE_LIMIT_TTL",
       "RATE_LIMIT_MAX",
-      "CORS_ORIGIN"
+      "CORS_ORIGIN",
+      "FROM_EMAIL_ADDRESS"
     ]
   }
 }

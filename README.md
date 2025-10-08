@@ -129,6 +129,92 @@ Once the server is running, access the interactive API documentation:
 
 Or explore the API using the Postman collections in the `/postman` directory.
 
+## Docker Deployment
+
+### Quick Start with Docker Compose
+
+1. **Create environment file:**
+   ```bash
+   cd docker
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+2. **Start the stack:**
+   ```bash
+   docker-compose up -d
+   ```
+
+3. **View logs:**
+   ```bash
+   docker-compose logs -f api
+   ```
+
+4. **Stop services:**
+   ```bash
+   docker-compose down
+   ```
+
+The API will be available at `http://localhost:3000`
+
+### Using Pre-built Image
+
+Pull and run the latest published image from GitHub Container Registry:
+
+```bash
+# Pull the image
+docker pull ghcr.io/cruxgarden/api:latest
+
+# Run with environment variables (requires external Postgres and Redis)
+docker run -p 3000:3000 \
+  -e DATABASE_URL="postgresql://user:pass@host:5432/db" \
+  -e REDIS_URL="redis://host:6379" \
+  -e JWT_SECRET="your-secret-key" \
+  -e AWS_ACCESS_KEY_ID="your-key" \
+  -e AWS_SECRET_ACCESS_KEY="your-secret" \
+  -e AWS_REGION="us-east-1" \
+  -e FROM_EMAIL_ADDRESS="noreply@yourdomain.com" \
+  ghcr.io/cruxgarden/api:latest
+```
+
+Or use an `.env` file:
+
+```bash
+docker run -p 3000:3000 --env-file .env ghcr.io/cruxgarden/api:latest
+```
+
+### Build Docker Image Locally
+
+```bash
+# Build the image
+docker build -f docker/Dockerfile -t crux-garden-api .
+
+# Run the container
+docker run -p 3000:3000 --env-file .env crux-garden-api
+```
+
+### Production Deployment
+
+For production:
+
+1. **Create production env file:**
+   ```bash
+   cd docker
+   cp .env.example .env.production
+   # Update with production values (strong passwords, real AWS keys, etc.)
+   ```
+
+2. **Deploy:**
+   ```bash
+   docker-compose --env-file .env.production up -d
+   ```
+
+**Important for production:**
+- Use strong, unique passwords for `POSTGRES_PASSWORD` and `JWT_SECRET`
+- Set `NODE_ENV=production`
+- Use a managed database service instead of containerized Postgres
+- Configure proper `CORS_ORIGIN` (not `*`)
+
 ## Architecture
 
 ### Tech Stack
