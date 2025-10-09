@@ -416,7 +416,7 @@ describe('Auth Integration Tests', () => {
       await request(app.getHttpServer())
         .get('/auth/profile')
         .set('API-VERSION', API_VERSION)
-        .expect(403); // AuthGuard returns 403 when no token provided
+        .expect(401); // AuthGuard returns 401 when no token provided
     });
 
     it('should reject profile request with invalid token', async () => {
@@ -484,7 +484,7 @@ describe('Auth Integration Tests', () => {
       await request(app.getHttpServer())
         .delete('/auth/logout')
         .set('API-VERSION', API_VERSION)
-        .expect(403); // AuthGuard returns 403 Forbidden, not 401
+        .expect(401); // AuthGuard returns 401 when no token provided
     });
 
     it('should reject logout with invalid token', async () => {

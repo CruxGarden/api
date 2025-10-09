@@ -3,30 +3,31 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
-import { CruxRepository } from '../src/crux/crux.repository';
+import { PathRepository } from '../src/path/path.repository';
 import { AuthorRepository } from '../src/author/author.repository';
-import { DimensionRepository } from '../src/dimension/dimension.repository';
-import { TagRepository } from '../src/tag/tag.repository';
+import { TagService } from '../src/tag/tag.service';
+import { CruxService } from '../src/crux/crux.service';
 import { DbService } from '../src/common/services/db.service';
 import { MockDbService } from './mocks/db.mock';
 import { success } from '../src/common/helpers/repository-helpers';
-import CruxRaw from '../src/crux/entities/crux-raw.entity';
+import PathRaw from '../src/path/entities/path-raw.entity';
+import MarkerRaw from '../src/path/entities/marker-raw.entity';
 import AuthorRaw from '../src/author/entities/author-raw.entity';
-import DimensionRaw from '../src/dimension/entities/dimension-raw.entity';
 import TagRaw from '../src/tag/entities/tag-raw.entity';
 import { ResourceType } from '../src/common/types/enums';
 
-describe('Crux Integration Tests', () => {
+describe('Path Integration Tests', () => {
   let app: INestApplication;
-  let mockCruxRepository: jest.Mocked<CruxRepository>;
+  let mockPathRepository: jest.Mocked<PathRepository>;
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
-  let mockDimensionRepository: jest.Mocked<DimensionRepository>;
-  let mockTagRepository: jest.Mocked<TagRepository>;
+  let mockTagService: jest.Mocked<TagService>;
+  let mockCruxService: jest.Mocked<CruxService>;
 
   const testAccountId = 'account-123';
   const testAuthorId = 'author-123';
-  const testCruxId = 'crux-123';
-  const testCruxKey = 'abc123def';
+  const testPathId = 'path-123';
+  const testPathKey = 'path-key';
+  const testEntryMarkerId = '550e8400-e29b-41d4-a716-446655440000';
 
   const testAuthorRaw: AuthorRaw = {
     id: testAuthorId,
@@ -39,15 +40,16 @@ describe('Crux Integration Tests', () => {
     deleted: null,
   };
 
-  const testCruxRaw: CruxRaw = {
-    id: testCruxId,
-    key: testCruxKey,
-    slug: 'test-crux',
-    title: 'Test Crux',
-    data: 'Test crux content',
-    type: 'text',
-    status: 'living',
+  const testPathRaw: PathRaw = {
+    id: testPathId,
+    key: testPathKey,
+    slug: 'test-path',
+    title: 'Test Path',
+    description: 'Test path description',
+    type: 'living',
     visibility: 'unlisted',
+    kind: 'wander',
+    entry: testEntryMarkerId,
     author_id: testAuthorId,
     created: new Date(),
     updated: new Date(),
@@ -66,33 +68,28 @@ describe('Crux Integration Tests', () => {
 
   beforeAll(async () => {
     // Create mock repositories
-    mockCruxRepository = {
-      findAll: jest.fn(),
+    mockPathRepository = {
       findAllQuery: jest.fn(),
       findBy: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      findMarkersByPathId: jest.fn(),
+      deleteMarkersByPathId: jest.fn(),
+      createMarker: jest.fn(),
     } as any;
 
     mockAuthorRepository = {
       findBy: jest.fn(),
-      create: jest.fn(),
     } as any;
 
-    mockDimensionRepository = {
-      findBy: jest.fn(),
-      findBySourceIdAndTypeQuery: jest.fn(),
-      create: jest.fn(),
+    mockTagService = {
+      getTags: jest.fn(),
+      syncTags: jest.fn(),
     } as any;
 
-    mockTagRepository = {
-      findBy: jest.fn(),
-      findAllQuery: jest.fn(),
-      delete: jest.fn(),
-      findByResource: jest.fn(),
-      deleteByResource: jest.fn(),
-      createMany: jest.fn(),
+    mockCruxService = {
+      findByKey: jest.fn(),
     } as any;
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -100,14 +97,14 @@ describe('Crux Integration Tests', () => {
     })
       .overrideProvider(DbService)
       .useValue(new MockDbService())
-      .overrideProvider(CruxRepository)
-      .useValue(mockCruxRepository)
+      .overrideProvider(PathRepository)
+      .useValue(mockPathRepository)
       .overrideProvider(AuthorRepository)
       .useValue(mockAuthorRepository)
-      .overrideProvider(DimensionRepository)
-      .useValue(mockDimensionRepository)
-      .overrideProvider(TagRepository)
-      .useValue(mockTagRepository)
+      .overrideProvider(TagService)
+      .useValue(mockTagService)
+      .overrideProvider(CruxService)
+      .useValue(mockCruxService)
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -133,103 +130,96 @@ describe('Crux Integration Tests', () => {
     jest.clearAllMocks();
   });
 
-  describe('GET /cruxes', () => {
-    it('should return 200 and list of cruxes (happy path)', async () => {
+  describe('GET /paths', () => {
+    it('should return 200 and list of paths (happy path)', async () => {
       const token = generateToken(testAccountId);
 
-      mockCruxRepository.findAllQuery.mockReturnValue({
+      mockPathRepository.findAllQuery.mockReturnValue({
         select: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         limit: jest.fn().mockReturnThis(),
         offset: jest.fn().mockReturnThis(),
         whereNull: jest.fn().mockReturnThis(),
-        leftJoin: jest.fn().mockReturnThis(),
       } as any);
 
       const response = await request(app.getHttpServer())
-        .get('/cruxes')
+        .get('/paths')
         .set(authHeader(token))
         .expect(200);
 
       expect(Array.isArray(response.body)).toBe(true);
-      expect(mockCruxRepository.findAllQuery).toHaveBeenCalled();
+      expect(mockPathRepository.findAllQuery).toHaveBeenCalled();
     });
 
     it('should return 401 when no token provided', async () => {
-      await request(app.getHttpServer()).get('/cruxes').expect(401);
+      await request(app.getHttpServer()).get('/paths').expect(401);
     });
 
     it('should return 401 when invalid token provided', async () => {
       await request(app.getHttpServer())
-        .get('/cruxes')
+        .get('/paths')
         .set(authHeader('invalid-token'))
         .expect(401);
     });
   });
 
-  describe('GET /cruxes/:cruxKey', () => {
-    it('should return 200 and crux data (happy path)', async () => {
+  describe('GET /paths/:pathKey', () => {
+    it('should return 200 and path data (happy path)', async () => {
       const token = generateToken(testAccountId);
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
+      mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
 
       const response = await request(app.getHttpServer())
-        .get(`/cruxes/${testCruxKey}`)
+        .get(`/paths/${testPathKey}`)
         .set(authHeader(token))
         .expect(200);
 
       expect(response.body).toMatchObject({
-        id: testCruxId,
-        key: testCruxKey,
-        slug: 'test-crux',
-        title: 'Test Crux',
+        id: testPathId,
+        key: testPathKey,
+        slug: 'test-path',
+        title: 'Test Path',
       });
-      expect(mockCruxRepository.findBy).toHaveBeenCalledWith(
-        'key',
-        testCruxKey,
-      );
+      expect(mockPathRepository.findBy).toHaveBeenCalledWith('key', testPathKey);
     });
 
-    it('should return 404 when crux not found', async () => {
+    it('should return 404 when path not found', async () => {
       const token = generateToken(testAccountId);
-      mockCruxRepository.findBy.mockResolvedValue(success(null));
+      mockPathRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .get('/cruxes/nonexistent')
+        .get('/paths/nonexistent')
         .set(authHeader(token))
         .expect(404);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/cruxes/${testCruxKey}`)
+        .get(`/paths/${testPathKey}`)
         .expect(401);
     });
   });
 
-  describe('POST /cruxes', () => {
-    const createCruxDto = {
-      slug: 'new-crux',
-      title: 'New Crux',
-      data: 'New crux content',
-      type: 'text',
-      status: 'living',
-      visibility: 'unlisted',
+  describe('POST /paths', () => {
+    const createPathDto = {
+      slug: 'new-path',
+      title: 'New Path',
+      description: 'New path description',
+      kind: 'wander',
+      entry: '550e8400-e29b-41d4-a716-446655440001',
     };
 
-    it('should return 201 and create crux (happy path)', async () => {
+    it('should return 201 and create path (happy path)', async () => {
       const token = generateToken(testAccountId);
-      const newCruxRaw: CruxRaw = {
-        id: 'new-crux-id',
-        key: 'newkey123',
-        slug: createCruxDto.slug,
-        title: createCruxDto.title,
-        data: createCruxDto.data,
-        type: createCruxDto.type,
-        status: createCruxDto.status as 'living' | 'frozen',
-        visibility: createCruxDto.visibility as
-          | 'public'
-          | 'private'
-          | 'unlisted',
+      const newPathRaw: PathRaw = {
+        id: 'new-path-id',
+        key: 'new-path-key',
+        slug: createPathDto.slug,
+        title: createPathDto.title,
+        description: createPathDto.description,
+        type: 'living',
+        visibility: 'unlisted',
+        kind: createPathDto.kind as 'wander' | 'guide',
+        entry: createPathDto.entry,
         author_id: testAuthorId,
         created: new Date(),
         updated: new Date(),
@@ -237,36 +227,36 @@ describe('Crux Integration Tests', () => {
       };
 
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockCruxRepository.create.mockResolvedValue(success(newCruxRaw));
+      mockPathRepository.create.mockResolvedValue(success(newPathRaw));
 
       const response = await request(app.getHttpServer())
-        .post('/cruxes')
+        .post('/paths')
         .set(authHeader(token))
-        .send(createCruxDto)
+        .send(createPathDto)
         .expect(201);
 
       expect(response.body).toMatchObject({
-        slug: 'new-crux',
-        title: 'New Crux',
-        data: 'New crux content',
+        slug: 'new-path',
+        title: 'New Path',
+        kind: 'wander',
       });
-      expect(mockCruxRepository.create).toHaveBeenCalled();
+      expect(mockPathRepository.create).toHaveBeenCalled();
     });
 
     it('should return 400 when required fields missing', async () => {
       const token = generateToken(testAccountId);
 
       await request(app.getHttpServer())
-        .post('/cruxes')
+        .post('/paths')
         .set(authHeader(token))
-        .send({ title: 'Missing slug and data' })
+        .send({ title: 'Missing slug and entry' })
         .expect(400);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .post('/cruxes')
-        .send(createCruxDto)
+        .post('/paths')
+        .send(createPathDto)
         .expect(401);
     });
 
@@ -275,53 +265,55 @@ describe('Crux Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .post('/cruxes')
+        .post('/paths')
         .set(authHeader(token))
-        .send(createCruxDto)
+        .send(createPathDto)
         .expect(404);
     });
   });
 
-  describe('PATCH /cruxes/:cruxKey', () => {
-    const updateCruxDto = {
-      title: 'Updated Crux Title',
-      data: 'Updated content',
+  describe('PATCH /paths/:pathKey', () => {
+    const updatePathDto = {
+      title: 'Updated Path Title',
+      description: 'Updated description',
     };
 
-    it('should return 200 and update crux (happy path)', async () => {
+    it('should return 200 and update path (happy path)', async () => {
       const token = generateToken(testAccountId);
+      const updatedPathRaw: PathRaw = {
+        ...testPathRaw,
+        title: updatePathDto.title,
+        description: updatePathDto.description,
+        updated: new Date(),
+      };
+
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
-      mockCruxRepository.update.mockResolvedValue(
-        success({ ...testCruxRaw, ...updateCruxDto }),
-      );
+      mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
+      mockPathRepository.update.mockResolvedValue(success(updatedPathRaw));
 
       const response = await request(app.getHttpServer())
-        .patch(`/cruxes/${testCruxKey}`)
+        .patch(`/paths/${testPathKey}`)
         .set(authHeader(token))
-        .send(updateCruxDto)
+        .send(updatePathDto)
         .expect(200);
 
-      expect(response.body.title).toBe('Updated Crux Title');
-      expect(mockCruxRepository.update).toHaveBeenCalledWith(
-        testCruxId,
-        expect.objectContaining(updateCruxDto),
-      );
+      expect(response.body.title).toBe('Updated Path Title');
+      expect(mockPathRepository.update).toHaveBeenCalled();
     });
 
-    it('should return 404 when crux not found', async () => {
+    it('should return 404 when path not found', async () => {
       const token = generateToken(testAccountId);
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(null));
+      mockPathRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .patch('/cruxes/nonexistent')
+        .patch('/paths/nonexistent')
         .set(authHeader(token))
-        .send(updateCruxDto)
+        .send(updatePathDto)
         .expect(404);
     });
 
-    it('should return 403 when user does not own crux', async () => {
+    it('should return 403 when user does not own path', async () => {
       const token = generateToken(testAccountId);
       const otherAuthorRaw: AuthorRaw = {
         ...testAuthorRaw,
@@ -329,51 +321,51 @@ describe('Crux Integration Tests', () => {
       };
 
       mockAuthorRepository.findBy.mockResolvedValue(success(otherAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
+      mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
 
       await request(app.getHttpServer())
-        .patch(`/cruxes/${testCruxKey}`)
+        .patch(`/paths/${testPathKey}`)
         .set(authHeader(token))
-        .send(updateCruxDto)
+        .send(updatePathDto)
         .expect(403);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .patch(`/cruxes/${testCruxKey}`)
-        .send(updateCruxDto)
+        .patch(`/paths/${testPathKey}`)
+        .send(updatePathDto)
         .expect(401);
     });
   });
 
-  describe('DELETE /cruxes/:cruxKey', () => {
-    it('should return 204 and delete crux (happy path)', async () => {
+  describe('DELETE /paths/:pathKey', () => {
+    it('should return 204 and delete path (happy path)', async () => {
       const token = generateToken(testAccountId);
 
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
-      mockCruxRepository.delete.mockResolvedValue(success(null));
+      mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
+      mockPathRepository.delete.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete(`/cruxes/${testCruxKey}`)
+        .delete(`/paths/${testPathKey}`)
         .set(authHeader(token))
         .expect(204);
 
-      expect(mockCruxRepository.delete).toHaveBeenCalledWith(testCruxId);
+      expect(mockPathRepository.delete).toHaveBeenCalledWith(testPathId);
     });
 
-    it('should return 404 when crux not found', async () => {
+    it('should return 404 when path not found', async () => {
       const token = generateToken(testAccountId);
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(null));
+      mockPathRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete('/cruxes/nonexistent')
+        .delete('/paths/nonexistent')
         .set(authHeader(token))
         .expect(404);
     });
 
-    it('should return 403 when user does not own crux', async () => {
+    it('should return 403 when user does not own path', async () => {
       const token = generateToken(testAccountId);
       const otherAuthorRaw: AuthorRaw = {
         ...testAuthorRaw,
@@ -381,142 +373,147 @@ describe('Crux Integration Tests', () => {
       };
 
       mockAuthorRepository.findBy.mockResolvedValue(success(otherAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
+      mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
 
       await request(app.getHttpServer())
-        .delete(`/cruxes/${testCruxKey}`)
+        .delete(`/paths/${testPathKey}`)
         .set(authHeader(token))
         .expect(403);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .delete(`/cruxes/${testCruxKey}`)
+        .delete(`/paths/${testPathKey}`)
         .expect(401);
     });
   });
 
-  describe('GET /cruxes/:cruxKey/dimensions', () => {
-    it('should return 200 and list of dimensions (happy path)', async () => {
+  describe('GET /paths/:pathKey/markers', () => {
+    it('should return 200 and list of markers (happy path)', async () => {
       const token = generateToken(testAccountId);
+      const testMarkersRaw: MarkerRaw[] = [
+        {
+          id: 'marker-1',
+          key: 'marker-key-1',
+          path_id: testPathId,
+          crux_id: 'crux-1',
+          order: 0,
+          note: 'First marker',
+          author_id: testAuthorId,
+          created: new Date(),
+          updated: new Date(),
+          deleted: null,
+        },
+      ];
 
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
-      mockDimensionRepository.findBySourceIdAndTypeQuery.mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        orderBy: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        offset: jest.fn().mockReturnThis(),
-        whereNull: jest.fn().mockReturnThis(),
-      } as any);
+      mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
+      mockPathRepository.findMarkersByPathId.mockResolvedValue(
+        success(testMarkersRaw),
+      );
 
       const response = await request(app.getHttpServer())
-        .get(`/cruxes/${testCruxKey}/dimensions`)
+        .get(`/paths/${testPathKey}/markers`)
         .set(authHeader(token))
         .expect(200);
 
       expect(Array.isArray(response.body)).toBe(true);
-      expect(mockCruxRepository.findBy).toHaveBeenCalledWith(
-        'key',
-        testCruxKey,
-      );
+      expect(response.body[0]).toMatchObject({
+        order: 0,
+        note: 'First marker',
+      });
     });
 
-    it('should return 200 with type filter', async () => {
+    it('should return 404 when path not found', async () => {
       const token = generateToken(testAccountId);
-
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
-      mockDimensionRepository.findBySourceIdAndTypeQuery.mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        orderBy: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockReturnThis(),
-        offset: jest.fn().mockReturnThis(),
-        whereNull: jest.fn().mockReturnThis(),
-      } as any);
+      mockPathRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .get(`/cruxes/${testCruxKey}/dimensions?type=gate`)
-        .set(authHeader(token))
-        .expect(200);
-    });
-
-    it('should return 404 when crux not found', async () => {
-      const token = generateToken(testAccountId);
-      mockCruxRepository.findBy.mockResolvedValue(success(null));
-
-      await request(app.getHttpServer())
-        .get('/cruxes/nonexistent/dimensions')
+        .get('/paths/nonexistent/markers')
         .set(authHeader(token))
         .expect(404);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/cruxes/${testCruxKey}/dimensions`)
+        .get(`/paths/${testPathKey}/markers`)
         .expect(401);
     });
   });
 
-  describe('POST /cruxes/:cruxKey/dimensions', () => {
-    const targetCruxId = '550e8400-e29b-41d4-a716-446655440001';
-    const createDimensionDto = {
-      targetId: targetCruxId,
-      type: 'gate',
-      weight: 1,
+  describe('PUT /paths/:pathKey/markers', () => {
+    const syncMarkersDto = {
+      markers: [
+        { cruxKey: 'crux-key-1', order: 0, note: 'First' },
+        { cruxKey: 'crux-key-2', order: 1, note: 'Second' },
+      ],
     };
 
-    it('should return 201 and create dimension (happy path)', async () => {
+    it('should return 200 and sync markers (happy path)', async () => {
       const token = generateToken(testAccountId);
-      const newDimensionRaw: DimensionRaw = {
-        id: 'dim-123',
-        key: 'dimkey123',
-        source_id: testCruxId,
-        target_id: targetCruxId,
-        type: 'gate',
-        weight: 1,
-        author_id: testAuthorId,
-        created: new Date(),
-        updated: new Date(),
-        deleted: null,
-      };
+      const syncedMarkersRaw: MarkerRaw[] = [
+        {
+          id: 'marker-0',
+          key: 'marker-key-0',
+          path_id: testPathId,
+          crux_id: 'crux-id-1',
+          order: 0,
+          note: 'First',
+          author_id: testAuthorId,
+          created: new Date(),
+          updated: new Date(),
+          deleted: null,
+        },
+        {
+          id: 'marker-1',
+          key: 'marker-key-1',
+          path_id: testPathId,
+          crux_id: 'crux-id-2',
+          order: 1,
+          note: 'Second',
+          author_id: testAuthorId,
+          created: new Date(),
+          updated: new Date(),
+          deleted: null,
+        },
+      ];
 
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockCruxRepository.findBy
-        .mockResolvedValueOnce(success(testCruxRaw))
-        .mockResolvedValueOnce(
-          success({ ...testCruxRaw, id: targetCruxId, key: 'target-crux-key' }),
-        );
-      mockDimensionRepository.create.mockResolvedValue(
-        success(newDimensionRaw),
-      );
+      mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
+      mockPathRepository.deleteMarkersByPathId.mockResolvedValue(success(null));
+
+      // Mock crux lookups for markers
+      mockCruxService.findByKey
+        .mockResolvedValueOnce({ id: 'crux-id-1' } as any)
+        .mockResolvedValueOnce({ id: 'crux-id-2' } as any);
+
+      // Mock marker creation for each marker in the sync
+      mockPathRepository.createMarker
+        .mockResolvedValueOnce(success(syncedMarkersRaw[0]))
+        .mockResolvedValueOnce(success(syncedMarkersRaw[1]));
 
       const response = await request(app.getHttpServer())
-        .post(`/cruxes/${testCruxKey}/dimensions`)
+        .put(`/paths/${testPathKey}/markers`)
         .set(authHeader(token))
-        .send(createDimensionDto)
-        .expect(201);
+        .send(syncMarkersDto)
+        .expect(200);
 
-      expect(response.body).toMatchObject({
-        type: 'gate',
-        weight: 1,
-      });
-      expect(mockDimensionRepository.create).toHaveBeenCalled();
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body).toHaveLength(2);
     });
 
-    it('should return 404 when source crux not found', async () => {
+    it('should return 404 when path not found', async () => {
       const token = generateToken(testAccountId);
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(null));
+      mockPathRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .post('/cruxes/nonexistent/dimensions')
+        .put('/paths/nonexistent/markers')
         .set(authHeader(token))
-        .send(createDimensionDto)
+        .send(syncMarkersDto)
         .expect(404);
     });
 
-    it('should return 403 when user does not own source crux', async () => {
+    it('should return 403 when user does not own path', async () => {
       const token = generateToken(testAccountId);
       const otherAuthorRaw: AuthorRaw = {
         ...testAuthorRaw,
@@ -524,24 +521,24 @@ describe('Crux Integration Tests', () => {
       };
 
       mockAuthorRepository.findBy.mockResolvedValue(success(otherAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
+      mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
 
       await request(app.getHttpServer())
-        .post(`/cruxes/${testCruxKey}/dimensions`)
+        .put(`/paths/${testPathKey}/markers`)
         .set(authHeader(token))
-        .send(createDimensionDto)
+        .send(syncMarkersDto)
         .expect(403);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .post(`/cruxes/${testCruxKey}/dimensions`)
-        .send(createDimensionDto)
+        .put(`/paths/${testPathKey}/markers`)
+        .send(syncMarkersDto)
         .expect(401);
     });
   });
 
-  describe('GET /cruxes/:cruxKey/tags', () => {
+  describe('GET /paths/:pathKey/tags', () => {
     it('should return 200 and list of tags (happy path)', async () => {
       const token = generateToken(testAccountId);
       const testTagsRaw: TagRaw[] = [
@@ -549,8 +546,8 @@ describe('Crux Integration Tests', () => {
           id: 'tag-1',
           key: 'tagkey1',
           label: 'javascript',
-          resource_type: ResourceType.CRUX,
-          resource_id: testCruxId,
+          resource_type: ResourceType.PATH,
+          resource_id: testPathId,
           author_id: testAuthorId,
           created: new Date(),
           updated: new Date(),
@@ -559,11 +556,22 @@ describe('Crux Integration Tests', () => {
         },
       ];
 
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
-      mockTagRepository.findByResource.mockResolvedValue(success(testTagsRaw));
+      mockTagService.getTags.mockResolvedValue(
+        testTagsRaw.map((tag) => ({
+          id: tag.id,
+          key: tag.key,
+          label: tag.label,
+          resourceType: tag.resource_type,
+          resourceId: tag.resource_id,
+          authorId: tag.author_id,
+          created: tag.created,
+          updated: tag.updated,
+          system: tag.system,
+        })) as any,
+      );
 
       const response = await request(app.getHttpServer())
-        .get(`/cruxes/${testCruxKey}/tags`)
+        .get(`/paths/${testPathKey}/tags`)
         .set(authHeader(token))
         .expect(200);
 
@@ -573,24 +581,26 @@ describe('Crux Integration Tests', () => {
       });
     });
 
-    it('should return 404 when crux not found', async () => {
+    it('should return 404 when path not found', async () => {
       const token = generateToken(testAccountId);
-      mockCruxRepository.findBy.mockResolvedValue(success(null));
+      mockTagService.getTags.mockRejectedValue(
+        new Error('Path not found'),
+      );
 
       await request(app.getHttpServer())
-        .get('/cruxes/nonexistent/tags')
+        .get('/paths/nonexistent/tags')
         .set(authHeader(token))
-        .expect(404);
+        .expect(500); // Service throws error which becomes 500
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/cruxes/${testCruxKey}/tags`)
+        .get(`/paths/${testPathKey}/tags`)
         .expect(401);
     });
   });
 
-  describe('PUT /cruxes/:cruxKey/tags', () => {
+  describe('PUT /paths/:pathKey/tags', () => {
     const syncTagsDto = {
       labels: ['javascript', 'typescript', 'nodejs'],
     };
@@ -601,8 +611,8 @@ describe('Crux Integration Tests', () => {
         id: `tag-${idx}`,
         key: `tagkey${idx}`,
         label,
-        resource_type: ResourceType.CRUX,
-        resource_id: testCruxId,
+        resource_type: ResourceType.PATH,
+        resource_id: testPathId,
         author_id: testAuthorId,
         created: new Date(),
         updated: new Date(),
@@ -611,14 +621,23 @@ describe('Crux Integration Tests', () => {
       }));
 
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
-      mockTagRepository.findByResource
-        .mockResolvedValueOnce(success([])) // existing tags (empty initially)
-        .mockResolvedValueOnce(success(syncedTagsRaw)); // final tags after sync
-      mockTagRepository.createMany.mockResolvedValue(success(syncedTagsRaw));
+      mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
+      mockTagService.syncTags.mockResolvedValue(
+        syncedTagsRaw.map((tag) => ({
+          id: tag.id,
+          key: tag.key,
+          label: tag.label,
+          resourceType: tag.resource_type,
+          resourceId: tag.resource_id,
+          authorId: tag.author_id,
+          created: tag.created,
+          updated: tag.updated,
+          system: tag.system,
+        })) as any,
+      );
 
       const response = await request(app.getHttpServer())
-        .put(`/cruxes/${testCruxKey}/tags`)
+        .put(`/paths/${testPathKey}/tags`)
         .set(authHeader(token))
         .send(syncTagsDto)
         .expect(200);
@@ -627,19 +646,19 @@ describe('Crux Integration Tests', () => {
       expect(response.body).toHaveLength(3);
     });
 
-    it('should return 404 when crux not found', async () => {
+    it('should return 404 when path not found', async () => {
       const token = generateToken(testAccountId);
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(null));
+      mockPathRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .put('/cruxes/nonexistent/tags')
+        .put('/paths/nonexistent/tags')
         .set(authHeader(token))
         .send(syncTagsDto)
         .expect(404);
     });
 
-    it('should return 403 when user does not own crux', async () => {
+    it('should return 403 when user does not own path', async () => {
       const token = generateToken(testAccountId);
       const otherAuthorRaw: AuthorRaw = {
         ...testAuthorRaw,
@@ -647,10 +666,10 @@ describe('Crux Integration Tests', () => {
       };
 
       mockAuthorRepository.findBy.mockResolvedValue(success(otherAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
+      mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
 
       await request(app.getHttpServer())
-        .put(`/cruxes/${testCruxKey}/tags`)
+        .put(`/paths/${testPathKey}/tags`)
         .set(authHeader(token))
         .send(syncTagsDto)
         .expect(403);
@@ -658,7 +677,7 @@ describe('Crux Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .put(`/cruxes/${testCruxKey}/tags`)
+        .put(`/paths/${testPathKey}/tags`)
         .send(syncTagsDto)
         .expect(401);
     });

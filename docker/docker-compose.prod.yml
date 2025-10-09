@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Crux Garden API - Production Configuration
   # Requires external DATABASE_URL and REDIS_URL

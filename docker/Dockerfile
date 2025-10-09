@@ -14,6 +14,9 @@ COPY . .
 # The prepare script will run build automatically
 RUN npm ci --include=dev
 
+# Run database migrations
+RUN npm run migrate:prod
+
 # Remove dev dependencies
 RUN npm prune --production
 
