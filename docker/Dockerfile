@@ -12,13 +12,7 @@ COPY . .
 
 # Install dependencies (including dev dependencies for build)
 # The prepare script will run build automatically
-RUN npm ci --include=dev
-
-# Run database migrations
-RUN npm run migrate:prod
-
-# Remove dev dependencies
-RUN npm prune --production
+RUN npm run build:ci
 
 # Stage 2: Production
 FROM node:20-alpine
@@ -38,6 +32,11 @@ COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
 COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/package*.json ./
 COPY --from=builder --chown=nestjs:nodejs /app/knexfile.ts ./
+COPY --from=builder --chown=nestjs:nodejs /app/db ./db
+COPY --chown=nestjs:nodejs docker/entrypoint.sh ./entrypoint.sh
+
+# Make entrypoint script executable
+RUN chmod +x ./entrypoint.sh
 
 # Switch to non-root user
 USER nestjs
@@ -57,5 +56,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Start the application
-CMD ["node", "dist/src/main.js"]
+# Run migrations, seeds, and start the application
+CMD ["sh", "./entrypoint.sh"]
