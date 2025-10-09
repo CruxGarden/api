@@ -10,7 +10,7 @@
 
 ## What is Crux Garden?
 
-Crux Garden is a model of how ideas manifest and develop over time. The heart of the Crux Garden model is the **Crux**, an atomic representation of an idea. In our implementation, a Crux can be text, media, code, or any digital content worth preserving. But Cruxes, just like ideas, don't exist in isolation. Ideas have origins. They lead to new ideas. They evolve. And often, they randomly connect. So it is with Cruxes. In Crux Garden, there are four types of relationships Cruxes can have with each other. These are called **Dimensions**:
+Crux Garden is a model of how ideas manifest and develop over time. The heart of the model is the **Crux**, an atomic representation of an idea. In our implementation, a Crux can be text, media, code, or any digital content worth preserving. But Cruxes, just like ideas, don't exist in isolation. Ideas have origins. They lead to new ideas. They evolve. And often, they randomly connect. So it is with Cruxes. In Crux Garden, there are four types of relationships Cruxes can have with each other. These are called **Dimensions**:
 
 - **GATES** — Cruxes which influenced or inspired a Crux; its origins and sources.
 - **GARDENS** — Cruxes which emerged or grew from a Crux, its creations and consequences.
@@ -19,9 +19,9 @@ Crux Garden is a model of how ideas manifest and develop over time. The heart of
 
 These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate to one another.
 
-The power of a system that models ideas at this fundamantal level is that anything you can conceive can likely be built inside Crux Garden.
+The power of a system that models ideas at such a primitive scale is that literally any idea or framework of ideas can be realized inside Crux Garden.
 
-Along with Cruxs and Dimensions, there are several other types which will be discussed in the future. Until then, feel free to look through the schema or the Open API spec to learn how to use the provided tooling.
+Along with Cruxs and Dimensions, there are several other types which will be discussed in the future, including Tags, Themes, and Paths. Until then, feel free to look through the database schema or the Open API spec to learn how to use the tools.
 
 For further reading on the goals and ambitions of Crux Garden, read up on the history of the [Digital Garden](https://maggieappleton.com/garden-history) movement and become familar with the 1945 essay [As We May Think](https://en.wikipedia.org/wiki/As_We_May_Think) by Vannevar Bush.
 
