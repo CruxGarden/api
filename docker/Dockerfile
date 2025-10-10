@@ -33,21 +33,12 @@ COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/package*.json ./
 COPY --from=builder --chown=nestjs:nodejs /app/knexfile.ts ./
 COPY --from=builder --chown=nestjs:nodejs /app/db ./db
-COPY --chown=nestjs:nodejs docker/entrypoint.sh ./entrypoint.sh
-
-# Make entrypoint script executable
-RUN chmod +x ./entrypoint.sh
 
 # Switch to non-root user
 USER nestjs
 
 # Expose port
 EXPOSE 3000
-
-# Set production environment
-ENV NODE_ENV=production
-ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
@@ -56,5 +47,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Run migrations, seeds, and start the application
-CMD ["sh", "./entrypoint.sh"]
+# Start the application
+CMD ["node", "dist/src/main.js"]

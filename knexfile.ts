@@ -31,7 +31,8 @@ const config: { [key: string]: Knex.Config } = {
       extension: 'ts',
     },
     seeds: {
-      directory: './db/seeds',
+      // Development: common seeds only
+      directory: './db/seeds/common',
     },
   },
 
@@ -44,7 +45,25 @@ const config: { [key: string]: Knex.Config } = {
       extension: 'js',
     },
     seeds: {
-      directory: './db/seeds',
+      // Production: common + production-specific seeds
+      directory: ['./db/seeds/common', './db/seeds/production'],
+      extension: 'js',
+    },
+    acquireConnectionTimeout: poolConfig.acquireTimeoutMillis,
+    asyncStackTraces: true,
+  },
+
+  nursery: {
+    client: 'postgresql',
+    connection: process.env.DATABASE_URL,
+    pool: poolConfig,
+    migrations: {
+      directory: './db/migrations',
+      extension: 'js',
+    },
+    seeds: {
+      // Nursery: common + nursery seeds (production-like with demo data)
+      directory: ['./db/seeds/common', './db/seeds/nursery'],
       extension: 'js',
     },
     acquireConnectionTimeout: poolConfig.acquireTimeoutMillis,

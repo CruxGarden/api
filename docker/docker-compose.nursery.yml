@@ -1,0 +1,92 @@
+# Nursery Override Configuration - Extends docker-compose.prod.yml
+# Production-like demo environment with sample data
+# Uses published Docker image but includes nursery/demo seeds
+# Perfect for: demos, trials, showcasing features, onboarding
+# Usage: docker-compose -f docker-compose.prod.yml -f docker-compose.nursery.yml up -d
+# Or: npm run docker:nursery
+
+services:
+  # Add PostgreSQL and Redis (since prod compose doesn't include them)
+  postgres:
+    image: postgres:16-alpine
+    container_name: cruxgarden-postgres
+    environment:
+      POSTGRES_DB: cruxgarden
+      POSTGRES_USER: cruxgarden
+      POSTGRES_PASSWORD: cruxgarden_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cruxgarden"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cruxgarden-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Override migrations to include nursery seeds and depend on local postgres
+  migrations:
+    container_name: cruxgarden-migrations-nursery
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Use production NODE_ENV but nursery knex environment
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden}
+    command: ["npm", "run", "migrate:nursery"]
+
+  # Override API to depend on migrations and local redis
+  api:
+    container_name: cruxgarden-api-nursery
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      # Application
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+
+      # Bundled Services (override to use local postgres/redis)
+      DATABASE_URL: ${DATABASE_URL:-postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+
+      # Security (REQUIRED)
+      JWT_SECRET: ${JWT_SECRET}
+
+      # AWS SES (REQUIRED)
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      FROM_EMAIL_ADDRESS: ${FROM_EMAIL_ADDRESS}
+
+      # Optional Configuration
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DB_POOL_MIN: ${DB_POOL_MIN:-2}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      DB_POOL_IDLE_TIMEOUT: ${DB_POOL_IDLE_TIMEOUT:-30000}
+      DB_POOL_ACQUIRE_TIMEOUT: ${DB_POOL_ACQUIRE_TIMEOUT:-60000}
+      RATE_LIMIT_TTL: ${RATE_LIMIT_TTL:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+
+volumes:
+  postgres_data:
+  redis_data:

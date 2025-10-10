@@ -13,7 +13,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cruxgarden"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
 
@@ -28,9 +28,24 @@ services:
       - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
+
+  # Database Migrations (runs once before API starts)
+  migrations:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: cruxgarden-migrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden}
+    command: ["npm", "run", "migrate:prod"]
+    restart: "no"
 
   # Crux Garden API
   api:
@@ -39,24 +54,38 @@ services:
       dockerfile: docker/Dockerfile
     container_name: cruxgarden-api
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     environment:
+      # Application
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
-      # Use bundled services by default, or external if DATABASE_URL is set
+
+      # Bundled Services (use local postgres/redis by default)
       DATABASE_URL: ${DATABASE_URL:-postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+
+      # Security
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-min-32-chars-for-development-only}
+
+      # AWS SES
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       FROM_EMAIL_ADDRESS: ${FROM_EMAIL_ADDRESS:-noreply@example.com}
+
+      # Optional Configuration
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      DB_POOL_MIN: ${DB_POOL_MIN:-2}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      DB_POOL_IDLE_TIMEOUT: ${DB_POOL_IDLE_TIMEOUT:-30000}
+      DB_POOL_ACQUIRE_TIMEOUT: ${DB_POOL_ACQUIRE_TIMEOUT:-60000}
+      RATE_LIMIT_TTL: ${RATE_LIMIT_TTL:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
     ports:
       - "3000:3000"
     restart: unless-stopped

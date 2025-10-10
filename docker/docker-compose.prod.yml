@@ -1,10 +1,29 @@
 services:
+  # Database Migrations (runs once before API starts)
+  # Requires external DATABASE_URL
+  migrations:
+    image: ghcr.io/cruxgarden/api:latest
+    container_name: cruxgarden-migrations
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+    command: ["npm", "run", "migrate:prod"]
+    restart: "no"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # Crux Garden API - Production Configuration
   # Requires external DATABASE_URL and REDIS_URL
   api:
     image: ghcr.io/cruxgarden/api:latest
     container_name: cruxgarden-api
     restart: unless-stopped
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
     ports:
       - "${PORT:-3000}:3000"
     environment:

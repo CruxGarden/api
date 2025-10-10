@@ -1,305 +1,605 @@
 # Docker Deployment Guide
 
-This guide covers deploying the Crux Garden API using Docker with external PostgreSQL and Redis services.
+This guide explains how to use the three Docker environments for Crux Garden API: **Development**, **Nursery**, and **Production**.
 
-## Prerequisites
+## Overview
 
-- Docker 20.10+ and Docker Compose 2.0+
-- External PostgreSQL database (version 14+)
-- External Redis instance (version 6+)
-- Required environment variables (see below)
+Crux Garden provides three distinct Docker environments, each optimized for different use cases:
 
-## Quick Start
+| Environment     | Purpose                      | Image Source    | Database/Redis                   | Data Seeds                  |
+|-----------------|------------------------------|-----------------|----------------------------------|-----------------------------|
+| **Development** | Local development            | Local build     | Bundled (PostgreSQL + Redis)     | Common only                 |
+| **Nursery**     | Production-like demos/trials | Published image | Bundled (PostgreSQL + Redis)     | Common + Demo data          |
+| **Production**  | Live deployment              | Published image | External (bring your own)        | Common + System data        |
 
-### 1. Using Pre-built Image from GitHub Container Registry
+## Common Features
 
-```bash
-# Pull the latest image
-docker pull ghcr.io/cruxgarden/api:latest
+All environments share these characteristics:
 
-# Run with external DATABASE_URL and REDIS_URL
-docker run -d \
-  --name cruxgarden-api \
-  -p 3000:3000 \
-  -e DATABASE_URL="postgresql://user:password@your-db-host:5432/cruxgarden" \
-  -e REDIS_URL="redis://your-redis-host:6379" \
-  -e JWT_SECRET="your-super-secret-jwt-key-minimum-32-characters" \
-  -e AWS_ACCESS_KEY_ID="your-aws-key" \
-  -e AWS_SECRET_ACCESS_KEY="your-aws-secret" \
-  -e AWS_REGION="us-east-1" \
-  -e FROM_EMAIL_ADDRESS="noreply@yourdomain.com" \
-  ghcr.io/cruxgarden/api:latest
+- **Separate Migration Service**: Migrations run in a dedicated, ephemeral container that must complete successfully before the API starts
+- **Health Checks**: PostgreSQL, Redis, and API all have health checks with proper retry logic
+- **Signal Handling**: Uses `dumb-init` for proper signal propagation
+- **Non-root User**: Runs as user `nestjs` (UID 1001)
+- **Consistent Environment Variables**: All environments use the same env var structure
+
+---
+
+## Development Environment
+
+### Purpose
+
+Local development with rapid iteration. Builds the Docker image from your local codebase and includes PostgreSQL and Redis containers.
+
+### Architecture
+
+```text
+┌─────────────┐
+│  Postgres   │
+│  (bundled)  │
+└──────┬──────┘
+       │
+┌──────▼──────────┐
+│   Migrations    │ (ephemeral)
+│  (local build)  │
+└──────┬──────────┘
+       │
+┌──────▼──────────┐     ┌─────────────┐
+│      API        │────▶│    Redis    │
+│  (local build)  │     │  (bundled)  │
+└─────────────────┘     └─────────────┘
 ```
 
-### 2. Building Locally
+### Quick Start
 
 ```bash
-# Build the image from project root
-docker build -f docker/Dockerfile -t cruxgarden-api .
+# Start all services (postgres, redis, migrations, api)
+npm run docker:dev
 
-# Run the container
-docker run -d \
-  --name cruxgarden-api \
-  -p 3000:3000 \
-  -e DATABASE_URL="postgresql://user:password@your-db-host:5432/cruxgarden" \
-  -e REDIS_URL="redis://your-redis-host:6379" \
-  -e JWT_SECRET="your-jwt-secret" \
-  -e AWS_ACCESS_KEY_ID="your-aws-key" \
-  -e AWS_SECRET_ACCESS_KEY="your-aws-secret" \
-  -e AWS_REGION="us-east-1" \
-  -e FROM_EMAIL_ADDRESS="noreply@yourdomain.com" \
-  cruxgarden-api
-```
-
-### 3. Using Docker Compose (with bundled Postgres/Redis for development)
-
-```bash
-# From project root
-cd docker
-
-# Start all services (API + PostgreSQL + Redis)
-docker-compose up -d
-
-# View logs
-docker-compose logs -f api
+# View API logs
+npm run docker:dev:logs
 
 # Stop all services
-docker-compose down
+npm run docker:dev:down
 
-# Remove volumes (delete all data)
-docker-compose down -v
+# Rebuild API after code changes
+npm run docker:dev:rebuild
+
+# Complete fresh reset (wipes database!)
+npm run docker:dev:reset
 ```
 
-## Required Environment Variables
+### Environment Variables
 
-When deploying with external services, you must provide:
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
-| `REDIS_URL` | Redis connection string | `redis://host:6379` |
-| `JWT_SECRET` | Secret for JWT tokens (min 32 chars) | `your-secret-key-here` |
-| `AWS_ACCESS_KEY_ID` | AWS access key for SES | `AKIAIOSFODNN7EXAMPLE` |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` |
-| `AWS_REGION` | AWS region for SES | `us-east-1` |
-| `FROM_EMAIL_ADDRESS` | Sender email address | `noreply@yourdomain.com` |
-
-## Optional Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NODE_ENV` | `production` | Environment mode |
-| `PORT` | `3000` | Server port |
-| `HOSTNAME` | `0.0.0.0` | Server hostname |
-| `LOG_LEVEL` | `info` | Logging level |
-| `CORS_ORIGIN` | `*` | Allowed CORS origins |
-| `DB_POOL_MIN` | `2` | Min database connections |
-| `DB_POOL_MAX` | `10` | Max database connections |
-| `RATE_LIMIT_TTL` | `60000` | Rate limit window (ms) |
-| `RATE_LIMIT_MAX` | `100` | Max requests per window |
-
-## Database Setup
-
-Before running the API, ensure your database is initialized:
+Development uses sensible defaults from `.env.example`. Required variables:
 
 ```bash
-# Run migrations (from host machine with knex installed)
-DATABASE_URL="postgresql://user:pass@host:5432/db" npx knex migrate:latest --env production
+# .env (minimal for dev)
+JWT_SECRET=your-super-secret-jwt-key-min-32-chars-for-development-only
 
-# Or run migrations inside container
-docker exec cruxgarden-api npx knex migrate:latest --env production
-```
-
-## Production Deployment
-
-### Using Docker with External Services
-
-**Example: Deploy to a cloud provider with managed Postgres and Redis**
-
-```bash
-# Create .env.production file
-cat > .env.production << 'EOF'
-DATABASE_URL=postgresql://user:password@production-db.example.com:5432/cruxgarden
-REDIS_URL=redis://production-redis.example.com:6379
-JWT_SECRET=your-production-jwt-secret-minimum-32-characters
-AWS_ACCESS_KEY_ID=your-production-aws-key
-AWS_SECRET_ACCESS_KEY=your-production-aws-secret
+# Optional (defaults provided)
+DATABASE_URL=postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden
+REDIS_URL=redis://redis:6379
+AWS_ACCESS_KEY_ID=your-key-id
+AWS_SECRET_ACCESS_KEY=your-secret
 AWS_REGION=us-east-1
-FROM_EMAIL_ADDRESS=noreply@yourdomain.com
-CORS_ORIGIN=https://yourdomain.com,https://app.yourdomain.com
-LOG_LEVEL=warn
-EOF
-
-# Run container with production config
-docker run -d \
-  --name cruxgarden-api \
-  --restart unless-stopped \
-  -p 3000:3000 \
-  --env-file .env.production \
-  ghcr.io/cruxgarden/api:latest
+FROM_EMAIL_ADDRESS=noreply@example.com
 ```
 
-### Using Docker Compose with External Services
+### Data Seeds
 
-Create a `docker-compose.prod.yml`:
+Development runs **common seeds only**:
 
-```yaml
-version: '3.8'
+- `db/seeds/common/01_keeper_account.ts` - System account (The Keeper)
+- `db/seeds/common/02_themes.ts` - Default themes
 
-services:
-  api:
-    image: ghcr.io/cruxgarden/api:latest
-    container_name: cruxgarden-api
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      JWT_SECRET: ${JWT_SECRET}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_REGION: ${AWS_REGION}
-      FROM_EMAIL_ADDRESS: ${FROM_EMAIL_ADDRESS}
-      CORS_ORIGIN: ${CORS_ORIGIN}
-      LOG_LEVEL: warn
+---
+
+## Nursery Environment
+
+### Purpose
+
+Production-like environment for **demos**, **trials**, and **showcasing features**. Uses the published Docker image with bundled PostgreSQL and Redis, pre-loaded with demo data.
+
+### Architecture
+
+```text
+┌─────────────┐
+│  Postgres   │
+│  (bundled)  │
+└──────┬──────┘
+       │
+┌──────▼──────────┐
+│   Migrations    │ (ephemeral)
+│ (published img) │
+└──────┬──────────┘
+       │
+┌──────▼──────────┐     ┌─────────────┐
+│      API        │────▶│    Redis    │
+│ (published img) │     │  (bundled)  │
+└─────────────────┘     └─────────────┘
 ```
 
-Then run:
+### Quick Start
 
 ```bash
-docker-compose -f docker-compose.prod.yml up -d
+# Start nursery environment
+npm run docker:nursery
+
+# View logs (all services)
+npm run docker:nursery:logs
+
+# Stop nursery
+npm run docker:nursery:down
+
+# Pull latest published image
+npm run docker:nursery:pull
+
+# Complete fresh reset (wipes database!)
+npm run docker:nursery:reset
 ```
+
+### How It Works
+
+Nursery uses **Docker Compose override pattern**:
+
+1. Starts with `docker-compose.prod.yml` (uses published image)
+2. Applies `docker-compose.nursery.yml` overrides (adds postgres/redis, changes seeds)
+3. Runs migrations with `--env nursery` to load demo data
+
+### Environment Variables
+
+Same as development, but uses published image:
+
+```bash
+# .env (minimal for nursery)
+JWT_SECRET=your-super-secret-jwt-key-min-32-chars
+
+# Optional (bundled services provided)
+AWS_ACCESS_KEY_ID=your-key-id
+AWS_SECRET_ACCESS_KEY=your-secret
+FROM_EMAIL_ADDRESS=demo@example.com
+```
+
+### Data Seeds
+
+Nursery runs **common + nursery seeds**:
+
+- `db/seeds/common/01_keeper_account.ts` - System account
+- `db/seeds/common/02_themes.ts` - Default themes
+- `db/seeds/nursery/01_demo_cruxes.ts` - Demo cruxes (Garden Metaphor, etc.)
+
+### Use Cases
+
+- **Product Demos**: Show features with realistic data
+- **Trials**: Let users explore without signing up
+- **Onboarding**: Help new users understand the system
+- **QA Testing**: Test with production-like setup
+
+---
+
+## Production Environment
+
+### Purpose
+
+Live production deployment. Uses the published Docker image and **requires external database and Redis** (managed services like AWS RDS, ElastiCache, or your own infrastructure).
+
+### Architecture
+
+```text
+┌──────────────────┐
+│  External        │
+│  PostgreSQL      │
+│  (RDS, etc.)     │
+└──────┬───────────┘
+       │
+┌──────▼──────────┐
+│   Migrations    │ (ephemeral)
+│ (published img) │
+└──────┬──────────┘
+       │
+┌──────▼──────────┐     ┌──────────────────┐
+│      API        │────▶│  External Redis  │
+│ (published img) │     │ (ElastiCache)    │
+└─────────────────┘     └──────────────────┘
+```
+
+### Deployment
+
+Production deployments are typically orchestrated by your hosting platform (AWS ECS, Kubernetes, etc.), but you can test locally:
+
+```bash
+# Set required environment variables
+export DATABASE_URL=postgresql://user:pass@your-db-host:5432/cruxgarden
+export REDIS_URL=redis://your-redis-host:6379
+export JWT_SECRET=your-production-secret-min-32-chars
+export AWS_ACCESS_KEY_ID=your-aws-key
+export AWS_SECRET_ACCESS_KEY=your-aws-secret
+export FROM_EMAIL_ADDRESS=noreply@cruxgarden.com
+
+# Pull and start (from docker/ directory)
+cd docker
+docker-compose --env-file ../.env -f docker-compose.prod.yml up -d
+```
+
+### Environment Variables
+
+Production requires **all variables** to be set (no defaults):
+
+```bash
+# Required Application Settings
+NODE_ENV=production
+PORT=3000
+HOSTNAME=0.0.0.0
+
+# Required External Services
+DATABASE_URL=postgresql://user:pass@your-db-host:5432/cruxgarden
+REDIS_URL=redis://your-redis-host:6379
+
+# Required Security
+JWT_SECRET=your-production-secret-min-32-chars-use-strong-random
+
+# Required AWS SES
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+FROM_EMAIL_ADDRESS=noreply@cruxgarden.com
+
+# Optional Configuration
+CORS_ORIGIN=https://cruxgarden.com
+LOG_LEVEL=info
+DB_POOL_MIN=2
+DB_POOL_MAX=10
+DB_POOL_IDLE_TIMEOUT=30000
+DB_POOL_ACQUIRE_TIMEOUT=60000
+RATE_LIMIT_TTL=60000
+RATE_LIMIT_MAX=100
+```
+
+### Data Seeds
+
+Production runs **common + production seeds**:
+
+- `db/seeds/common/01_keeper_account.ts` - System account
+- `db/seeds/common/02_themes.ts` - Default themes
+- `db/seeds/production/01_system_cruxes.ts` - System messages (Welcome, ToS, etc.)
+
+### Published Image
+
+The production image is built and published via GitHub Actions:
+
+```bash
+# Published to GitHub Container Registry
+ghcr.io/cruxgarden/api:latest
+ghcr.io/cruxgarden/api:v0.0.1  # Version tags
+```
+
+---
+
+## Command Reference
+
+### Development Commands
+
+```bash
+# Start/Stop
+npm run docker:dev              # Start all services
+npm run docker:dev:down         # Stop all services
+npm run docker:dev:logs         # View API logs
+
+# Building/Resetting
+npm run docker:dev:rebuild      # Rebuild API from local source
+npm run docker:dev:reset        # Complete fresh reset (⚠️ wipes database!)
+
+# Database Management
+npm run docker:dev:db           # Start only postgres + redis
+npm run docker:dev:db:stop      # Stop postgres + redis
+```
+
+### Nursery Commands
+
+```bash
+# Start/Stop
+npm run docker:nursery          # Start all services
+npm run docker:nursery:down     # Stop all services
+npm run docker:nursery:logs     # View all service logs
+
+# Updating/Resetting
+npm run docker:nursery:pull     # Pull latest published image
+npm run docker:nursery:reset    # Complete fresh reset (⚠️ wipes database!)
+
+# Database Management
+npm run docker:nursery:db       # Start only postgres + redis
+npm run docker:nursery:db:stop  # Stop postgres + redis
+```
+
+### Shared Commands
+
+These work for both dev and nursery (whichever is currently running):
+
+```bash
+npm run docker:db:connect       # Connect to PostgreSQL (psql)
+npm run docker:redis:connect    # Connect to Redis (redis-cli)
+npm run docker:api:connect      # Shell into API container (sh)
+```
+
+### Manual Docker Compose Commands
+
+If you prefer to use docker-compose directly:
+
+```bash
+# Development
+cd docker
+docker-compose --env-file ../.env -f docker-compose.dev.yml up -d
+docker-compose --env-file ../.env -f docker-compose.dev.yml down
+docker-compose --env-file ../.env -f docker-compose.dev.yml logs -f api
+
+# Nursery
+cd docker
+docker-compose --env-file ../.env \
+  -f docker-compose.prod.yml \
+  -f docker-compose.nursery.yml \
+  up -d
+
+# Production
+cd docker
+docker-compose --env-file ../.env -f docker-compose.prod.yml up -d
+```
+
+---
+
+## Migration Strategy
+
+All environments use a **dedicated migration service** that runs before the API starts:
+
+1. **Migrations Service Starts**: Ephemeral container runs migrations and seeds
+2. **Migrations Complete**: Container exits with success
+3. **API Service Starts**: Only starts if migrations completed successfully
+4. **API Ready**: Serves traffic
+
+### Migration Commands
+
+Each environment uses a different npm script:
+
+```bash
+# Development (common seeds only)
+npm run migrate:seed
+# → knex migrate:latest --env development
+# → knex seed:run --env development
+
+# Production (common + production seeds)
+npm run migrate:prod
+# → knex migrate:latest --env production
+# → knex seed:run --env production
+
+# Nursery (common + nursery seeds)
+npm run migrate:nursery
+# → knex migrate:latest --env nursery
+# → knex seed:run --env nursery
+```
+
+### Troubleshooting Migrations
+
+If migrations fail:
+
+```bash
+# View migration container logs (dev)
+docker logs cruxgarden-migrations
+
+# View migration container logs (nursery)
+docker logs cruxgarden-migrations-nursery
+
+# Check migration status locally
+npm run migrate:status
+```
+
+---
+
+## Cleanup
+
+### Stop and Remove Containers
+
+```bash
+# Development
+npm run docker:dev:down
+
+# Nursery
+npm run docker:nursery:down
+
+# Manual cleanup with volumes (⚠️ deletes data)
+cd docker
+docker-compose --env-file ../.env -f docker-compose.dev.yml down -v
+```
+
+### Complete Reset (Fresh Start)
+
+For a complete fresh start with database wiped:
+
+```bash
+# Dev: Stop everything, delete volumes, rebuild from source
+npm run docker:dev:reset
+
+# Nursery: Stop everything, delete volumes, pull latest image
+npm run docker:nursery:reset
+```
+
+⚠️ **Warning**: Reset commands delete all volumes, including database data!
+
+---
+
+## Ports
+
+Default port mappings:
+
+| Service    | Port | Environment  |
+|------------|------|--------------|
+| API        | 3000 | All          |
+| PostgreSQL | 5432 | Dev, Nursery |
+| Redis      | 6379 | Dev, Nursery |
+
+---
 
 ## Health Checks
 
-The container includes a built-in health check that verifies the API is responding:
+All services include health checks:
+
+- **PostgreSQL**: `pg_isready` every 5s (5 retries)
+- **Redis**: `redis-cli ping` every 5s (5 retries)
+- **API**: HTTP GET to `/` every 30s (3 retries, 40s start period)
+
+---
+
+## Seed Data Strategy
+
+### Common Seeds (`db/seeds/common/`)
+
+**Always run in all environments**
+
+- System-critical data the application depends on
+- Default themes, system accounts, etc.
+
+### Production Seeds (`db/seeds/production/`)
+
+**Run in production only**
+
+- System messages (ToS, Privacy Policy, Welcome)
+- Production-specific configuration
+
+### Nursery Seeds (`db/seeds/nursery/`)
+
+**Run in nursery only**
+
+- Demo/sample data for trials and showcases
+- Example cruxes, relationships, etc.
+
+---
+
+## Best Practices
+
+### Development
+
+- Use `npm run docker:dev:rebuild` after changing dependencies or Dockerfile
+- Use `npm run docker:dev:logs` to debug issues
+- Keep `.env` out of version control
+- Use `docker:dev:reset` for a clean slate when troubleshooting
+
+### Nursery
+
+- Update demo seeds regularly to showcase latest features
+- Keep nursery data realistic but anonymized
+- Test nursery environment before major releases
+- Use nursery for QA, demos, and stakeholder reviews
+
+### Production
+
+- Use managed database services (AWS RDS, etc.)
+- Use managed Redis (AWS ElastiCache, etc.)
+- Store secrets in environment variables or secrets manager
+- Monitor logs and health checks
+- Set up backup and recovery procedures
+- Use specific version tags, not `:latest`
+- Never expose database/Redis ports publicly
+
+---
+
+## Environment Variable Reference
+
+Complete list of supported environment variables:
 
 ```bash
-# Check container health
-docker inspect --format='{{.State.Health.Status}}' cruxgarden-api
+# Application
+NODE_ENV=production                 # Always "production" in Docker
+PORT=3000                           # API port
+HOSTNAME=0.0.0.0                    # Bind address
 
-# View health check logs
-docker inspect --format='{{json .State.Health}}' cruxgarden-api | jq
+# External Services
+DATABASE_URL=postgresql://...       # PostgreSQL connection string
+REDIS_URL=redis://...               # Redis connection string
+
+# Security
+JWT_SECRET=...                      # Min 32 chars, use strong random value
+
+# AWS SES (Email)
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+FROM_EMAIL_ADDRESS=...
+
+# Optional: CORS
+CORS_ORIGIN=*                       # Allowed origins (comma-separated)
+
+# Optional: Logging
+LOG_LEVEL=info                      # debug, info, warn, error
+
+# Optional: Database Pool
+DB_POOL_MIN=2
+DB_POOL_MAX=10
+DB_POOL_IDLE_TIMEOUT=30000
+DB_POOL_ACQUIRE_TIMEOUT=60000
+
+# Optional: Rate Limiting
+RATE_LIMIT_TTL=60000                # Time window in ms
+RATE_LIMIT_MAX=100                  # Max requests per window
 ```
 
-The health check endpoint is the root path `/` and expects a 200 status code.
-
-## Image Details
-
-### Multi-stage Build
-
-The Dockerfile uses a multi-stage build for optimal size and security:
-
-1. **Builder stage**: Installs all dependencies and builds TypeScript
-2. **Production stage**: Copies only production dependencies and built code
-
-### Security Features
-
-- Runs as non-root user (`nestjs:nodejs`)
-- Uses Alpine Linux for minimal attack surface
-- Includes `dumb-init` for proper signal handling
-- Production dependencies only in final image
-
-### Image Size
-
-Approximate image size: ~350MB (including Node.js runtime and dependencies)
+---
 
 ## Troubleshooting
 
 ### Container won't start
 
 ```bash
-# View container logs
+# Check logs
+npm run docker:dev:logs
+# or
 docker logs cruxgarden-api
 
-# Check environment variables
-docker exec cruxgarden-api env | grep -E "DATABASE_URL|REDIS_URL"
+# Check all container statuses
+docker ps -a --filter 'name=cruxgarden'
 ```
 
-### Database connection issues
+### Database connection errors
 
 ```bash
-# Test database connectivity from container
-docker exec cruxgarden-api node -e "
-const { Client } = require('pg');
-const client = new Client({ connectionString: process.env.DATABASE_URL });
-client.connect()
-  .then(() => { console.log('✓ Database connected'); client.end(); })
-  .catch(err => { console.error('✗ Database error:', err.message); process.exit(1); });
-"
+# Verify postgres is running
+docker ps --filter 'name=cruxgarden-postgres'
+
+# Check postgres logs
+docker logs cruxgarden-postgres
+
+# Test connection
+npm run docker:db:connect
 ```
 
-### Redis connection issues
+### Migration failures
 
 ```bash
-# Test Redis connectivity from container
-docker exec cruxgarden-api node -e "
-const redis = require('redis');
-const client = redis.createClient({ url: process.env.REDIS_URL });
-client.connect()
-  .then(() => { console.log('✓ Redis connected'); client.quit(); })
-  .catch(err => { console.error('✗ Redis error:', err.message); process.exit(1); });
-"
+# View migration logs
+docker logs cruxgarden-migrations
+
+# Check database status
+npm run migrate:status
+
+# Reset and try again
+npm run docker:dev:reset
 ```
 
-### View application logs
+### Port conflicts
+
+If ports 3000, 5432, or 6379 are already in use:
 
 ```bash
-# Follow logs in real-time
-docker logs -f cruxgarden-api
+# Find what's using the port
+lsof -i :3000
+lsof -i :5432
+lsof -i :6379
 
-# View last 100 lines
-docker logs --tail 100 cruxgarden-api
-
-# View logs with timestamps
-docker logs -t cruxgarden-api
+# Stop the conflicting service or change ports in docker-compose
 ```
 
-## Development vs Production
-
-### Development (docker-compose.yml)
-
-- Includes PostgreSQL and Redis containers
-- Uses default/development credentials
-- Suitable for local testing
-- Data persisted in Docker volumes
-
-### Production (external services)
-
-- Requires external PostgreSQL and Redis
-- Uses production credentials via environment variables
-- Suitable for production deployment
-- Managed database backups and high availability
-
-## GitHub Container Registry
-
-Images are automatically built and published to GitHub Container Registry on every push to `main`:
-
-```bash
-# Pull latest
-docker pull ghcr.io/cruxgarden/api:latest
-
-# Pull specific version
-docker pull ghcr.io/cruxgarden/api:0.0.1
-
-# Pull specific commit
-docker pull ghcr.io/cruxgarden/api:main-abc1234
-```
-
-## Next Steps
-
-1. Set up your external PostgreSQL and Redis instances
-2. Configure environment variables
-3. Run database migrations
-4. Deploy the container
-5. Set up reverse proxy (nginx, Traefik, etc.) for HTTPS
-6. Configure monitoring and logging
-7. Set up automated backups for your database
+---
 
 ## Support
 
-For issues and questions:
-- GitHub Issues: https://github.com/CruxGarden/api/issues
-- Documentation: https://github.com/CruxGarden/api#readme
+For issues or questions:
+
+- [GitHub Issues](https://github.com/CruxGarden/api/issues)
+- [Documentation](https://github.com/CruxGarden/api#readme)
