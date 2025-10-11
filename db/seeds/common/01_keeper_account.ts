@@ -1,20 +1,23 @@
 import { Knex } from "knex";
 
 export async function seed(knex: Knex): Promise<void> {
-    const keeperId = 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
+    const accountId = 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
+    const authorId = 'e7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
 
     const keeperAccount = {
-        id: keeperId,
+        id: accountId,
         key: 'TKSoWfISLG_',
         email: 'keeper@crux.garden',
         role: 'keeper'
     };
 
     const keeperAuthor = {
-        id: keeperId,
-        name: 'The Keeper',
-        bio: 'Guardian of the Crux Garden',
-        account_id: keeperId,
+        id: authorId,
+        key: 'EKSoWfISLG_',
+        username: 'keeper',
+        display_name: 'The Keeper',
+        bio: 'The Keeper of the Crux Garden',
+        account_id: accountId,
         created: new Date(),
         updated: new Date(),
     };
@@ -31,7 +34,7 @@ export async function seed(knex: Knex): Promise<void> {
 
     // Check if keeper author already exists
     const existingAuthor = await knex("authors")
-        .where({ id: keeperId })
+        .where({ id: authorId })
         .first();
 
     // Only insert if not found
