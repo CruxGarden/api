@@ -146,14 +146,15 @@ npm run build             # Build for production
 npm run start:prod        # Start production server
 
 # Docker
-npm run docker:db         # Start only databases (Postgres + Redis)
-npm run docker:db:stop    # Stop databases
-npm run docker:up         # Start all services (databases + API)
-npm run docker:down       # Stop all services
-npm run docker:logs       # View API logs
-npm run docker:rebuild    # Rebuild and restart API
-npm run docker:dev        # Start in development mode with hot reload
-npm run docker:dev:logs   # View development mode logs
+npm run docker:dev          # Start all services (databases + API)
+npm run docker:dev:down     # Stop all services
+npm run docker:dev:clean    # Stop and remove volumes (data persists)
+npm run docker:dev:purge    # Stop, remove volumes AND images (full cleanup)
+npm run docker:dev:logs     # View logs
+npm run docker:dev:rebuild  # Rebuild and restart API
+npm run docker:dev:reset    # Full reset: purge and rebuild everything
+npm run docker:db           # Start only databases (Postgres + Redis)
+npm run docker:db:stop      # Stop databases
 ```
 
 ### Local Development Workflow
