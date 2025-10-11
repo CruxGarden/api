@@ -55,6 +55,10 @@ Local development with rapid iteration. Builds the Docker image from your local 
 # Start all services (postgres, redis, migrations, api)
 npm run docker:dev
 
+# API will be running at http://localhost:3000
+# PostgreSQL on localhost:5432
+# Redis on localhost:6379
+
 # View API logs
 npm run docker:dev:logs
 
@@ -124,6 +128,10 @@ Production-like environment for **demos**, **trials**, and **showcasing features
 ```bash
 # Start nursery environment
 npm run docker:nursery
+
+# API will be running at http://localhost:3001
+# PostgreSQL on localhost:5433
+# Redis on localhost:6380
 
 # View logs (all services)
 npm run docker:nursery:logs
@@ -427,13 +435,15 @@ npm run docker:nursery:reset
 
 ## Ports
 
-Default port mappings:
+Port mappings for each environment:
 
-| Service    | Port | Environment  |
-|------------|------|--------------|
-| API        | 3000 | All          |
-| PostgreSQL | 5432 | Dev, Nursery |
-| Redis      | 6379 | Dev, Nursery |
+| Service    | Dev Port | Nursery Port | Notes                              |
+|------------|----------|--------------|-------------------------------------|
+| API        | 3000     | 3001         | Different ports allow running both simultaneously |
+| PostgreSQL | 5432     | 5433         | Bundled in dev/nursery only        |
+| Redis      | 6379     | 6380         | Bundled in dev/nursery only        |
+
+**Production** uses external DATABASE_URL and REDIS_URL (no local ports).
 
 ---
 
