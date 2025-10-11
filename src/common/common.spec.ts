@@ -43,14 +43,14 @@ describe('Common Module', () => {
 
         expect(key).toBeTruthy();
         expect(typeof key).toBe('string');
-        expect(key.length).toBe(11); // DEFAULT_KEY_LENGTH
+        expect(key.length).toBe(16); // DEFAULT_KEY_LENGTH
       });
 
       it('should generate key with custom length', () => {
-        const key = keyMaster.generateKey(16);
+        const key = keyMaster.generateKey(24);
 
         expect(key).toBeTruthy();
-        expect(key.length).toBe(16);
+        expect(key.length).toBe(24);
       });
 
       it('should generate short keys', () => {
