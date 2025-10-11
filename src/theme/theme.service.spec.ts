@@ -19,6 +19,7 @@ describe('ThemeService', () => {
     id: 'theme-id-123',
     key: 'theme-key-abc',
     author_id: 'author-123',
+    home_id: 'home-id-123',
     title: 'Test Theme',
     description: 'A test theme',
     primary_color: '#000000',

@@ -58,4 +58,12 @@ export class CreateMarkerDto {
   @IsOptional()
   @IsString()
   authorId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Home ID (set internally from primary home)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  @IsOptional()
+  @IsString()
+  homeId?: string;
 }

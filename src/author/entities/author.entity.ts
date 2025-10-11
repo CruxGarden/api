@@ -5,7 +5,7 @@ export default class Author {
   displayName: string;
   bio?: string;
   accountId: string;
-  homeId?: string;
+  homeId: string;
   home?: any; // Populated when embed=home, replaces homeId
   created: Date;
   updated: Date;

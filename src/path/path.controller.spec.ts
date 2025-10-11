@@ -5,6 +5,7 @@ import { PathService } from './path.service';
 import { AuthorService } from '../author/author.service';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
+import { HomeService } from '../home/home.service';
 import { AuthRequest } from '../common/types/interfaces';
 import {
   AccountRole,
@@ -30,6 +31,7 @@ describe('PathController', () => {
     kind: PathKind.GUIDE,
     entry: 'crux-entry-id',
     authorId: 'author-123',
+    homeId: 'home-id-123',
     themeId: 'theme-123',
     created: new Date(),
     updated: new Date(),
@@ -89,6 +91,15 @@ describe('PathController', () => {
       paginate: jest.fn(),
     };
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-id-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const mockLoggerService = {
       createChildLogger: jest.fn().mockReturnValue({
         debug: jest.fn(),
@@ -104,6 +115,7 @@ describe('PathController', () => {
         { provide: PathService, useValue: mockService },
         { provide: AuthorService, useValue: mockAuthorService },
         { provide: DbService, useValue: mockDbService },
+        { provide: HomeService, useValue: mockHomeService },
         { provide: LoggerService, useValue: mockLoggerService },
       ],
     })

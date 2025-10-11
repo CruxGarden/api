@@ -6,6 +6,7 @@ import { AuthTokenDto } from './dto/auth-token.dto';
 
 import { AccountService } from '../account/account.service';
 import { AuthorService } from '../author/author.service';
+import { HomeService } from '../home/home.service';
 import { EmailService } from '../common/services/email.service';
 import { RedisService } from '../common/services/redis.service';
 import { LoggerService } from '../common/services/logger.service';
@@ -29,6 +30,7 @@ export class AuthService {
   constructor(
     private readonly accountService: AccountService,
     private readonly authorService: AuthorService,
+    private readonly homeService: HomeService,
     private readonly emailService: EmailService,
     private readonly redisService: RedisService,
     private readonly keyMaster: KeyMaster,
@@ -160,6 +162,7 @@ export class AuthService {
     if (!account) {
       const accountId = this.keyMaster.generateId();
       const authorId = this.keyMaster.generateId();
+      const home = await this.homeService.primary();
 
       // account not found, create one
       try {
@@ -168,6 +171,7 @@ export class AuthService {
           key: this.keyMaster.generateKey(),
           email,
           role: AccountRole.AUTHOR,
+          homeId: home.id,
         });
         this.logger.info('Created Account', { email, accountId });
       } catch (error) {
@@ -187,6 +191,7 @@ export class AuthService {
           accountId: accountId,
           username: name,
           displayName: name,
+          homeId: home.id,
         });
         this.logger.info('Created Author', author);
       } catch (error) {

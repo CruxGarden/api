@@ -10,6 +10,7 @@ export default interface CruxRaw {
   status: 'living' | 'frozen';
   visibility: 'public' | 'private' | 'unlisted';
   author_id: string;
+  home_id: string;
   meta?: any;
   created: Date;
   updated: Date;

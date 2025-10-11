@@ -6,6 +6,7 @@ export default interface DimensionRaw {
   type: 'gate' | 'garden' | 'growth' | 'graft';
   weight?: number;
   author_id?: string;
+  home_id: string;
   note?: string;
   created: Date;
   updated: Date;

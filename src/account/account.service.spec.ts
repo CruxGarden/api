@@ -20,6 +20,7 @@ describe('AccountService', () => {
     key: 'account-key-abc',
     email: 'test@example.com',
     role: 'author' as const,
+    home_id: 'home-id-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,

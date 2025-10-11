@@ -4,6 +4,7 @@ import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
 import { AccountRepository } from '../src/account/account.repository';
+import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
 import { MockDbService } from './mocks/db.mock';
 import { success } from '../src/common/helpers/repository-helpers';
@@ -21,6 +22,7 @@ describe('Account Integration Tests', () => {
     key: 'account-key',
     email: testEmail,
     role: 'author',
+    home_id: 'home-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -45,6 +47,15 @@ describe('Account Integration Tests', () => {
       delete: jest.fn(),
     } as any;
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -52,6 +63,8 @@ describe('Account Integration Tests', () => {
       .useValue(new MockDbService())
       .overrideProvider(AccountRepository)
       .useValue(mockAccountRepository)
+      .overrideProvider(HomeService)
+      .useValue(mockHomeService)
       .compile();
 
     app = moduleFixture.createNestApplication();

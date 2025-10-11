@@ -4,6 +4,7 @@ import { CruxController } from './crux.controller';
 import { CruxService } from './crux.service';
 import { AuthorService } from '../author/author.service';
 import { DbService } from '../common/services/db.service';
+import { HomeService } from '../home/home.service';
 import { AuthRequest } from '../common/types/interfaces';
 import { AccountRole, DimensionType } from '../common/types/enums';
 
@@ -21,6 +22,7 @@ describe('CruxController', () => {
     data: '{}',
     type: 'note',
     authorId: 'author-123',
+    homeId: 'home-id-123',
     status: 'living' as const,
     visibility: 'public' as const,
     created: new Date(),
@@ -76,12 +78,22 @@ describe('CruxController', () => {
       paginate: jest.fn(),
     };
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-id-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CruxController],
       providers: [
         { provide: CruxService, useValue: mockService },
         { provide: AuthorService, useValue: mockAuthorService },
         { provide: DbService, useValue: mockDbService },
+        { provide: HomeService, useValue: mockHomeService },
       ],
     })
       .overrideGuard(require('../common/guards/auth.guard').AuthGuard)

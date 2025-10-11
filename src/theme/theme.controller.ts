@@ -30,6 +30,7 @@ import Theme from './entities/theme.entity';
 import ThemeRaw from './entities/theme-raw.entity';
 import Tag from '../tag/entities/tag.entity';
 import { AuthorService } from '../author/author.service';
+import { HomeService } from '../home/home.service';
 
 @Controller('themes')
 @UseGuards(AuthGuard)
@@ -41,6 +42,7 @@ export class ThemeController {
     private readonly authorService: AuthorService,
     private readonly themeService: ThemeService,
     private readonly dbService: DbService,
+    private readonly homeService: HomeService,
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('ThemeController');
@@ -91,7 +93,9 @@ export class ThemeController {
     if (!author) {
       throw new NotFoundException('Author not found for this account');
     }
+    const home = await this.homeService.primary();
     createThemeDto.authorId = author.id;
+    createThemeDto.homeId = home.id;
     return this.themeService.create(createThemeDto);
   }
 

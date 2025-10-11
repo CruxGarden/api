@@ -3,26 +3,24 @@ import {
   NotFoundException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { DimensionService } from './dimension.service';
-import { DimensionRepository } from './dimension.repository';
+import { HomeService } from './home.service';
+import { HomeRepository } from './home.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
-import { DimensionType } from '../common/types/enums';
 
-describe('DimensionService', () => {
-  let service: DimensionService;
-  let repository: jest.Mocked<DimensionRepository>;
+describe('HomeService', () => {
+  let service: HomeService;
+  let repository: jest.Mocked<HomeRepository>;
 
-  const mockDimensionRaw = {
-    id: 'dimension-id-123',
-    key: 'dimension-key-abc',
-    source_id: 'crux-source-123',
-    target_id: 'crux-target-456',
-    type: 'gate' as const,
-    weight: 1,
-    author_id: 'author-123',
-    home_id: 'home-id-123',
-    note: 'test dimension',
+  const mockHomeRaw = {
+    id: 'home-id-123',
+    key: 'home-key-abc',
+    name: 'Test Home',
+    description: 'A test home',
+    primary: true,
+    type: 'personal',
+    kind: 'garden',
+    meta: { color: 'blue', icon: 'tree' },
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -31,7 +29,7 @@ describe('DimensionService', () => {
   beforeEach(async () => {
     const mockRepository = {
       findBy: jest.fn(),
-      findBySourceIdAndTypeQuery: jest.fn(),
+      findAllQuery: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -53,31 +51,31 @@ describe('DimensionService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        DimensionService,
-        { provide: DimensionRepository, useValue: mockRepository },
+        HomeService,
+        { provide: HomeRepository, useValue: mockRepository },
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
       ],
     }).compile();
 
-    service = module.get<DimensionService>(DimensionService);
-    repository = module.get(DimensionRepository);
+    service = module.get<HomeService>(HomeService);
+    repository = module.get(HomeRepository);
   });
 
   describe('findById', () => {
-    it('should return a dimension when found', async () => {
+    it('should return a home when found', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockDimensionRaw,
+        data: mockHomeRaw,
         error: null,
       });
 
-      const result = await service.findById('dimension-id-123');
+      const result = await service.findById('home-id-123');
 
-      expect(result.id).toBe('dimension-id-123');
-      expect(repository.findBy).toHaveBeenCalledWith('id', 'dimension-id-123');
+      expect(result.id).toBe('home-id-123');
+      expect(repository.findBy).toHaveBeenCalledWith('id', 'home-id-123');
     });
 
-    it('should throw NotFoundException when dimension not found', async () => {
+    it('should throw NotFoundException when home not found', async () => {
       repository.findBy.mockResolvedValue({ data: null, error: null });
 
       await expect(service.findById('invalid-id')).rejects.toThrow(
@@ -91,29 +89,26 @@ describe('DimensionService', () => {
         error: new Error('DB Error'),
       });
 
-      await expect(service.findById('dimension-id')).rejects.toThrow(
+      await expect(service.findById('home-id')).rejects.toThrow(
         NotFoundException,
       );
     });
   });
 
   describe('findByKey', () => {
-    it('should return a dimension when found', async () => {
+    it('should return a home when found', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockDimensionRaw,
+        data: mockHomeRaw,
         error: null,
       });
 
-      const result = await service.findByKey('dimension-key-abc');
+      const result = await service.findByKey('home-key-abc');
 
-      expect(result.key).toBe('dimension-key-abc');
-      expect(repository.findBy).toHaveBeenCalledWith(
-        'key',
-        'dimension-key-abc',
-      );
+      expect(result.key).toBe('home-key-abc');
+      expect(repository.findBy).toHaveBeenCalledWith('key', 'home-key-abc');
     });
 
-    it('should throw NotFoundException when dimension not found', async () => {
+    it('should throw NotFoundException when home not found', async () => {
       repository.findBy.mockResolvedValue({ data: null, error: null });
 
       await expect(service.findByKey('invalid-key')).rejects.toThrow(
@@ -127,7 +122,7 @@ describe('DimensionService', () => {
         error: new Error('DB Error'),
       });
 
-      await expect(service.findByKey('dimension-key')).rejects.toThrow(
+      await expect(service.findByKey('home-key')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -135,23 +130,22 @@ describe('DimensionService', () => {
 
   describe('create', () => {
     const createDto = {
-      targetId: 'crux-target-456',
-      type: DimensionType.GATE,
-      weight: 1,
-      note: 'test dimension',
-      sourceId: 'crux-source-123',
-      authorId: 'author-123',
+      name: 'Test Home',
+      description: 'A test home',
+      primary: true,
+      type: 'personal',
+      kind: 'garden',
     };
 
-    it('should create a dimension successfully', async () => {
+    it('should create a home successfully', async () => {
       repository.create.mockResolvedValue({
-        data: mockDimensionRaw,
+        data: mockHomeRaw,
         error: null,
       });
 
       const result = await service.create(createDto);
 
-      expect(result.id).toBe('dimension-id-123');
+      expect(result.id).toBe('home-id-123');
       expect(repository.create).toHaveBeenCalledWith({
         ...createDto,
         id: 'generated-id',
@@ -172,31 +166,28 @@ describe('DimensionService', () => {
   });
 
   describe('update', () => {
-    const updateDto = { type: DimensionType.GARDEN, weight: 2 };
+    const updateDto = { name: 'Updated Home', description: 'Updated' };
 
-    it('should update a dimension successfully', async () => {
-      const updatedDimension = { ...mockDimensionRaw, type: 'garden' as const };
+    it('should update a home successfully', async () => {
+      const updatedHome = { ...mockHomeRaw, name: 'Updated Home' };
       repository.findBy.mockResolvedValue({
-        data: mockDimensionRaw,
+        data: mockHomeRaw,
         error: null,
       });
       repository.update.mockResolvedValue({
-        data: updatedDimension,
+        data: updatedHome,
         error: null,
       });
 
-      const result = await service.update('dimension-key-abc', updateDto);
+      const result = await service.update('home-key-abc', updateDto);
 
-      expect(result.type).toBe('garden');
-      expect(repository.update).toHaveBeenCalledWith(
-        mockDimensionRaw.id,
-        updateDto,
-      );
+      expect(result.name).toBe('Updated Home');
+      expect(repository.update).toHaveBeenCalledWith(mockHomeRaw.id, updateDto);
     });
 
     it('should throw InternalServerErrorException on update error', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockDimensionRaw,
+        data: mockHomeRaw,
         error: null,
       });
       repository.update.mockResolvedValue({
@@ -204,29 +195,37 @@ describe('DimensionService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('dimension-key', updateDto)).rejects.toThrow(
+      await expect(service.update('home-key', updateDto)).rejects.toThrow(
         InternalServerErrorException,
       );
     });
   });
 
   describe('delete', () => {
-    it('should delete a dimension successfully', async () => {
+    it('should delete a home successfully', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockDimensionRaw,
+        data: mockHomeRaw,
         error: null,
       });
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.delete('dimension-key-abc');
+      const result = await service.delete('home-key-abc');
 
       expect(result).toBeNull();
-      expect(repository.delete).toHaveBeenCalledWith(mockDimensionRaw.id);
+      expect(repository.delete).toHaveBeenCalledWith(mockHomeRaw.id);
+    });
+
+    it('should throw NotFoundException when home not found', async () => {
+      repository.findBy.mockResolvedValue({ data: null, error: null });
+
+      await expect(service.delete('home-key')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should throw InternalServerErrorException on delete error', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockDimensionRaw,
+        data: mockHomeRaw,
         error: null,
       });
       repository.delete.mockResolvedValue({
@@ -234,28 +233,28 @@ describe('DimensionService', () => {
         error: new Error('Delete failed'),
       });
 
-      await expect(service.delete('dimension-key')).rejects.toThrow(
+      await expect(service.delete('home-key')).rejects.toThrow(
         InternalServerErrorException,
       );
     });
   });
 
-  describe('asDimension', () => {
-    it('should transform raw dimension to entity', () => {
-      const result = service.asDimension(mockDimensionRaw);
+  describe('asHome', () => {
+    it('should transform raw home to entity', () => {
+      const result = service.asHome(mockHomeRaw);
 
-      expect(result.id).toBe(mockDimensionRaw.id);
-      expect(result.sourceId).toBe(mockDimensionRaw.source_id);
-      expect(result.targetId).toBe(mockDimensionRaw.target_id);
+      expect(result.id).toBe(mockHomeRaw.id);
+      expect(result.name).toBe(mockHomeRaw.name);
+      expect(result.primary).toBe(mockHomeRaw.primary);
     });
   });
 
-  describe('asDimensions', () => {
-    it('should transform array of raw dimensions to entities', () => {
-      const result = service.asDimensions([mockDimensionRaw]);
+  describe('asHomes', () => {
+    it('should transform array of raw homes to entities', () => {
+      const result = service.asHomes([mockHomeRaw]);
 
       expect(result).toHaveLength(1);
-      expect(result[0].id).toBe(mockDimensionRaw.id);
+      expect(result[0].id).toBe(mockHomeRaw.id);
     });
   });
 });

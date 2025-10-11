@@ -1,6 +1,7 @@
 export default class Theme {
   id: string;
   authorId: string;
+  homeId: string;
   title: string;
   key: string;
   description?: string;

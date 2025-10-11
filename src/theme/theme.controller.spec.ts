@@ -5,6 +5,7 @@ import { ThemeService } from './theme.service';
 import { AuthorService } from '../author/author.service';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
+import { HomeService } from '../home/home.service';
 import { AuthRequest } from '../common/types/interfaces';
 import { AccountRole } from '../common/types/enums';
 
@@ -18,6 +19,7 @@ describe('ThemeController', () => {
     id: 'theme-id',
     key: 'theme-key',
     authorId: 'author-123',
+    homeId: 'home-id-123',
     title: 'Test Theme',
     description: 'A test theme',
     primaryColor: '#000000',
@@ -67,6 +69,15 @@ describe('ThemeController', () => {
       paginate: jest.fn(),
     };
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-id-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const mockLoggerService = {
       createChildLogger: jest.fn().mockReturnValue({
         debug: jest.fn(),
@@ -82,6 +93,7 @@ describe('ThemeController', () => {
         { provide: ThemeService, useValue: mockService },
         { provide: AuthorService, useValue: mockAuthorService },
         { provide: DbService, useValue: mockDbService },
+        { provide: HomeService, useValue: mockHomeService },
         { provide: LoggerService, useValue: mockLoggerService },
       ],
     }).compile();

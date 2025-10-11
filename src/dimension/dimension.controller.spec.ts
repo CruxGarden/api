@@ -20,6 +20,7 @@ describe('DimensionController', () => {
     type: 'gate' as const,
     weight: 1,
     authorId: 'author-123',
+    homeId: 'home-id-123',
     note: 'test dimension',
     created: new Date(),
     updated: new Date(),

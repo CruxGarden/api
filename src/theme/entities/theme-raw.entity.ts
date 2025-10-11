@@ -1,6 +1,7 @@
 export default interface ThemeRaw {
   id: string;
   author_id: string;
+  home_id: string;
   title: string;
   key: string;
   description?: string;

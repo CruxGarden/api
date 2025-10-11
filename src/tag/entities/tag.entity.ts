@@ -7,6 +7,7 @@ export default class Tag {
   resourceId: string;
   label: string;
   authorId: string;
+  homeId: string;
   created: Date;
   updated: Date;
   deleted?: Date;

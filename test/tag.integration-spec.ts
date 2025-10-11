@@ -4,6 +4,7 @@ import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
 import { TagRepository } from '../src/tag/tag.repository';
+import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
 import { MockDbService } from './mocks/db.mock';
 import { success } from '../src/common/helpers/repository-helpers';
@@ -28,6 +29,7 @@ describe('Tag Integration Tests', () => {
     resource_id: testResourceId,
     label: 'javascript',
     author_id: testAuthorId,
+    home_id: 'home-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -56,6 +58,15 @@ describe('Tag Integration Tests', () => {
       delete: jest.fn(),
     } as any;
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -63,6 +74,8 @@ describe('Tag Integration Tests', () => {
       .useValue(new MockDbService())
       .overrideProvider(TagRepository)
       .useValue(mockTagRepository)
+      .overrideProvider(HomeService)
+      .useValue(mockHomeService)
       .compile();
 
     app = moduleFixture.createNestApplication();

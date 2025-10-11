@@ -9,6 +9,7 @@ export default class Path {
   kind: 'guide' | 'wander';
   entry: string;
   authorId: string;
+  homeId: string;
   themeId?: string;
   created: Date;
   updated: Date;

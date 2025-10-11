@@ -5,6 +5,7 @@ export default interface TagRaw {
   resource_id: string;
   label: string;
   author_id: string;
+  home_id: string;
   created: Date;
   updated: Date;
   deleted: Date | null;

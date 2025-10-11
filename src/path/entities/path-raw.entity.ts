@@ -9,6 +9,7 @@ export default interface PathRaw {
   kind: 'guide' | 'wander';
   entry: string;
   author_id: string;
+  home_id: string;
   theme_id?: string;
   created: Date;
   updated: Date;

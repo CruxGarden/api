@@ -6,6 +6,7 @@ import { EmailService } from '../common/services/email.service';
 import { RedisService } from '../common/services/redis.service';
 import { LoggerService } from '../common/services/logger.service';
 import { KeyMaster } from '../common/services/key.master';
+import { HomeService } from '../home/home.service';
 import { AccountRole } from '../common/types/enums';
 
 // Mock jwt module
@@ -74,6 +75,15 @@ describe('AuthService', () => {
       }),
     };
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-id-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -83,6 +93,7 @@ describe('AuthService', () => {
         { provide: RedisService, useValue: mockRedisService },
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
+        { provide: HomeService, useValue: mockHomeService },
       ],
     }).compile();
 
@@ -341,6 +352,7 @@ describe('AuthService', () => {
         key: 'generated-key',
         email: 'test@example.com',
         role: AccountRole.AUTHOR,
+        homeId: 'home-id-123',
       });
       expect(authorService.create).toHaveBeenCalledWith({
         id: 'generated-id',
@@ -348,6 +360,7 @@ describe('AuthService', () => {
         accountId: 'generated-id',
         username: 'test',
         displayName: 'test',
+        homeId: 'home-id-123',
       });
     });
 

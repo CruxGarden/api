@@ -6,6 +6,7 @@ export default class Dimension {
   type: 'gate' | 'garden' | 'growth' | 'graft';
   weight?: number;
   authorId?: string;
+  homeId: string;
   note?: string;
   created: Date;
   updated: Date;

@@ -6,6 +6,7 @@ import { AppModule } from '../src/app.module';
 import { ThemeRepository } from '../src/theme/theme.repository';
 import { AuthorRepository } from '../src/author/author.repository';
 import { TagService } from '../src/tag/tag.service';
+import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
 import { MockDbService } from './mocks/db.mock';
 import { success } from '../src/common/helpers/repository-helpers';
@@ -31,6 +32,7 @@ describe('Theme Integration Tests', () => {
     username: 'testuser',
     display_name: 'Test User',
     account_id: testAccountId,
+    home_id: 'home-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -46,6 +48,7 @@ describe('Theme Integration Tests', () => {
     tertiary_color: '#60a5fa',
     quaternary_color: '#93c5fd',
     author_id: testAuthorId,
+    home_id: 'home-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -80,6 +83,15 @@ describe('Theme Integration Tests', () => {
       syncTags: jest.fn(),
     } as any;
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -91,6 +103,8 @@ describe('Theme Integration Tests', () => {
       .useValue(mockAuthorRepository)
       .overrideProvider(TagService)
       .useValue(mockTagService)
+      .overrideProvider(HomeService)
+      .useValue(mockHomeService)
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -207,6 +221,7 @@ describe('Theme Integration Tests', () => {
         tertiary_color: createThemeDto.tertiaryColor,
         quaternary_color: createThemeDto.quaternaryColor,
         author_id: testAuthorId,
+        home_id: 'home-123',
         created: new Date(),
         updated: new Date(),
         deleted: null,
@@ -396,6 +411,7 @@ describe('Theme Integration Tests', () => {
           resource_type: ResourceType.THEME,
           resource_id: testThemeId,
           author_id: testAuthorId,
+          home_id: 'home-123',
           created: new Date(),
           updated: new Date(),
           deleted: null,
@@ -449,6 +465,7 @@ describe('Theme Integration Tests', () => {
         resource_type: ResourceType.THEME,
         resource_id: testThemeId,
         author_id: testAuthorId,
+        home_id: 'home-123',
         created: new Date(),
         updated: new Date(),
         deleted: null,

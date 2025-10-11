@@ -10,6 +10,7 @@ export default class Crux {
   status: 'living' | 'frozen';
   visibility: 'public' | 'private' | 'unlisted';
   authorId: string;
+  homeId: string;
   meta?: any;
   created: Date;
   updated: Date;

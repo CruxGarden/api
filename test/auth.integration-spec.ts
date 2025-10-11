@@ -7,6 +7,7 @@ import { EmailService } from '../src/common/services/email.service';
 import { DbService } from '../src/common/services/db.service';
 import { AccountRepository } from '../src/account/account.repository';
 import { AuthorRepository } from '../src/author/author.repository';
+import { HomeService } from '../src/home/home.service';
 import { MockRedisService } from './mocks/redis.mock';
 import { MockEmailService } from './mocks/email.mock';
 import { MockDbService } from './mocks/db.mock';
@@ -40,6 +41,15 @@ describe('Auth Integration Tests', () => {
       findBy: jest.fn().mockResolvedValue({ data: null, error: null }), // No existing username conflicts
     };
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -53,6 +63,8 @@ describe('Auth Integration Tests', () => {
       .useValue(mockAccountRepository)
       .overrideProvider(AuthorRepository)
       .useValue(mockAuthorRepository)
+      .overrideProvider(HomeService)
+      .useValue(mockHomeService)
       .compile();
 
     app = moduleFixture.createNestApplication();

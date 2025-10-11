@@ -5,6 +5,7 @@ import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
 import { DimensionRepository } from '../src/dimension/dimension.repository';
 import { AuthorRepository } from '../src/author/author.repository';
+import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
 import { MockDbService } from './mocks/db.mock';
 import { success } from '../src/common/helpers/repository-helpers';
@@ -29,6 +30,7 @@ describe('Dimension Integration Tests', () => {
     username: 'testuser',
     display_name: 'Test User',
     account_id: testAccountId,
+    home_id: 'home-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -42,6 +44,7 @@ describe('Dimension Integration Tests', () => {
     type: 'gate',
     weight: 1,
     author_id: testAuthorId,
+    home_id: 'home-123',
     note: 'Test dimension note',
     created: new Date(),
     updated: new Date(),
@@ -70,6 +73,15 @@ describe('Dimension Integration Tests', () => {
       findBy: jest.fn(),
     } as any;
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -79,6 +91,8 @@ describe('Dimension Integration Tests', () => {
       .useValue(mockDimensionRepository)
       .overrideProvider(AuthorRepository)
       .useValue(mockAuthorRepository)
+      .overrideProvider(HomeService)
+      .useValue(mockHomeService)
       .compile();
 
     app = moduleFixture.createNestApplication();

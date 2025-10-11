@@ -5,12 +5,14 @@ import { CruxRepository } from './crux.repository';
 import { AuthorModule } from '../author/author.module';
 import { TagModule } from '../tag/tag.module';
 import { DimensionModule } from '../dimension/dimension.module';
+import { HomeModule } from '../home/home.module';
 
 @Module({
   imports: [
     forwardRef(() => AuthorModule),
     forwardRef(() => TagModule),
     forwardRef(() => DimensionModule),
+    forwardRef(() => HomeModule),
   ],
   controllers: [CruxController],
   providers: [CruxService, CruxRepository],

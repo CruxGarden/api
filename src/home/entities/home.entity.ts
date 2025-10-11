@@ -1,13 +1,17 @@
-export default class Account {
+export default class Home {
   id: string;
-  email: string;
-  role: 'admin' | 'author' | 'keeper';
-  homeId: string;
+  key: string;
+  name: string;
+  description?: string;
+  primary: boolean;
+  type: string;
+  kind: string;
+  meta?: any;
   created: Date;
   updated: Date;
   deleted?: Date;
 
-  constructor(partial: Partial<Account>) {
+  constructor(partial: Partial<Home>) {
     Object.assign(this, partial);
   }
 

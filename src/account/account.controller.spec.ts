@@ -13,6 +13,7 @@ describe('AccountController', () => {
     id: 'account-id',
     email: 'test@example.com',
     role: AccountRole.AUTHOR,
+    homeId: 'home-id-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,

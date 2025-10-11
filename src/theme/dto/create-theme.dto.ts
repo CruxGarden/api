@@ -20,6 +20,15 @@ export class CreateThemeDto {
   @IsString()
   authorId?: string;
 
+  @ApiPropertyOptional({
+    description: 'Home ID (set internally from primary home)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+    format: 'uuid',
+  })
+  @IsOptional()
+  @IsString()
+  homeId?: string;
+
   @ApiProperty({
     description: 'Title of the theme',
     example: 'Ocean Blue',

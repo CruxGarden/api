@@ -7,6 +7,7 @@ import { PathRepository } from '../src/path/path.repository';
 import { AuthorRepository } from '../src/author/author.repository';
 import { TagService } from '../src/tag/tag.service';
 import { CruxService } from '../src/crux/crux.service';
+import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
 import { MockDbService } from './mocks/db.mock';
 import { success } from '../src/common/helpers/repository-helpers';
@@ -35,6 +36,7 @@ describe('Path Integration Tests', () => {
     username: 'testuser',
     display_name: 'Test User',
     account_id: testAccountId,
+    home_id: 'home-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -51,6 +53,7 @@ describe('Path Integration Tests', () => {
     kind: 'wander',
     entry: testEntryMarkerId,
     author_id: testAuthorId,
+    home_id: 'home-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -92,6 +95,15 @@ describe('Path Integration Tests', () => {
       findByKey: jest.fn(),
     } as any;
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -105,6 +117,8 @@ describe('Path Integration Tests', () => {
       .useValue(mockTagService)
       .overrideProvider(CruxService)
       .useValue(mockCruxService)
+      .overrideProvider(HomeService)
+      .useValue(mockHomeService)
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -224,6 +238,7 @@ describe('Path Integration Tests', () => {
         kind: createPathDto.kind as 'wander' | 'guide',
         entry: createPathDto.entry,
         author_id: testAuthorId,
+        home_id: 'home-123',
         created: new Date(),
         updated: new Date(),
         deleted: null,
@@ -403,6 +418,7 @@ describe('Path Integration Tests', () => {
           order: 0,
           note: 'First marker',
           author_id: testAuthorId,
+          home_id: 'home-123',
           created: new Date(),
           updated: new Date(),
           deleted: null,
@@ -462,6 +478,7 @@ describe('Path Integration Tests', () => {
           order: 0,
           note: 'First',
           author_id: testAuthorId,
+          home_id: 'home-123',
           created: new Date(),
           updated: new Date(),
           deleted: null,
@@ -474,6 +491,7 @@ describe('Path Integration Tests', () => {
           order: 1,
           note: 'Second',
           author_id: testAuthorId,
+          home_id: 'home-123',
           created: new Date(),
           updated: new Date(),
           deleted: null,
@@ -552,6 +570,7 @@ describe('Path Integration Tests', () => {
           resource_type: ResourceType.PATH,
           resource_id: testPathId,
           author_id: testAuthorId,
+          home_id: 'home-123',
           created: new Date(),
           updated: new Date(),
           deleted: null,
@@ -615,6 +634,7 @@ describe('Path Integration Tests', () => {
         resource_type: ResourceType.PATH,
         resource_id: testPathId,
         author_id: testAuthorId,
+        home_id: 'home-123',
         created: new Date(),
         updated: new Date(),
         deleted: null,

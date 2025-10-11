@@ -9,6 +9,7 @@ import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { TagService } from '../tag/tag.service';
 import { CruxService } from '../crux/crux.service';
+import { HomeService } from '../home/home.service';
 import {
   ResourceType,
   PathType,
@@ -34,6 +35,7 @@ describe('PathService', () => {
     entry: 'crux-entry-id',
     author_id: 'author-123',
     theme_id: 'theme-123',
+    home_id: 'home-id-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -47,6 +49,7 @@ describe('PathService', () => {
     order: 1,
     note: 'Test marker',
     author_id: 'author-123',
+    home_id: 'home-id-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -93,6 +96,15 @@ describe('PathService', () => {
       }),
     };
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-id-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PathService,
@@ -101,6 +113,7 @@ describe('PathService', () => {
         { provide: CruxService, useValue: mockCruxService },
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
+        { provide: HomeService, useValue: mockHomeService },
       ],
     }).compile();
 

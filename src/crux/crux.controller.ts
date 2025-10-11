@@ -34,6 +34,7 @@ import DimensionRaw from '../dimension/entities/dimension-raw.entity';
 import { DimensionType } from '../common/types/enums';
 import { SyncTagsDto } from '../tag/dto/sync-tags.dto';
 import Tag from '../tag/entities/tag.entity';
+import { HomeService } from '../home/home.service';
 
 @Controller('cruxes')
 @UseGuards(AuthGuard)
@@ -43,6 +44,7 @@ export class CruxController {
     private readonly authorService: AuthorService,
     private readonly cruxService: CruxService,
     private readonly dbService: DbService,
+    private readonly homeService: HomeService,
   ) {}
 
   async canManageCrux(cruxKey: string, author: Author): Promise<boolean> {
@@ -99,7 +101,9 @@ export class CruxController {
     @Req() req: AuthRequest,
   ): Promise<Crux> {
     const author = await this.getAuthor(req);
+    const home = await this.homeService.primary();
     createCruxDto.authorId = author.id;
+    createCruxDto.homeId = home.id;
     return this.cruxService.create(createCruxDto);
   }
 
@@ -156,8 +160,10 @@ export class CruxController {
     @Req() req: AuthRequest,
   ): Promise<Dimension> {
     const author = await this.getAuthor(req);
+    const home = await this.homeService.primary();
     await this.canManageCrux(cruxKey, author);
     createDimensionDto.authorId = author.id;
+    createDimensionDto.homeId = home.id;
     return this.cruxService.createDimension(cruxKey, createDimensionDto);
   }
 

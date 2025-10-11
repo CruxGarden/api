@@ -19,6 +19,7 @@ describe('TagController', () => {
     resourceId: 'crux-123',
     label: 'test-tag',
     authorId: 'author-123',
+    homeId: 'home-id-123',
     system: false,
     created: new Date(),
     updated: new Date(),

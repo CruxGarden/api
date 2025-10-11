@@ -9,6 +9,7 @@ import { UpdateTagDto } from './dto/update-tag.dto';
 import { TagRepository } from './tag.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
+import { HomeService } from '../home/home.service';
 import TagRaw from './entities/tag-raw.entity';
 import Tag from './entities/tag.entity';
 import { ResourceType } from '../common/types/enums';
@@ -21,6 +22,7 @@ export class TagService {
     private readonly tagRepository: TagRepository,
     private readonly keyMaster: KeyMaster,
     private readonly loggerService: LoggerService,
+    private readonly homeService: HomeService,
   ) {
     this.logger = this.loggerService.createChildLogger('TagService');
     this.logger.debug('TagService initialized');
@@ -114,6 +116,8 @@ export class TagService {
     labels: string[],
     authorId: string,
   ): Promise<Tag[]> {
+    const home = await this.homeService.primary();
+
     // Normalize labels to lowercase
     const normalizedLabels = labels.map((label) => label.toLowerCase());
 
@@ -158,6 +162,7 @@ export class TagService {
         resourceId: resourceId,
         label: label,
         authorId: authorId,
+        homeId: home.id,
         system: false,
         created: new Date(),
         updated: new Date(),

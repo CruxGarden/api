@@ -6,6 +6,7 @@ export default interface MarkerRaw {
   order: number;
   note?: string;
   author_id: string;
+  home_id: string;
   created: Date;
   updated: Date;
   deleted: Date | null;

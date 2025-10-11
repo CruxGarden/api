@@ -14,6 +14,7 @@ import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { TagService } from '../tag/tag.service';
 import { CruxService } from '../crux/crux.service';
+import { HomeService } from '../home/home.service';
 import { ResourceType } from '../common/types/enums';
 import PathRaw from './entities/path-raw.entity';
 import Path from './entities/path.entity';
@@ -31,6 +32,7 @@ export class PathService {
     private readonly loggerService: LoggerService,
     private readonly tagService: TagService,
     private readonly cruxService: CruxService,
+    private readonly homeService: HomeService,
   ) {
     this.logger = this.loggerService.createChildLogger('PathService');
     this.logger.debug('PathService initialized');
@@ -151,6 +153,7 @@ export class PathService {
     authorId: string,
   ): Promise<Marker[]> {
     const path = await this.findByKey(pathKey);
+    const home = await this.homeService.primary();
 
     // 1) Delete all existing markers for this path
     const { error: deleteError } =
@@ -178,6 +181,7 @@ export class PathService {
         order: markerInput.order,
         note: markerInput.note,
         authorId,
+        homeId: home.id,
       };
 
       const { data, error } = await this.pathRepository.createMarker(markerDto);

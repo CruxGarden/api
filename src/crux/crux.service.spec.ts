@@ -29,6 +29,7 @@ describe('CruxService', () => {
     status: 'living' as const,
     visibility: 'public' as const,
     author_id: 'author-123',
+    home_id: 'home-id-123',
     meta: null,
     created: new Date(),
     updated: new Date(),

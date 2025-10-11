@@ -17,6 +17,7 @@ import { DimensionModule } from './dimension/dimension.module';
 import { PathModule } from './path/path.module';
 import { TagModule } from './tag/tag.module';
 import { ThemeModule } from './theme/theme.module';
+import { HomeModule } from './home/home.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { ThemeModule } from './theme/theme.module';
     PathModule,
     TagModule,
     ThemeModule,
+    HomeModule,
   ],
   controllers: [AppController],
   providers: [

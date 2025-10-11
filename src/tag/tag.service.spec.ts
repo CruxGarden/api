@@ -7,6 +7,7 @@ import { TagService } from './tag.service';
 import { TagRepository } from './tag.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
+import { HomeService } from '../home/home.service';
 import { ResourceType } from '../common/types/enums';
 
 describe('TagService', () => {
@@ -20,6 +21,7 @@ describe('TagService', () => {
     resource_id: 'crux-123',
     label: 'test-tag',
     author_id: 'author-123',
+    home_id: 'home-id-123',
     system: false,
     created: new Date(),
     updated: new Date(),
@@ -50,12 +52,22 @@ describe('TagService', () => {
       }),
     };
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-id-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TagService,
         { provide: TagRepository, useValue: mockRepository },
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
+        { provide: HomeService, useValue: mockHomeService },
       ],
     }).compile();
 

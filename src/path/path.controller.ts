@@ -33,6 +33,7 @@ import PathRaw from './entities/path-raw.entity';
 import Author from '../author/entities/author.entity';
 import Tag from '../tag/entities/tag.entity';
 import Marker from './entities/marker.entity';
+import { HomeService } from '../home/home.service';
 
 @Controller('paths')
 @UseGuards(AuthGuard)
@@ -44,6 +45,7 @@ export class PathController {
     private readonly authorService: AuthorService,
     private readonly pathService: PathService,
     private readonly dbService: DbService,
+    private readonly homeService: HomeService,
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('PathController');
@@ -104,7 +106,9 @@ export class PathController {
     @Req() req: AuthRequest,
   ): Promise<Path> {
     const author = await this.getAuthor(req);
+    const home = await this.homeService.primary();
     createPathDto.authorId = author.id;
+    createPathDto.homeId = home.id;
     return this.pathService.create(createPathDto);
   }
 

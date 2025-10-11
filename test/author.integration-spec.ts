@@ -5,6 +5,7 @@ import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
 import { AuthorRepository } from '../src/author/author.repository';
 import { CruxRepository } from '../src/crux/crux.repository';
+import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
 import { MockDbService } from './mocks/db.mock';
 import { success } from '../src/common/helpers/repository-helpers';
@@ -45,6 +46,7 @@ describe('Author Integration Tests', () => {
     status: 'living',
     visibility: 'public',
     author_id: testAuthorId,
+    home_id: testHomeCruxId,
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -74,6 +76,15 @@ describe('Author Integration Tests', () => {
       findBy: jest.fn(),
     } as any;
 
+    const mockHomeService = {
+      primary: jest.fn().mockResolvedValue({
+        id: 'home-123',
+        key: 'home-key',
+        name: 'Test Home',
+        primary: true,
+      }),
+    };
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -83,6 +94,8 @@ describe('Author Integration Tests', () => {
       .useValue(mockAuthorRepository)
       .overrideProvider(CruxRepository)
       .useValue(mockCruxRepository)
+      .overrideProvider(HomeService)
+      .useValue(mockHomeService)
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -235,6 +248,7 @@ describe('Author Integration Tests', () => {
         display_name: createAuthorDto.displayName,
         account_id: testAccountId,
         bio: createAuthorDto.bio,
+        home_id: 'home-123',
         created: new Date(),
         updated: new Date(),
         deleted: null,
