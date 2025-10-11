@@ -18,6 +18,7 @@ import { PathModule } from './path/path.module';
 import { TagModule } from './tag/tag.module';
 import { ThemeModule } from './theme/theme.module';
 import { HomeModule } from './home/home.module';
+import { AttachmentModule } from './attachment/attachment.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { HomeModule } from './home/home.module';
     TagModule,
     ThemeModule,
     HomeModule,
+    AttachmentModule,
   ],
   controllers: [AppController],
   providers: [
