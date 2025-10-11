@@ -1,12 +1,11 @@
-# Nursery Override Configuration - Extends docker-compose.prod.yml
+# Nursery Environment - Standalone Configuration
 # Production-like demo environment with sample data
-# Uses published Docker image but includes nursery/demo seeds
+# Uses published Docker image with bundled PostgreSQL and Redis
 # Perfect for: demos, trials, showcasing features, onboarding
-# Usage: docker-compose -f docker-compose.prod.yml -f docker-compose.nursery.yml up -d
-# Or: npm run docker:nursery
+# Usage: npm run docker:nursery
 
 services:
-  # Add PostgreSQL and Redis (since prod compose doesn't include them)
+  # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
     container_name: cruxgarden-postgres
@@ -24,6 +23,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: cruxgarden-redis
@@ -38,44 +38,49 @@ services:
       timeout: 5s
       retries: 5
 
-  # Override migrations to include nursery seeds and depend on local postgres
+  # Database Migrations (runs once before API starts)
   migrations:
+    image: ghcr.io/cruxgarden/api:latest
     container_name: cruxgarden-migrations-nursery
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      # Use production NODE_ENV but nursery knex environment
       NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL:-postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden}
+      DATABASE_URL: postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden
     command: ["npm", "run", "migrate:nursery"]
+    restart: "no"
 
-  # Override API to depend on migrations and local redis
+  # Crux Garden API - Nursery Configuration
   api:
+    image: ghcr.io/cruxgarden/api:latest
     container_name: cruxgarden-api-nursery
+    restart: unless-stopped
     depends_on:
       migrations:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    ports:
+      - "${PORT:-3000}:3000"
     environment:
       # Application
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
 
-      # Bundled Services (override to use local postgres/redis)
-      DATABASE_URL: ${DATABASE_URL:-postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Bundled Services
+      DATABASE_URL: postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden
+      REDIS_URL: redis://redis:6379
 
-      # Security (REQUIRED)
-      JWT_SECRET: ${JWT_SECRET}
+      # Security
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-min-32-chars-for-development-only}
 
-      # AWS SES (REQUIRED)
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # AWS SES (optional for nursery)
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummy}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummy}
       AWS_REGION: ${AWS_REGION:-us-east-1}
-      FROM_EMAIL_ADDRESS: ${FROM_EMAIL_ADDRESS}
+      FROM_EMAIL_ADDRESS: ${FROM_EMAIL_ADDRESS:-noreply@example.com}
 
       # Optional Configuration
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
@@ -86,6 +91,12 @@ services:
       DB_POOL_ACQUIRE_TIMEOUT: ${DB_POOL_ACQUIRE_TIMEOUT:-60000}
       RATE_LIMIT_TTL: ${RATE_LIMIT_TTL:-60000}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   postgres_data:
