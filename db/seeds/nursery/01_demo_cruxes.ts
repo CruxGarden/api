@@ -1,6 +1,8 @@
 import { Knex } from "knex";
 
 export async function seed(knex: Knex): Promise<void> {
+    const authorId = 'e7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
+
     // Demo cruxes for the nursery environment
     const demoCruxes = [
         {
@@ -13,7 +15,7 @@ export async function seed(knex: Knex): Promise<void> {
             type: 'note',
             status: 'living',
             visibility: 'public',
-            author_id: 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96', // The Keeper
+            author_id: authorId,
             created: new Date(),
             updated: new Date(),
         },
@@ -27,7 +29,7 @@ export async function seed(knex: Knex): Promise<void> {
             type: 'note',
             status: 'living',
             visibility: 'public',
-            author_id: 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96',
+            author_id: authorId,
             created: new Date(),
             updated: new Date(),
         },
@@ -41,7 +43,7 @@ export async function seed(knex: Knex): Promise<void> {
             type: 'note',
             status: 'living',
             visibility: 'public',
-            author_id: 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96',
+            author_id: authorId,
             created: new Date(),
             updated: new Date(),
         },

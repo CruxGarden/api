@@ -1,8 +1,7 @@
 import { Knex } from "knex";
 
 export async function seed(knex: Knex): Promise<void> {
-    // Production-only system cruxes
-    // Example: Terms of Service, Privacy Policy, Welcome Messages
+    const authorId = 'e7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
     const systemCruxes = [
         {
             id: 'c4d5e6f7-a8b9-4012-d345-ef6789012345',
@@ -14,7 +13,7 @@ export async function seed(knex: Knex): Promise<void> {
             type: 'system',
             status: 'frozen',
             visibility: 'public',
-            author_id: 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96', // The Keeper
+            author_id: authorId,
             created: new Date(),
             updated: new Date(),
         },
@@ -28,7 +27,7 @@ export async function seed(knex: Knex): Promise<void> {
             type: 'system',
             status: 'frozen',
             visibility: 'public',
-            author_id: 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96',
+            author_id: authorId,
             created: new Date(),
             updated: new Date(),
         },
