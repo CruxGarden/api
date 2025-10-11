@@ -364,7 +364,6 @@ describe('Author Integration Tests', () => {
         .send(updateAuthorDto)
         .expect(401);
     });
-
   });
 
   describe('DELETE /authors/:authorKey', () => {

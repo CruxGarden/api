@@ -179,7 +179,10 @@ describe('Path Integration Tests', () => {
         slug: 'test-path',
         title: 'Test Path',
       });
-      expect(mockPathRepository.findBy).toHaveBeenCalledWith('key', testPathKey);
+      expect(mockPathRepository.findBy).toHaveBeenCalledWith(
+        'key',
+        testPathKey,
+      );
     });
 
     it('should return 404 when path not found', async () => {
@@ -583,9 +586,7 @@ describe('Path Integration Tests', () => {
 
     it('should return 404 when path not found', async () => {
       const token = generateToken(testAccountId);
-      mockTagService.getTags.mockRejectedValue(
-        new Error('Path not found'),
-      );
+      mockTagService.getTags.mockRejectedValue(new Error('Path not found'));
 
       await request(app.getHttpServer())
         .get('/paths/nonexistent/tags')

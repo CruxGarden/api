@@ -34,7 +34,10 @@ describe('Tag Integration Tests', () => {
     system: false,
   };
 
-  const generateToken = (accountId: string, role: string = 'author'): string => {
+  const generateToken = (
+    accountId: string,
+    role: string = 'author',
+  ): string => {
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role },
       process.env.JWT_SECRET || 'test-secret',
@@ -179,9 +182,7 @@ describe('Tag Integration Tests', () => {
     });
 
     it('should return 401 when no token provided', async () => {
-      await request(app.getHttpServer())
-        .get(`/tags/${testTagKey}`)
-        .expect(401);
+      await request(app.getHttpServer()).get(`/tags/${testTagKey}`).expect(401);
     });
   });
 

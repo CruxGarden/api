@@ -92,7 +92,9 @@ describe('Account Integration Tests', () => {
         email: testEmail,
         role: 'author',
       });
-      expect(mockAccountRepository.findById).toHaveBeenCalledWith(testAccountId);
+      expect(mockAccountRepository.findById).toHaveBeenCalledWith(
+        testAccountId,
+      );
     });
 
     it('should return 401 when no token provided', async () => {
@@ -132,7 +134,9 @@ describe('Account Integration Tests', () => {
 
       mockAccountRepository.findById.mockResolvedValue(success(testAccountRaw));
       mockAccountRepository.findByEmail.mockResolvedValue(success(null)); // No email conflict
-      mockAccountRepository.update.mockResolvedValue(success(updatedAccountRaw));
+      mockAccountRepository.update.mockResolvedValue(
+        success(updatedAccountRaw),
+      );
 
       const response = await request(app.getHttpServer())
         .patch('/account')
