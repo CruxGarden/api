@@ -7,8 +7,9 @@ import ShortUniqueId from 'short-unique-id';
 const UID_DICTIONARY =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'.split('');
 
-// 11 characters with 64-char alphabet = 64^11 = ~73 quintillion unique IDs
-const DEFAULT_KEY_LENGTH = 11;
+// 16 characters with 64-char alphabet = 64^16 = ~79 octillion unique IDs
+// 50% collision probability at ~280 trillion IDs
+const DEFAULT_KEY_LENGTH = 16;
 
 @Injectable()
 export class KeyMaster {

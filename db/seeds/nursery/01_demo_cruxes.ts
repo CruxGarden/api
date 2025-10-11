@@ -1,13 +1,25 @@
 import { Knex } from "knex";
+import { KeyMaster } from "../../../src/common/services/key.master";
+const keyMaster = new KeyMaster();
 
 export async function seed(knex: Knex): Promise<void> {
     const authorId = 'e7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
 
+    // Look up the primary home
+    const primaryHome = await knex("homes")
+        .where({ primary: true })
+        .whereNull('deleted')
+        .first();
+
+    if (!primaryHome) {
+        throw new Error('Primary home not found. Run 00_home.ts seed first.');
+    }
+
     // Demo cruxes for the nursery environment
     const demoCruxes = [
         {
-            id: 'f1a2b3c4-d5e6-4789-a012-bcdef3456789',
-            key: 'demo_crux_001',
+            id: keyMaster.generateId(),
+            key: keyMaster.generateKey(),
             slug: 'the-garden-metaphor',
             title: 'The Garden Metaphor',
             description: 'Ideas, like plants, need the right conditions to grow. A garden is not just a collection of seeds—it\'s an ecosystem where each element influences the others.',
@@ -16,12 +28,13 @@ export async function seed(knex: Knex): Promise<void> {
             status: 'living',
             visibility: 'public',
             author_id: authorId,
+            home_id: primaryHome.id,
             created: new Date(),
             updated: new Date(),
         },
         {
-            id: 'a2b3c4d5-e6f7-4890-b123-cdef45678901',
-            key: 'demo_crux_002',
+            id: keyMaster.generateId(),
+            key: keyMaster.generateKey(),
             slug: 'interconnected-thinking',
             title: 'Interconnected Thinking',
             description: 'No idea exists in isolation. The connections between ideas are often more valuable than the ideas themselves.',
@@ -30,12 +43,13 @@ export async function seed(knex: Knex): Promise<void> {
             status: 'living',
             visibility: 'public',
             author_id: authorId,
+            home_id: primaryHome.id,
             created: new Date(),
             updated: new Date(),
         },
         {
-            id: 'b3c4d5e6-f7a8-4901-c234-def567890123',
-            key: 'demo_crux_003',
+            id: keyMaster.generateId(),
+            key: keyMaster.generateKey(),
             slug: 'digital-gardens-vs-notes',
             title: 'Digital Gardens vs Traditional Notes',
             description: 'Traditional note-taking is linear and hierarchical. Digital gardens embrace organic growth, emergence, and serendipity.',
@@ -44,6 +58,7 @@ export async function seed(knex: Knex): Promise<void> {
             status: 'living',
             visibility: 'public',
             author_id: authorId,
+            home_id: primaryHome.id,
             created: new Date(),
             updated: new Date(),
         },

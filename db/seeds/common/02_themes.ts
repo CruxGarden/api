@@ -1,12 +1,26 @@
 import { Knex } from "knex";
+import { KeyMaster } from "../../../src/common/services/key.master";
+const keyMaster = new KeyMaster();
 
 export async function seed(knex: Knex): Promise<void> {
     const authorId = 'e7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
+
+    // Look up the primary home
+    const primaryHome = await knex("homes")
+        .where({ primary: true })
+        .whereNull('deleted')
+        .first();
+
+    if (!primaryHome) {
+        throw new Error('Primary home not found. Run 00_home.ts seed first.');
+    }
+
     const themes = [
         {
-            id: 'a1b2c3d4-e5f6-4890-ab12-cd34ef567890',
-            key: 'E8ZWg1SUjER',
+            id: keyMaster.generateId(),
+            key: keyMaster.generateKey(),
             author_id: authorId,
+            home_id: primaryHome.id,
             title: 'Midnight Shadow',
             description: 'A sleek dark theme with deep blacks and subtle accents, perfect for focused work in low-light environments',
             primary_color: '#0f0f0f',      // Deep black
@@ -17,9 +31,10 @@ export async function seed(knex: Knex): Promise<void> {
             updated: new Date(),
         },
         {
-            id: 'b2c3d4e5-f6a7-4801-bc23-de45ab678901',
-            key: 'kLSrWqfLP6D',
+            id: keyMaster.generateId(),
+            key: keyMaster.generateKey(),
             author_id: authorId,
+            home_id: primaryHome.id,
             title: 'Arctic Breeze',
             description: 'A clean and minimalist light theme with crisp whites and soft grays for maximum readability',
             primary_color: '#ffffff',      // Pure white
@@ -30,9 +45,10 @@ export async function seed(knex: Knex): Promise<void> {
             updated: new Date(),
         },
         {
-            id: 'c3d4e5f6-a7b8-4012-cd34-ef56ab789012',
-            key: 'l0mkAWPe3ft',
+            id: keyMaster.generateId(),
+            key: keyMaster.generateKey(),
             author_id: authorId,
+            home_id: primaryHome.id,
             title: 'Corporate Elite',
             description: 'A professional business theme with navy blues and sophisticated grays, ideal for presentations and formal documents',
             primary_color: '#1e3a8a',      // Navy blue
@@ -43,9 +59,10 @@ export async function seed(knex: Knex): Promise<void> {
             updated: new Date(),
         },
         {
-            id: 'd4e5f6a7-b8c9-4123-de45-ab67cd890123',
-            key: 'lIj109_OuUW',
+            id: keyMaster.generateId(),
+            key: keyMaster.generateKey(),
             author_id: authorId,
+            home_id: primaryHome.id,
             title: 'Sunset Canvas',
             description: 'A vibrant creative theme inspired by golden hour sunsets, featuring warm oranges and artistic gradients',
             primary_color: '#ea580c',      // Bright orange
@@ -56,9 +73,10 @@ export async function seed(knex: Knex): Promise<void> {
             updated: new Date(),
         },
         {
-            id: 'e5f6a7b8-c9d0-4234-ef56-ab78cd901234',
-            key: 'WZKoUfYgI6l',
+            id: keyMaster.generateId(),
+            key: keyMaster.generateKey(),
             author_id: authorId,
+            home_id: primaryHome.id,
             title: 'Neon Glitch',
             description: 'A wild cyberpunk theme with electric colors and futuristic vibes, for those who dare to be different',
             primary_color: '#10b981',      // Electric green
