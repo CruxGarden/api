@@ -8,15 +8,15 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
-    container_name: cruxgarden-postgres
+    container_name: cruxgarden-postgres-nursery
     environment:
       POSTGRES_DB: cruxgarden
       POSTGRES_USER: cruxgarden
       POSTGRES_PASSWORD: cruxgarden_dev_password
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_nursery:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cruxgarden"]
       interval: 5s
@@ -26,12 +26,12 @@ services:
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: cruxgarden-redis
+    container_name: cruxgarden-redis-nursery
     command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
-      - redis_data:/data
+      - redis_data_nursery:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -62,7 +62,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "${PORT:-3000}:3000"
+      - "${PORT:-3001}:3000"
     environment:
       # Application
       NODE_ENV: production
@@ -99,5 +99,5 @@ services:
       start_period: 40s
 
 volumes:
-  postgres_data:
-  redis_data:
+  postgres_data_nursery:
+  redis_data_nursery:

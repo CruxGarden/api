@@ -2,7 +2,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
-    container_name: cruxgarden-postgres
+    container_name: cruxgarden-postgres-dev
     environment:
       POSTGRES_DB: cruxgarden
       POSTGRES_USER: cruxgarden
@@ -10,7 +10,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_dev:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cruxgarden"]
       interval: 5s
@@ -20,12 +20,12 @@ services:
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: cruxgarden-redis
+    container_name: cruxgarden-redis-dev
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - redis_data_dev:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -37,7 +37,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: cruxgarden-migrations
+    container_name: cruxgarden-migrations-dev
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,7 +52,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: cruxgarden-api
+    container_name: cruxgarden-api-dev
     depends_on:
       migrations:
         condition: service_completed_successfully
@@ -97,5 +97,5 @@ services:
       start_period: 40s
 
 volumes:
-  postgres_data:
-  redis_data:
+  postgres_data_dev:
+  redis_data_dev:
