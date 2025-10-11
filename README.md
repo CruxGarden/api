@@ -1,11 +1,5 @@
 <div align="center">
   <img src=".github/banner.jpg" alt="Crux Garden - Where Ideas Grow" width="100%">
-
-  <p>
-    <a href="https://github.com/CruxGarden/api/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-    <a href="https://github.com/CruxGarden/api/issues"><img src="https://img.shields.io/github/issues/CruxGarden/api" alt="Issues"></a>
-    <a href="https://github.com/CruxGarden/api/stargazers"><img src="https://img.shields.io/github/stars/CruxGarden/api" alt="Stars"></a>
-  </p>
 </div>
 
 ## What is Crux Garden?
