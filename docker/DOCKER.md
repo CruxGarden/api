@@ -1,15 +1,14 @@
 # Docker Deployment Guide
 
-This guide explains how to use the three Docker environments for Crux Garden API: **Development**, **Nursery**, and **Production**.
+This guide explains how to use the two Docker environments for Crux Garden API: **Development** and **Production**.
 
 ## Overview
 
-Crux Garden provides three distinct Docker environments, each optimized for different use cases:
+Crux Garden provides two distinct Docker environments, each optimized for different use cases:
 
 | Environment     | Purpose                      | Image Source    | Database/Redis                   | Data Seeds                  |
 |-----------------|------------------------------|-----------------|----------------------------------|-----------------------------|
 | **Development** | Local development            | Local build     | Bundled (PostgreSQL + Redis)     | Common only                 |
-| **Nursery**     | Production-like demos/trials | Published image | Bundled (PostgreSQL + Redis)     | Common + Demo data          |
 | **Production**  | Live deployment              | Published image | External (bring your own)        | Common + System data        |
 
 ## Common Features
@@ -95,93 +94,6 @@ Development runs **common seeds only**:
 
 - `db/seeds/common/01_keeper_account.ts` - System account (The Keeper)
 - `db/seeds/common/02_themes.ts` - Default themes
-
----
-
-## Nursery Environment
-
-### Purpose
-
-Production-like environment for **demos**, **trials**, and **showcasing features**. Uses the published Docker image with bundled PostgreSQL and Redis, pre-loaded with demo data.
-
-### Architecture
-
-```text
-┌─────────────┐
-│  Postgres   │
-│  (bundled)  │
-└──────┬──────┘
-       │
-┌──────▼──────────┐
-│   Migrations    │ (ephemeral)
-│ (published img) │
-└──────┬──────────┘
-       │
-┌──────▼──────────┐     ┌─────────────┐
-│      API        │────▶│    Redis    │
-│ (published img) │     │  (bundled)  │
-└─────────────────┘     └─────────────┘
-```
-
-### Quick Start
-
-```bash
-# Start nursery environment
-npm run docker:nursery
-
-# API will be running at http://localhost:3001
-# PostgreSQL on localhost:5433
-# Redis on localhost:6380
-
-# View logs (all services)
-npm run docker:nursery:logs
-
-# Stop nursery
-npm run docker:nursery:down
-
-# Pull latest published image
-npm run docker:nursery:pull
-
-# Complete fresh reset (wipes database!)
-npm run docker:nursery:reset
-```
-
-### How It Works
-
-Nursery uses **Docker Compose override pattern**:
-
-1. Starts with `docker-compose.prod.yml` (uses published image)
-2. Applies `docker-compose.nursery.yml` overrides (adds postgres/redis, changes seeds)
-3. Runs migrations with `--env nursery` to load demo data
-
-### Environment Variables
-
-Same as development, but uses published image:
-
-```bash
-# .env (minimal for nursery)
-JWT_SECRET=your-super-secret-jwt-key-min-32-chars
-
-# Optional (bundled services provided)
-AWS_ACCESS_KEY_ID=your-key-id
-AWS_SECRET_ACCESS_KEY=your-secret
-FROM_EMAIL_ADDRESS=demo@example.com
-```
-
-### Data Seeds
-
-Nursery runs **common + nursery seeds**:
-
-- `db/seeds/common/01_keeper_account.ts` - System account
-- `db/seeds/common/02_themes.ts` - Default themes
-- `db/seeds/nursery/01_demo_cruxes.ts` - Demo cruxes (Garden Metaphor, etc.)
-
-### Use Cases
-
-- **Product Demos**: Show features with realistic data
-- **Trials**: Let users explore without signing up
-- **Onboarding**: Help new users understand the system
-- **QA Testing**: Test with production-like setup
 
 ---
 
@@ -302,26 +214,7 @@ npm run docker:dev:db           # Start only postgres + redis
 npm run docker:dev:db:stop      # Stop postgres + redis
 ```
 
-### Nursery Commands
-
-```bash
-# Start/Stop
-npm run docker:nursery          # Start all services
-npm run docker:nursery:down     # Stop all services
-npm run docker:nursery:logs     # View all service logs
-
-# Updating/Resetting
-npm run docker:nursery:pull     # Pull latest published image
-npm run docker:nursery:reset    # Complete fresh reset (⚠️ wipes database!)
-
-# Database Management
-npm run docker:nursery:db       # Start only postgres + redis
-npm run docker:nursery:db:stop  # Stop postgres + redis
-```
-
-### Shared Commands
-
-These work for both dev and nursery (whichever is currently running):
+### Database/Redis Commands
 
 ```bash
 npm run docker:db:connect       # Connect to PostgreSQL (psql)
@@ -339,13 +232,6 @@ cd docker
 docker-compose --env-file ../.env -f docker-compose.dev.yml up -d
 docker-compose --env-file ../.env -f docker-compose.dev.yml down
 docker-compose --env-file ../.env -f docker-compose.dev.yml logs -f api
-
-# Nursery
-cd docker
-docker-compose --env-file ../.env \
-  -f docker-compose.prod.yml \
-  -f docker-compose.nursery.yml \
-  up -d
 
 # Production
 cd docker
@@ -389,11 +275,8 @@ npm run migrate:nursery
 If migrations fail:
 
 ```bash
-# View migration container logs (dev)
+# View migration container logs
 docker logs cruxgarden-migrations
-
-# View migration container logs (nursery)
-docker logs cruxgarden-migrations-nursery
 
 # Check migration status locally
 npm run migrate:status
@@ -409,9 +292,6 @@ npm run migrate:status
 # Development
 npm run docker:dev:down
 
-# Nursery
-npm run docker:nursery:down
-
 # Manual cleanup with volumes (⚠️ deletes data)
 cd docker
 docker-compose --env-file ../.env -f docker-compose.dev.yml down -v
@@ -424,9 +304,6 @@ For a complete fresh start with database wiped:
 ```bash
 # Dev: Stop everything, delete volumes, rebuild from source
 npm run docker:dev:reset
-
-# Nursery: Stop everything, delete volumes, pull latest image
-npm run docker:nursery:reset
 ```
 
 ⚠️ **Warning**: Reset commands delete all volumes, including database data!
@@ -437,11 +314,11 @@ npm run docker:nursery:reset
 
 Port mappings for each environment:
 
-| Service    | Dev Port | Nursery Port | Notes                              |
-|------------|----------|--------------|-------------------------------------|
-| API        | 3000     | 3001         | Different ports allow running both simultaneously |
-| PostgreSQL | 5432     | 5433         | Bundled in dev/nursery only        |
-| Redis      | 6379     | 6380         | Bundled in dev/nursery only        |
+| Service    | Dev Port | Notes                              |
+|------------|----------|-------------------------------------|
+| API        | 3000     | Main API endpoint                   |
+| PostgreSQL | 5432     | Bundled in dev only                 |
+| Redis      | 6379     | Bundled in dev only                 |
 
 **Production** uses external DATABASE_URL and REDIS_URL (no local ports).
 
