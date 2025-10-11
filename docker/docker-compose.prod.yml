@@ -1,3 +1,5 @@
+name: cruxgarden
+
 services:
   # Database Migrations (runs once before API starts)
   # Requires external DATABASE_URL

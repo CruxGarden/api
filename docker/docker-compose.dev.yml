@@ -1,8 +1,10 @@
+name: cruxgarden-dev
+
 services:
   # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
-    container_name: cruxgarden-postgres-dev
+    container_name: cruxgarden-dev-postgres
     environment:
       POSTGRES_DB: cruxgarden
       POSTGRES_USER: cruxgarden
@@ -20,7 +22,7 @@ services:
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: cruxgarden-redis-dev
+    container_name: cruxgarden-dev-redis
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
@@ -37,7 +39,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: cruxgarden-migrations-dev
+    container_name: cruxgarden-dev-migrations
     depends_on:
       postgres:
         condition: service_healthy
@@ -46,13 +48,17 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden}
     command: ["npm", "run", "migrate:prod"]
     restart: "no"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
 
   # Crux Garden API
   api:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: cruxgarden-api-dev
+    container_name: cruxgarden-dev-api
     depends_on:
       migrations:
         condition: service_completed_successfully
