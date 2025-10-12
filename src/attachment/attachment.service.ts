@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { toEntityFields } from '../common/helpers/case-helpers';
@@ -10,17 +11,32 @@ import { UpdateAttachmentDto } from './dto/update-attachment.dto';
 import { AttachmentRepository } from './attachment.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
+import { StoreService } from '../common/services/store.service';
 import AttachmentRaw from './entities/attachment-raw.entity';
 import Attachment from './entities/attachment.entity';
+import { UploadAttachmentDto } from './dto/upload-attachment.dto';
+import * as mime from 'mime-types';
+
+// Type for uploaded files from multer
+interface UploadedFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  buffer: Buffer;
+  size: number;
+}
 
 @Injectable()
 export class AttachmentService {
   private readonly logger: LoggerService;
+  private readonly maxFileSize = 50 * 1024 * 1024; // 50MB in bytes
 
   constructor(
     private readonly attachmentRepository: AttachmentRepository,
     private readonly keyMaster: KeyMaster,
     private readonly loggerService: LoggerService,
+    private readonly storeService: StoreService,
   ) {
     this.logger = this.loggerService.createChildLogger('AttachmentService');
     this.logger.debug('AttachmentService initialized');
@@ -131,5 +147,244 @@ export class AttachmentService {
     }
 
     return null;
+  }
+
+  /**
+   * Generate storage path for attachment
+   * Format: resource_type/resource_id/attachment_id.extension
+   */
+  getStoragePath(attachment: {
+    resourceType: string;
+    resourceId: string;
+    id: string;
+    mimeType: string;
+  }): string {
+    const extension = mime.extension(attachment.mimeType);
+    const ext = extension ? `.${extension}` : '';
+    return `${attachment.resourceType}/${attachment.resourceId}/${attachment.id}${ext}`;
+  }
+
+  /**
+   * Validate uploaded file
+   */
+  validateFile(file: UploadedFile): void {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    if (file.size > this.maxFileSize) {
+      throw new BadRequestException(
+        `File size exceeds maximum allowed size of ${this.maxFileSize / 1024 / 1024}MB`,
+      );
+    }
+
+    if (!file.mimetype) {
+      throw new BadRequestException('File MIME type could not be determined');
+    }
+  }
+
+  /**
+   * Create attachment with file upload
+   */
+  async createWithFile(
+    resourceType: string,
+    resourceId: string,
+    homeId: string,
+    authorId: string,
+    uploadDto: UploadAttachmentDto,
+    file: UploadedFile,
+  ): Promise<Attachment> {
+    this.validateFile(file);
+
+    // Parse meta if provided as JSON string
+    let meta = uploadDto.meta;
+    if (typeof uploadDto.meta === 'string') {
+      try {
+        meta = JSON.parse(uploadDto.meta);
+      } catch {
+        throw new BadRequestException('Invalid JSON in meta field');
+      }
+    }
+
+    // Create attachment DTO
+    const id = this.keyMaster.generateId();
+    const key = this.keyMaster.generateKey();
+
+    const createDto: CreateAttachmentDto = {
+      id,
+      key,
+      type: uploadDto.type,
+      kind: uploadDto.kind,
+      meta,
+      resourceId,
+      resourceType,
+      authorId,
+      homeId,
+      encoding: file.encoding || '7bit',
+      mimeType: file.mimetype,
+      filename: file.originalname,
+      size: file.size,
+    };
+
+    // Generate storage path
+    const storagePath = this.getStoragePath({
+      resourceType,
+      resourceId,
+      id,
+      mimeType: file.mimetype,
+    });
+
+    // Upload to storage
+    try {
+      await this.storeService.upload({
+        path: storagePath,
+        data: file.buffer,
+      });
+    } catch (error) {
+      this.logger.error(`Storage upload failed: ${error.message}`);
+      throw new InternalServerErrorException('File upload failed');
+    }
+
+    // Save to database
+    const created = await this.attachmentRepository.create(createDto);
+    if (created.error) {
+      // Cleanup storage if database save fails
+      try {
+        await this.storeService.delete({ path: storagePath });
+      } catch (cleanupError) {
+        this.logger.error(`Storage cleanup failed: ${cleanupError.message}`);
+      }
+      throw new InternalServerErrorException(
+        `Attachment creation error: ${created.error}`,
+      );
+    }
+
+    return this.asAttachment(created.data);
+  }
+
+  /**
+   * Update attachment with optional file replacement
+   */
+  async updateWithFile(
+    attachmentKey: string,
+    updateDto: UpdateAttachmentDto,
+    file?: UploadedFile,
+  ): Promise<Attachment> {
+    const attachmentToUpdate = await this.findByKey(attachmentKey);
+    const oldStoragePath = this.getStoragePath(attachmentToUpdate);
+
+    // If file provided, validate and upload
+    if (file) {
+      this.validateFile(file);
+
+      // Update file-related fields
+      updateDto.encoding = file.encoding || '7bit';
+      updateDto.mimeType = file.mimetype;
+      updateDto.filename = file.originalname;
+      updateDto.size = file.size;
+
+      // Generate new storage path (might be different if mimeType changed)
+      const newAttachment = { ...attachmentToUpdate, ...updateDto };
+      const newStoragePath = this.getStoragePath(newAttachment);
+
+      // Upload new file
+      try {
+        await this.storeService.upload({
+          path: newStoragePath,
+          data: file.buffer,
+        });
+
+        // Delete old file if path changed
+        if (oldStoragePath !== newStoragePath) {
+          try {
+            await this.storeService.delete({ path: oldStoragePath });
+          } catch (deleteError) {
+            this.logger.warn(
+              `Failed to delete old storage file: ${deleteError.message}`,
+            );
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Storage upload failed: ${error.message}`);
+        throw new InternalServerErrorException('File upload failed');
+      }
+    }
+
+    // Update database
+    const updated = await this.attachmentRepository.update(
+      attachmentToUpdate.id,
+      updateDto,
+    );
+    if (updated.error) {
+      throw new InternalServerErrorException(
+        `Attachment update error: ${updated.error}`,
+      );
+    }
+
+    return this.asAttachment(updated.data);
+  }
+
+  /**
+   * Delete attachment and remove file from storage
+   */
+  async deleteWithFile(attachmentKey: string): Promise<null> {
+    const attachmentToDelete = await this.findByKey(attachmentKey);
+    if (!attachmentToDelete) {
+      throw new NotFoundException('Attachment not found');
+    }
+
+    // Delete from storage
+    const storagePath = this.getStoragePath(attachmentToDelete);
+    try {
+      await this.storeService.delete({ path: storagePath });
+    } catch (error) {
+      this.logger.warn(`Storage deletion failed: ${error.message}`);
+      // Continue with database deletion even if storage fails
+    }
+
+    // Soft delete from database
+    const { error: deleteError } = await this.attachmentRepository.delete(
+      attachmentToDelete.id,
+    );
+    if (deleteError) {
+      throw new InternalServerErrorException(
+        `Attachment deletion error: ${deleteError}`,
+      );
+    }
+
+    return null;
+  }
+
+  /**
+   * Get query for attachments by resource
+   */
+  getAttachmentsByResourceQuery(
+    resourceType: string,
+    resourceId: string,
+  ): Knex.QueryBuilder<AttachmentRaw, AttachmentRaw[]> {
+    return this.attachmentRepository
+      .findAllQuery()
+      .where('resource_type', resourceType)
+      .where('resource_id', resourceId);
+  }
+
+  /**
+   * Download attachment file from storage
+   */
+  async downloadAttachment(attachmentKey: string) {
+    const attachment = await this.findByKey(attachmentKey);
+    const storagePath = this.getStoragePath(attachment);
+
+    try {
+      const result = await this.storeService.download({ path: storagePath });
+      return {
+        data: result.data,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+      };
+    } catch (error) {
+      this.logger.error(`Storage download failed: ${error.message}`);
+      throw new NotFoundException('Attachment file not found in storage');
+    }
   }
 }

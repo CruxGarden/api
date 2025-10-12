@@ -9,9 +9,9 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiBadRequestResponse,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { CreateAttachmentDto } from './dto/create-attachment.dto';
-import { UpdateAttachmentDto } from './dto/update-attachment.dto';
 
 // Helper function to combine multiple decorators
 const combineDecorators = (...decorators: any[]) => {
@@ -139,23 +139,66 @@ export const AttachmentSwagger = {
       ApiOperation({
         summary: 'Update an attachment',
         description:
-          'Updates an existing attachment with the provided data. Requires authentication and ownership.',
+          'Updates an existing attachment. Optionally upload a new file to replace the existing one. Max file size: 50MB. Requires authentication and ownership.',
       }),
       ApiParam({
         name: 'attachmentKey',
         description: 'The unique key of the attachment to update',
         example: 'TKSoWfISLG_',
       }),
-      ApiBody({ type: UpdateAttachmentDto }),
+      ApiConsumes('multipart/form-data'),
+      ApiBody({
+        schema: {
+          type: 'object',
+          properties: {
+            file: {
+              type: 'string',
+              format: 'binary',
+              description: 'Optional: New file to replace existing (max 50MB)',
+            },
+            type: {
+              type: 'string',
+              description: 'Type of attachment',
+              example: 'image',
+            },
+            kind: {
+              type: 'string',
+              description: 'Kind of attachment',
+              example: 'photo',
+            },
+            meta: {
+              type: 'string',
+              description: 'Optional metadata as JSON string',
+              example: '{"width": 1920, "height": 1080}',
+            },
+          },
+        },
+      }),
       ApiBearerAuth(),
       ApiResponse({
         status: 200,
         description: 'The attachment has been successfully updated.',
+        schema: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            key: { type: 'string', example: 'TKSoWfISLG_' },
+            type: { type: 'string', example: 'image' },
+            kind: { type: 'string', example: 'photo' },
+            filename: { type: 'string', example: 'screenshot.png' },
+            mimeType: { type: 'string', example: 'image/png' },
+            size: { type: 'number', example: 1024000 },
+            created: { type: 'string', format: 'date-time' },
+            updated: { type: 'string', format: 'date-time' },
+          },
+        },
       }),
       ApiUnauthorizedResponse({ description: 'Authentication required' }),
       ApiForbiddenResponse({ description: 'Insufficient permissions' }),
       ApiNotFoundResponse({ description: 'Attachment not found' }),
-      ApiBadRequestResponse({ description: 'Invalid input data' }),
+      ApiBadRequestResponse({
+        description: 'Invalid input data or file exceeds size limit',
+      }),
     ),
 
   Delete: () =>

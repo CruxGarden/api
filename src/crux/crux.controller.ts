@@ -10,12 +10,17 @@ import {
   Req,
   Res,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   HttpCode,
   HttpStatus,
   NotFoundException,
   ForbiddenException,
   Query,
+  Header,
+  StreamableFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { AuthRequest } from '../common/types/interfaces';
 import { CruxService } from './crux.service';
@@ -35,6 +40,8 @@ import { DimensionType } from '../common/types/enums';
 import { SyncTagsDto } from '../tag/dto/sync-tags.dto';
 import Tag from '../tag/entities/tag.entity';
 import { HomeService } from '../home/home.service';
+import { UploadAttachmentDto } from '../attachment/dto/upload-attachment.dto';
+import Attachment from '../attachment/entities/attachment.entity';
 
 @Controller('cruxes')
 @UseGuards(AuthGuard)
@@ -177,7 +184,6 @@ export class CruxController {
     @Param('cruxKey') cruxKey: string,
     @Query('filter') filter?: string,
   ): Promise<Tag[]> {
-    await this.getCruxByKey(cruxKey);
     return this.cruxService.getTags(cruxKey, filter);
   }
 
@@ -194,4 +200,63 @@ export class CruxController {
   }
 
   /* ~crux tags */
+
+  /* crux attachments */
+
+  @Get(':cruxKey/attachments')
+  @CruxSwagger.GetAttachments()
+  async getAttachments(
+    @Param('cruxKey') cruxKey: string,
+  ): Promise<Attachment[]> {
+    return this.cruxService.getAttachments(cruxKey);
+  }
+
+  @Post(':cruxKey/attachments')
+  @CruxSwagger.CreateAttachment()
+  @UseInterceptors(FileInterceptor('file'))
+  async createAttachment(
+    @Param('cruxKey') cruxKey: string,
+    @Body() uploadDto: UploadAttachmentDto,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: AuthRequest,
+  ): Promise<Attachment> {
+    const author = await this.getAuthor(req);
+    await this.canManageCrux(cruxKey, author);
+
+    return this.cruxService.createAttachment(
+      cruxKey,
+      uploadDto,
+      file,
+      author.id,
+    );
+  }
+
+  @Get(':cruxKey/attachments/:attachmentKey/download')
+  @CruxSwagger.DownloadAttachment()
+  @Header('Cache-Control', 'max-age=31536000')
+  async downloadAttachment(
+    @Param('cruxKey') cruxKey: string,
+    @Param('attachmentKey') attachmentKey: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    await this.getCruxByKey(cruxKey); // Verify crux exists and apply access control
+    const file = await this.cruxService.downloadAttachment(
+      cruxKey,
+      attachmentKey,
+    );
+
+    if (!file) {
+      throw new NotFoundException('Attachment file not found');
+    }
+
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.filename}"`,
+    );
+
+    return new StreamableFile(file.data);
+  }
+
+  /* ~crux attachments */
 }

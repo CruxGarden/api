@@ -20,6 +20,9 @@ import { CreateDimensionDto } from '../dimension/dto/create-dimension.dto';
 import { UpdateDimensionDto } from '../dimension/dto/update-dimension.dto';
 import { TagService } from '../tag/tag.service';
 import Tag from '../tag/entities/tag.entity';
+import { AttachmentService } from '../attachment/attachment.service';
+import Attachment from '../attachment/entities/attachment.entity';
+import { UploadAttachmentDto } from '../attachment/dto/upload-attachment.dto';
 
 @Injectable()
 export class CruxService {
@@ -31,6 +34,7 @@ export class CruxService {
     private readonly loggerService: LoggerService,
     private readonly dimensionService: DimensionService,
     private readonly tagService: TagService,
+    private readonly attachmentService: AttachmentService,
   ) {
     this.logger = this.loggerService.createChildLogger('CruxService');
     this.logger.debug('CruxService initialized');
@@ -155,7 +159,8 @@ export class CruxService {
   /* crux tags */
 
   async getTags(cruxKey: string, filter?: string): Promise<Tag[]> {
-    return this.tagService.getTags(ResourceType.CRUX, cruxKey, filter);
+    const crux = await this.findByKey(cruxKey);
+    return this.tagService.getTags(ResourceType.CRUX, crux.id, filter);
   }
 
   async syncTags(
@@ -163,13 +168,55 @@ export class CruxService {
     labels: string[],
     authorId: string,
   ): Promise<Tag[]> {
+    const crux = await this.findByKey(cruxKey);
     return this.tagService.syncTags(
       ResourceType.CRUX,
-      cruxKey,
+      crux.id,
       labels,
       authorId,
     );
   }
 
   /* ~crux tags */
+
+  /* crux attachments */
+
+  async getAttachments(cruxKey: string): Promise<Attachment[]> {
+    const crux = await this.findByKey(cruxKey);
+    return this.attachmentService.findByResource(ResourceType.CRUX, crux.id);
+  }
+
+  async createAttachment(
+    cruxKey: string,
+    uploadDto: UploadAttachmentDto,
+    file: any,
+    authorId: string,
+  ): Promise<Attachment> {
+    const crux = await this.findByKey(cruxKey);
+    return this.attachmentService.createWithFile(
+      ResourceType.CRUX,
+      crux.id,
+      crux.homeId,
+      authorId,
+      uploadDto,
+      file,
+    );
+  }
+
+  async downloadAttachment(cruxKey: string, attachmentKey: string) {
+    // Verify the attachment belongs to this crux
+    const crux = await this.findByKey(cruxKey);
+    const attachment = await this.attachmentService.findByKey(attachmentKey);
+
+    if (
+      attachment.resourceType !== ResourceType.CRUX ||
+      attachment.resourceId !== crux.id
+    ) {
+      throw new NotFoundException('Attachment not found for this crux');
+    }
+
+    return this.attachmentService.downloadAttachment(attachmentKey);
+  }
+
+  /* ~crux attachments */
 }

@@ -9,6 +9,7 @@ import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { DimensionService } from '../dimension/dimension.service';
 import { TagService } from '../tag/tag.service';
+import { AttachmentService } from '../attachment/attachment.service';
 import { DimensionType, ResourceType } from '../common/types/enums';
 
 describe('CruxService', () => {
@@ -56,6 +57,13 @@ describe('CruxService', () => {
       syncTags: jest.fn(),
     };
 
+    const mockAttachmentService = {
+      findByResource: jest.fn(),
+      createWithFile: jest.fn(),
+      findByKey: jest.fn(),
+      downloadAttachment: jest.fn(),
+    };
+
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
       generateKey: jest.fn().mockReturnValue('generated-key'),
@@ -76,6 +84,7 @@ describe('CruxService', () => {
         { provide: CruxRepository, useValue: mockRepository },
         { provide: DimensionService, useValue: mockDimensionService },
         { provide: TagService, useValue: mockTagService },
+        { provide: AttachmentService, useValue: mockAttachmentService },
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
       ],
@@ -322,14 +331,19 @@ describe('CruxService', () => {
   describe('getTags', () => {
     it('should delegate to tagService.getTags', async () => {
       const mockTags = [{ label: 'test-tag' }] as any;
+      repository.findBy.mockResolvedValue({
+        data: mockCruxRaw,
+        error: null,
+      });
       tagService.getTags.mockResolvedValue(mockTags);
 
-      const result = await service.getTags('crux-key', 'filter');
+      const result = await service.getTags('crux-key-abc', 'filter');
 
       expect(result).toEqual(mockTags);
+      expect(repository.findBy).toHaveBeenCalledWith('key', 'crux-key-abc');
       expect(tagService.getTags).toHaveBeenCalledWith(
         ResourceType.CRUX,
-        'crux-key',
+        mockCruxRaw.id,
         'filter',
       );
     });
@@ -338,18 +352,23 @@ describe('CruxService', () => {
   describe('syncTags', () => {
     it('should delegate to tagService.syncTags', async () => {
       const mockTags = [{ label: 'tag1' }, { label: 'tag2' }] as any;
+      repository.findBy.mockResolvedValue({
+        data: mockCruxRaw,
+        error: null,
+      });
       tagService.syncTags.mockResolvedValue(mockTags);
 
       const result = await service.syncTags(
-        'crux-key',
+        'crux-key-abc',
         ['tag1', 'tag2'],
         'author-123',
       );
 
       expect(result).toEqual(mockTags);
+      expect(repository.findBy).toHaveBeenCalledWith('key', 'crux-key-abc');
       expect(tagService.syncTags).toHaveBeenCalledWith(
         ResourceType.CRUX,
-        'crux-key',
+        mockCruxRaw.id,
         ['tag1', 'tag2'],
         'author-123',
       );

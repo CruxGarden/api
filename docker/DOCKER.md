@@ -85,7 +85,8 @@ REDIS_URL=redis://redis:6379
 AWS_ACCESS_KEY_ID=your-key-id
 AWS_SECRET_ACCESS_KEY=your-secret
 AWS_REGION=us-east-1
-FROM_EMAIL_ADDRESS=noreply@example.com
+AWS_SES_FROM_EMAIL=noreply@example.com
+AWS_S3_ATTACHMENTS_BUCKET=crux-garden-attachments
 ```
 
 ### Data Seeds
@@ -134,7 +135,8 @@ export REDIS_URL=redis://your-redis-host:6379
 export JWT_SECRET=your-production-secret-min-32-chars
 export AWS_ACCESS_KEY_ID=your-aws-key
 export AWS_SECRET_ACCESS_KEY=your-aws-secret
-export FROM_EMAIL_ADDRESS=noreply@cruxgarden.com
+export AWS_SES_FROM_EMAIL=noreply@cruxgarden.com
+export AWS_S3_ATTACHMENTS_BUCKET=crux-garden-attachments
 
 # Pull and start (from docker/ directory)
 cd docker
@@ -158,11 +160,12 @@ REDIS_URL=redis://your-redis-host:6379
 # Required Security
 JWT_SECRET=your-production-secret-min-32-chars-use-strong-random
 
-# Required AWS SES
+# Required AWS
 AWS_ACCESS_KEY_ID=AKIA...
 AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=us-east-1
-FROM_EMAIL_ADDRESS=noreply@cruxgarden.com
+AWS_SES_FROM_EMAIL=noreply@cruxgarden.com
+AWS_S3_ATTACHMENTS_BUCKET=crux-garden-attachments
 
 # Optional Configuration
 CORS_ORIGIN=https://cruxgarden.com
@@ -408,7 +411,8 @@ JWT_SECRET=...                      # Min 32 chars, use strong random value
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=us-east-1
-FROM_EMAIL_ADDRESS=...
+AWS_SES_FROM_EMAIL=...
+AWS_S3_ATTACHMENTS_BUCKET=...
 
 # Optional: CORS
 CORS_ORIGIN=*                       # Allowed origins (comma-separated)

@@ -1,15 +1,27 @@
 import {
   Controller,
+  Delete,
+  Put,
+  Param,
+  Body,
+  Req,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  HttpCode,
+  HttpStatus,
   ForbiddenException,
   NotFoundException,
-  UseGuards,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AttachmentService } from './attachment.service';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
 import { AttachmentSwagger } from './attachment.swagger';
 import { LoggerService } from '../common/services/logger.service';
 import { AuthorService } from '../author/author.service';
+import { UpdateAttachmentDto } from './dto/update-attachment.dto';
+import Attachment from './entities/attachment.entity';
 
 @Controller('attachments')
 @UseGuards(AuthGuard)
@@ -44,25 +56,31 @@ export class AttachmentController {
     }
   }
 
-  // TODO: Implement CRUD endpoints
-  // @Get()
-  // @AttachmentSwagger.GetAll()
-  // async getAll(...): Promise<Attachment[]> { }
+  @Put(':attachmentKey')
+  @AttachmentSwagger.Update()
+  @UseInterceptors(FileInterceptor('file'))
+  async update(
+    @Param('attachmentKey') attachmentKey: string,
+    @Body() updateDto: UpdateAttachmentDto,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: AuthRequest,
+  ): Promise<Attachment> {
+    await this.canManageAttachment(attachmentKey, req);
+    return this.attachmentService.updateWithFile(
+      attachmentKey,
+      updateDto,
+      file,
+    );
+  }
 
-  // @Get(':attachmentKey')
-  // @AttachmentSwagger.GetByKey()
-  // async getByKey(...): Promise<Attachment> { }
-
-  // @Post()
-  // @AttachmentSwagger.Create()
-  // async create(...): Promise<Attachment> { }
-
-  // @Patch(':attachmentKey')
-  // @AttachmentSwagger.Update()
-  // async update(...): Promise<Attachment> { }
-
-  // @Delete(':attachmentKey')
-  // @HttpCode(HttpStatus.NO_CONTENT)
-  // @AttachmentSwagger.Delete()
-  // async delete(...): Promise<null> { }
+  @Delete(':attachmentKey')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @AttachmentSwagger.Delete()
+  async delete(
+    @Param('attachmentKey') attachmentKey: string,
+    @Req() req: AuthRequest,
+  ): Promise<null> {
+    await this.canManageAttachment(attachmentKey, req);
+    return this.attachmentService.deleteWithFile(attachmentKey);
+  }
 }

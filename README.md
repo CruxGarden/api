@@ -258,8 +258,9 @@ docker run -p 3000:3000 \
   -e AWS_ACCESS_KEY_ID="your-key" \
   -e AWS_SECRET_ACCESS_KEY="your-secret" \
   -e AWS_REGION="us-east-1" \
-  -e FROM_EMAIL_ADDRESS="noreply@yourdomain.com" \
-  ghcr.io/cruxgarden/api:latest
+  -e AWS_SES_FROM_EMAIL="noreply@yourdomain.com" \
+  -e AWS_S3_ATTACHMENTS_BUCKET="crux-garden-attachments" \
+  ghcr.io/cruxgarden/api:latest \
 ```
 
 Or use an `.env` file:

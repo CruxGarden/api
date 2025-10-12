@@ -59,7 +59,7 @@ Ensure you have the following environment variables configured in your `.env` fi
 - `JWT_SECRET` - Secret key for JWT tokens
 - `DATABASE_URL` - Postgres database connection string
 - `REDIS_URL` - Redis connection string
-- `FROM_EMAIL_ADDRESS` - Email service configuration for SES
+- `AWS_SES_FROM_EMAIL` - Email service configuration for SES
 - `AWS_ACCESS_KEY_ID` - AWS Config
 - `AWS_SECRET_ACCESS_KEY` - AWS Config
 - `AWS_REGION` - AWS Config

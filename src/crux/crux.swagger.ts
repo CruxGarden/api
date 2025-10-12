@@ -9,6 +9,7 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiBadRequestResponse,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { CreateCruxDto } from './dto/create-crux.dto';
 import { UpdateCruxDto } from './dto/update-crux.dto';
@@ -374,5 +375,163 @@ export const CruxSwagger = {
       ApiUnauthorizedResponse({ description: 'Authentication required' }),
       ApiForbiddenResponse({ description: 'Insufficient permissions' }),
       ApiNotFoundResponse({ description: 'Dimension or crux not found' }),
+    ),
+
+  GetAttachments: () =>
+    combineDecorators(
+      ApiOperation({
+        summary: 'Get all attachments for a crux',
+        description:
+          'Retrieves all file attachments associated with a specific crux.',
+      }),
+      ApiParam({
+        name: 'cruxKey',
+        description: 'The unique key of the crux',
+        example: 'abc123',
+      }),
+      ApiBearerAuth(),
+      ApiResponse({
+        status: 200,
+        description: 'Attachments retrieved successfully',
+        schema: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              key: { type: 'string', example: 'TKSoWfISLG_' },
+              type: { type: 'string', example: 'image' },
+              kind: { type: 'string', example: 'photo' },
+              filename: { type: 'string', example: 'screenshot.png' },
+              mimeType: { type: 'string', example: 'image/png' },
+              size: { type: 'number', example: 1024000 },
+              created: { type: 'string', format: 'date-time' },
+              updated: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      }),
+      ApiUnauthorizedResponse({ description: 'Authentication required' }),
+      ApiNotFoundResponse({ description: 'Crux not found' }),
+    ),
+
+  CreateAttachment: () =>
+    combineDecorators(
+      ApiOperation({
+        summary: 'Upload a file attachment to a crux',
+        description:
+          'Uploads a file and creates an attachment record for a crux. Max file size: 50MB. Requires authentication and crux ownership.',
+      }),
+      ApiParam({
+        name: 'cruxKey',
+        description: 'The unique key of the crux',
+        example: 'abc123',
+      }),
+      ApiConsumes('multipart/form-data'),
+      ApiBody({
+        schema: {
+          type: 'object',
+          required: ['file', 'type', 'kind'],
+          properties: {
+            file: {
+              type: 'string',
+              format: 'binary',
+              description: 'The file to upload (max 50MB)',
+            },
+            type: {
+              type: 'string',
+              description: 'Type of attachment',
+              example: 'image',
+            },
+            kind: {
+              type: 'string',
+              description: 'Kind of attachment',
+              example: 'photo',
+            },
+            meta: {
+              type: 'string',
+              description: 'Optional metadata as JSON string',
+              example: '{"width": 1920, "height": 1080}',
+            },
+          },
+        },
+      }),
+      ApiBearerAuth(),
+      ApiResponse({
+        status: 201,
+        description: 'Attachment uploaded successfully',
+        schema: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            key: { type: 'string', example: 'TKSoWfISLG_' },
+            type: { type: 'string', example: 'image' },
+            kind: { type: 'string', example: 'photo' },
+            filename: { type: 'string', example: 'screenshot.png' },
+            mimeType: { type: 'string', example: 'image/png' },
+            size: { type: 'number', example: 1024000 },
+            created: { type: 'string', format: 'date-time' },
+            updated: { type: 'string', format: 'date-time' },
+          },
+        },
+      }),
+      ApiUnauthorizedResponse({ description: 'Authentication required' }),
+      ApiForbiddenResponse({
+        description: 'No permission to manage this crux',
+      }),
+      ApiNotFoundResponse({ description: 'Crux not found' }),
+      ApiBadRequestResponse({
+        description:
+          'Invalid file, exceeds size limit, or missing required fields',
+      }),
+    ),
+
+  DownloadAttachment: () =>
+    combineDecorators(
+      ApiOperation({
+        summary: 'Download an attachment file',
+        description:
+          'Downloads the file for a specific attachment. Returns the file with appropriate Content-Type and Content-Disposition headers. Cached for 1 year.',
+      }),
+      ApiParam({
+        name: 'cruxKey',
+        description: 'The unique key of the crux',
+        example: 'abc123',
+      }),
+      ApiParam({
+        name: 'attachmentKey',
+        description: 'The unique key of the attachment',
+        example: 'TKSoWfISLG_',
+      }),
+      ApiResponse({
+        status: 200,
+        description: 'Attachment file downloaded successfully',
+        content: {
+          'application/octet-stream': {
+            schema: {
+              type: 'string',
+              format: 'binary',
+            },
+          },
+        },
+        headers: {
+          'Content-Type': {
+            description: 'MIME type of the file',
+            schema: { type: 'string' },
+          },
+          'Content-Disposition': {
+            description: 'Attachment filename',
+            schema: { type: 'string' },
+          },
+          'Cache-Control': {
+            description: 'Cache control header',
+            schema: { type: 'string', example: 'max-age=31536000' },
+          },
+        },
+      }),
+      ApiNotFoundResponse({
+        description:
+          'Crux or attachment not found, or attachment does not belong to this crux',
+      }),
     ),
 };

@@ -77,11 +77,12 @@ services:
       # Security
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-min-32-chars-for-development-only}
 
-      # AWS SES
+      # AWS
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_REGION: ${AWS_REGION:-us-east-1}
-      FROM_EMAIL_ADDRESS: ${FROM_EMAIL_ADDRESS:-noreply@example.com}
+      AWS_SES_FROM_EMAIL: ${AWS_SES_FROM_EMAIL:-noreply@example.com}
+      AWS_S3_ATTACHMENTS_BUCKET: ${AWS_S3_ATTACHMENTS_BUCKET:-crux-garden-attachments}
 
       # Optional Configuration
       CORS_ORIGIN: ${CORS_ORIGIN:-*}

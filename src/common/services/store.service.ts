@@ -14,49 +14,101 @@ const defaultS3Client = new S3Client({
   },
 });
 
-export interface S3Options {
+// Internal S3-specific options
+interface S3Options {
   bucket?: string;
   client?: S3Client;
   data?: Buffer;
   key?: string;
 }
 
+// Public storage-agnostic interface
+export interface StoreOptions {
+  path: string;
+  data?: Buffer;
+  namespace?: string; // Optional namespace (defaults to env-specific bucket)
+}
+
+export interface DownloadResult {
+  data: Buffer;
+  metadata?: any;
+}
+
 @Injectable()
 export class StoreService {
-  async download(opts: S3Options) {
-    const client = opts.client || defaultS3Client;
+  private readonly defaultNamespace =
+    process.env.AWS_S3_ATTACHMENTS_BUCKET || 'crux-garden-attachments';
+
+  /**
+   * Download a file from storage
+   */
+  async download(opts: StoreOptions): Promise<DownloadResult> {
+    const s3Opts: S3Options = {
+      bucket: opts.namespace || this.defaultNamespace,
+      key: opts.path,
+    };
+
+    const client = defaultS3Client;
     const res = await client.send(
       new GetObjectCommand({
-        Bucket: opts.bucket,
-        Key: opts.key,
+        Bucket: s3Opts.bucket,
+        Key: s3Opts.key,
       }),
     );
 
-    return { Body: res.Body, ETag: res.ETag };
+    // Convert stream to buffer
+    const stream = res.Body as any;
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
+
+    return {
+      data: buffer,
+      metadata: { ETag: res.ETag },
+    };
   }
 
-  async upload(opts: S3Options) {
-    const client = opts.client || defaultS3Client;
-    const res = await client.send(
+  /**
+   * Upload a file to storage
+   */
+  async upload(opts: StoreOptions): Promise<void> {
+    if (!opts.data) {
+      throw new Error('Data is required for upload');
+    }
+
+    const s3Opts: S3Options = {
+      bucket: opts.namespace || this.defaultNamespace,
+      key: opts.path,
+      data: opts.data,
+    };
+
+    const client = defaultS3Client;
+    await client.send(
       new PutObjectCommand({
-        Bucket: opts.bucket,
-        Key: opts.key,
-        Body: opts.data,
+        Bucket: s3Opts.bucket,
+        Key: s3Opts.key,
+        Body: s3Opts.data,
       }),
     );
-
-    return { ETag: res.ETag };
   }
 
-  async delete(opts: S3Options) {
-    const client = opts.client || defaultS3Client;
+  /**
+   * Delete a file from storage
+   */
+  async delete(opts: StoreOptions): Promise<void> {
+    const s3Opts: S3Options = {
+      bucket: opts.namespace || this.defaultNamespace,
+      key: opts.path,
+    };
+
+    const client = defaultS3Client;
     await client.send(
       new DeleteObjectCommand({
-        Bucket: opts.bucket,
-        Key: opts.key,
+        Bucket: s3Opts.bucket,
+        Key: s3Opts.key,
       }),
     );
-
-    return true;
   }
 }

@@ -4,9 +4,14 @@ import { AttachmentService } from './attachment.service';
 import { AttachmentRepository } from './attachment.repository';
 import { AuthorModule } from '../author/author.module';
 import { HomeModule } from '../home/home.module';
+import { CommonModule } from '../common/common.module';
 
 @Module({
-  imports: [forwardRef(() => AuthorModule), forwardRef(() => HomeModule)],
+  imports: [
+    CommonModule,
+    forwardRef(() => AuthorModule),
+    forwardRef(() => HomeModule),
+  ],
   controllers: [AttachmentController],
   providers: [AttachmentService, AttachmentRepository],
   exports: [AttachmentService],
