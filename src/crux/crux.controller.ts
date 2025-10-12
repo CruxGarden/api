@@ -22,7 +22,6 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
-import type { File } from 'multer';
 import { AuthRequest } from '../common/types/interfaces';
 import { CruxService } from './crux.service';
 import { CreateCruxDto } from './dto/create-crux.dto';
@@ -218,7 +217,7 @@ export class CruxController {
   async createAttachment(
     @Param('cruxKey') cruxKey: string,
     @Body() uploadDto: UploadAttachmentDto,
-    @UploadedFile() file: File,
+    @UploadedFile() file: Express.Multer.File,
     @Req() req: AuthRequest,
   ): Promise<Attachment> {
     const author = await this.getAuthor(req);
