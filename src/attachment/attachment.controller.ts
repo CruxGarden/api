@@ -14,6 +14,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { File } from 'multer';
 import { AttachmentService } from './attachment.service';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
@@ -62,7 +63,7 @@ export class AttachmentController {
   async update(
     @Param('attachmentKey') attachmentKey: string,
     @Body() updateDto: UpdateAttachmentDto,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: File,
     @Req() req: AuthRequest,
   ): Promise<Attachment> {
     await this.canManageAttachment(attachmentKey, req);
