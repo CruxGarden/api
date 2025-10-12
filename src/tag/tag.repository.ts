@@ -12,6 +12,7 @@ import { UpdateTagDto } from './dto/update-tag.dto';
 
 @Injectable()
 export class TagRepository {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -19,7 +20,6 @@ export class TagRepository {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('TagRepository');
-    this.logger.debug('TagRepository initialized');
   }
 
   private static readonly TABLE_NAME = 'tags';

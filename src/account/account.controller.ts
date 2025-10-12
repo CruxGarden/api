@@ -22,6 +22,7 @@ import Account from './entities/account.entity';
 @UseGuards(AuthGuard)
 @AccountSwagger.Controller()
 export class AccountController {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -29,7 +30,6 @@ export class AccountController {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AccountController');
-    this.logger.debug('AccountController initialized');
   }
 
   @Get()

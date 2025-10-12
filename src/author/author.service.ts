@@ -16,6 +16,7 @@ import Author from './entities/author.entity';
 
 @Injectable()
 export class AuthorService {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -24,7 +25,6 @@ export class AuthorService {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AuthorService');
-    this.logger.debug('AuthorService initialized');
   }
 
   asAuthor(data: AuthorRaw): Author {

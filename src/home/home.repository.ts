@@ -11,6 +11,7 @@ import { UpdateHomeDto } from './dto/update-home.dto';
 
 @Injectable()
 export class HomeRepository {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -18,7 +19,6 @@ export class HomeRepository {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('HomeRepository');
-    this.logger.debug('HomeRepository initialized');
   }
 
   private static readonly TABLE_NAME = 'homes';

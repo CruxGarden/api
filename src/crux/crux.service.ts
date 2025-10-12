@@ -26,6 +26,7 @@ import { UploadAttachmentDto } from '../attachment/dto/upload-attachment.dto';
 
 @Injectable()
 export class CruxService {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -37,7 +38,6 @@ export class CruxService {
     private readonly attachmentService: AttachmentService,
   ) {
     this.logger = this.loggerService.createChildLogger('CruxService');
-    this.logger.debug('CruxService initialized');
   }
 
   asCrux(data: CruxRaw): Crux {

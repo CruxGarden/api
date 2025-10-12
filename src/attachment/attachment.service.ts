@@ -10,6 +10,7 @@ import { CreateAttachmentDto } from './dto/create-attachment.dto';
 import { UpdateAttachmentDto } from './dto/update-attachment.dto';
 import { AttachmentRepository } from './attachment.repository';
 import { KeyMaster } from '../common/services/key.master';
+import { MAX_ATTACHMENT_SIZE } from '../common/types/constants';
 import { LoggerService } from '../common/services/logger.service';
 import { StoreService } from '../common/services/store.service';
 import AttachmentRaw from './entities/attachment-raw.entity';
@@ -17,7 +18,6 @@ import Attachment from './entities/attachment.entity';
 import { UploadAttachmentDto } from './dto/upload-attachment.dto';
 import * as mime from 'mime-types';
 
-// Type for uploaded files from multer
 interface UploadedFile {
   fieldname: string;
   originalname: string;
@@ -30,7 +30,6 @@ interface UploadedFile {
 @Injectable()
 export class AttachmentService {
   private readonly logger: LoggerService;
-  private readonly maxFileSize = 50 * 1024 * 1024; // 50MB in bytes
 
   constructor(
     private readonly attachmentRepository: AttachmentRepository,
@@ -39,7 +38,6 @@ export class AttachmentService {
     private readonly storeService: StoreService,
   ) {
     this.logger = this.loggerService.createChildLogger('AttachmentService');
-    this.logger.debug('AttachmentService initialized');
   }
 
   asAttachment(data: AttachmentRaw): Attachment {
@@ -149,10 +147,6 @@ export class AttachmentService {
     return null;
   }
 
-  /**
-   * Generate storage path for attachment
-   * Format: resource_type/resource_id/attachment_id.extension
-   */
   getStoragePath(attachment: {
     resourceType: string;
     resourceId: string;
@@ -164,17 +158,14 @@ export class AttachmentService {
     return `${attachment.resourceType}/${attachment.resourceId}/${attachment.id}${ext}`;
   }
 
-  /**
-   * Validate uploaded file
-   */
   validateFile(file: UploadedFile): void {
     if (!file) {
       throw new BadRequestException('File is required');
     }
 
-    if (file.size > this.maxFileSize) {
+    if (file.size > MAX_ATTACHMENT_SIZE) {
       throw new BadRequestException(
-        `File size exceeds maximum allowed size of ${this.maxFileSize / 1024 / 1024}MB`,
+        `File size exceeds maximum allowed size of ${MAX_ATTACHMENT_SIZE / 1024 / 1024}MB`,
       );
     }
 
@@ -183,9 +174,6 @@ export class AttachmentService {
     }
   }
 
-  /**
-   * Create attachment with file upload
-   */
   async createWithFile(
     resourceType: string,
     resourceId: string,
@@ -262,9 +250,6 @@ export class AttachmentService {
     return this.asAttachment(created.data);
   }
 
-  /**
-   * Update attachment with optional file replacement
-   */
   async updateWithFile(
     attachmentKey: string,
     updateDto: UpdateAttachmentDto,
@@ -324,9 +309,6 @@ export class AttachmentService {
     return this.asAttachment(updated.data);
   }
 
-  /**
-   * Delete attachment and remove file from storage
-   */
   async deleteWithFile(attachmentKey: string): Promise<null> {
     const attachmentToDelete = await this.findByKey(attachmentKey);
     if (!attachmentToDelete) {
@@ -355,9 +337,6 @@ export class AttachmentService {
     return null;
   }
 
-  /**
-   * Get query for attachments by resource
-   */
   getAttachmentsByResourceQuery(
     resourceType: string,
     resourceId: string,
@@ -368,9 +347,6 @@ export class AttachmentService {
       .where('resource_id', resourceId);
   }
 
-  /**
-   * Download attachment file from storage
-   */
   async downloadAttachment(attachmentKey: string) {
     const attachment = await this.findByKey(attachmentKey);
     const storagePath = this.getStoragePath(attachment);

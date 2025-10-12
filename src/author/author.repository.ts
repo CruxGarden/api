@@ -11,6 +11,7 @@ import AuthorRaw from './entities/author-raw.entity';
 
 @Injectable()
 export class AuthorRepository {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -18,7 +19,6 @@ export class AuthorRepository {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AuthorRepository');
-    this.logger.debug('AuthorRepository initialized');
   }
 
   private static readonly TABLE_NAME = 'authors';

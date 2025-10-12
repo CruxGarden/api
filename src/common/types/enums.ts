@@ -4,10 +4,6 @@ export enum AccountRole {
   KEEPER = 'keeper',
 }
 
-export enum AuthorEmbed {
-  HOME = 'home',
-}
-
 export enum CruxStatus {
   LIVING = 'living',
   FROZEN = 'frozen',

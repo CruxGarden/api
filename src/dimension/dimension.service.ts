@@ -16,6 +16,7 @@ import { DimensionType } from 'src/common';
 
 @Injectable()
 export class DimensionService {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -24,7 +25,6 @@ export class DimensionService {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('DimensionService');
-    this.logger.debug('DimensionService initialized');
   }
 
   asDimension(data: DimensionRaw): Dimension {

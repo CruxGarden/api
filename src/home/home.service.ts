@@ -15,6 +15,7 @@ import Home from './entities/home.entity';
 
 @Injectable()
 export class HomeService {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -23,7 +24,6 @@ export class HomeService {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('HomeService');
-    this.logger.debug('HomeService initialized');
   }
 
   asHome(data: HomeRaw): Home {

@@ -4,18 +4,15 @@ import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
 import { AuthorRepository } from '../src/author/author.repository';
-import { CruxRepository } from '../src/crux/crux.repository';
 import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
 import { MockDbService } from './mocks/db.mock';
 import { success } from '../src/common/helpers/repository-helpers';
 import AuthorRaw from '../src/author/entities/author-raw.entity';
-import CruxRaw from '../src/crux/entities/crux-raw.entity';
 
 describe('Author Integration Tests', () => {
   let app: INestApplication;
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
-  let mockCruxRepository: jest.Mocked<CruxRepository>;
 
   const testAccountId = 'account-123';
   const testAuthorId = 'author-123';
@@ -30,22 +27,6 @@ describe('Author Integration Tests', () => {
     display_name: 'Test User',
     account_id: testAccountId,
     bio: 'Test bio',
-    home_id: testHomeCruxId,
-    created: new Date(),
-    updated: new Date(),
-    deleted: null,
-  };
-
-  const testHomeCruxRaw: CruxRaw = {
-    id: testHomeCruxId,
-    key: 'home-crux-key',
-    slug: 'home',
-    title: 'Home Crux',
-    data: 'Home content',
-    type: 'text',
-    status: 'living',
-    visibility: 'public',
-    author_id: testAuthorId,
     home_id: testHomeCruxId,
     created: new Date(),
     updated: new Date(),
@@ -72,10 +53,6 @@ describe('Author Integration Tests', () => {
       delete: jest.fn(),
     } as any;
 
-    mockCruxRepository = {
-      findBy: jest.fn(),
-    } as any;
-
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-123',
@@ -92,8 +69,6 @@ describe('Author Integration Tests', () => {
       .useValue(new MockDbService())
       .overrideProvider(AuthorRepository)
       .useValue(mockAuthorRepository)
-      .overrideProvider(CruxRepository)
-      .useValue(mockCruxRepository)
       .overrideProvider(HomeService)
       .useValue(mockHomeService)
       .compile();
@@ -191,27 +166,6 @@ describe('Author Integration Tests', () => {
       expect(mockAuthorRepository.findBy).toHaveBeenCalledWith(
         'username',
         testUsername,
-      );
-    });
-
-    it('should return 200 with embedded home crux when embed=home', async () => {
-      const token = generateToken(testAccountId);
-      mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockCruxRepository.findBy.mockResolvedValue(success(testHomeCruxRaw));
-
-      const response = await request(app.getHttpServer())
-        .get(`/authors/${testAuthorKey}?embed=home`)
-        .set(authHeader(token))
-        .expect(200);
-
-      expect(response.body).toHaveProperty('home');
-      expect(response.body.home).toMatchObject({
-        id: testHomeCruxId,
-        title: 'Home Crux',
-      });
-      expect(mockCruxRepository.findBy).toHaveBeenCalledWith(
-        'id',
-        testHomeCruxId,
       );
     });
 

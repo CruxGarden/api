@@ -30,6 +30,7 @@ import TagRaw from './entities/tag-raw.entity';
 @UseGuards(AuthGuard)
 @TagSwagger.Controller()
 export class TagController {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -38,7 +39,6 @@ export class TagController {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('TagController');
-    this.logger.debug('TagController initialized');
   }
 
   async canManageTag(req: AuthRequest): Promise<void> {

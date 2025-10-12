@@ -11,6 +11,7 @@ import { UpdateCruxDto } from './dto/update-crux.dto';
 
 @Injectable()
 export class CruxRepository {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -18,7 +19,6 @@ export class CruxRepository {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('CruxRepository');
-    this.logger.debug('CruxRepository initialized');
   }
 
   private static readonly TABLE_NAME = 'cruxes';

@@ -12,6 +12,7 @@ import { DimensionType } from 'src/common';
 
 @Injectable()
 export class DimensionRepository {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -19,7 +20,6 @@ export class DimensionRepository {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('DimensionRepository');
-    this.logger.debug('DimensionRepository initialized');
   }
 
   private static readonly TABLE_NAME = 'dimensions';

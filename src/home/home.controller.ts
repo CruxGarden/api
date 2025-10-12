@@ -18,6 +18,7 @@ import { HomeService } from './home.service';
 import { CreateHomeDto } from './dto/create-home.dto';
 import { UpdateHomeDto } from './dto/update-home.dto';
 import { AuthGuard } from '../common/guards/auth.guard';
+import { AccountRole } from '../common/types/enums';
 import { AuthRequest } from '../common/types/interfaces';
 import { DbService } from '../common/services/db.service';
 import { HomeSwagger } from './home.swagger';
@@ -29,6 +30,7 @@ import HomeRaw from './entities/home-raw.entity';
 @UseGuards(AuthGuard)
 @HomeSwagger.Controller()
 export class HomeController {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -37,11 +39,10 @@ export class HomeController {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('HomeController');
-    this.logger.debug('HomeController initialized');
   }
 
   private ensureAdmin(req: AuthRequest): void {
-    if (req.account.role !== 'admin') {
+    if (req.account.role !== AccountRole.ADMIN) {
       throw new ForbiddenException('Only admins can manage homes');
     }
   }

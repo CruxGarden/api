@@ -13,6 +13,7 @@ import { CreateMarkerDto } from './dto/create-marker.dto';
 
 @Injectable()
 export class PathRepository {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -20,7 +21,6 @@ export class PathRepository {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('PathRepository');
-    this.logger.debug('PathRepository initialized');
   }
 
   private static readonly TABLE_NAME = 'paths';

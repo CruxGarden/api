@@ -16,6 +16,7 @@ import { ResourceType } from '../common/types/enums';
 
 @Injectable()
 export class TagService {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -25,7 +26,6 @@ export class TagService {
     private readonly homeService: HomeService,
   ) {
     this.logger = this.loggerService.createChildLogger('TagService');
-    this.logger.debug('TagService initialized');
   }
 
   asTag(data: TagRaw): Tag {

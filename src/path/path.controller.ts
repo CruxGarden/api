@@ -39,6 +39,7 @@ import { HomeService } from '../home/home.service';
 @UseGuards(AuthGuard)
 @PathSwagger.Controller()
 export class PathController {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -49,7 +50,6 @@ export class PathController {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('PathController');
-    this.logger.debug('PathController initialized');
   }
 
   async canManagePath(pathKey: string, author: Author): Promise<boolean> {

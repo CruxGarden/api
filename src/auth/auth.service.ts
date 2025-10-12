@@ -37,7 +37,6 @@ export class AuthService {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AuthService');
-    this.logger.debug('AuthService initialized');
   }
 
   codeKey(code: string): string {

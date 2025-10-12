@@ -11,6 +11,7 @@ import { UpdateAttachmentDto } from './dto/update-attachment.dto';
 
 @Injectable()
 export class AttachmentRepository {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -18,7 +19,6 @@ export class AttachmentRepository {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AttachmentRepository');
-    this.logger.debug('AttachmentRepository initialized');
   }
 
   private static readonly TABLE_NAME = 'attachments';

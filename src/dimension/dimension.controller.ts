@@ -26,6 +26,7 @@ import Dimension from './entities/dimension.entity';
 @UseGuards(AuthGuard)
 @DimensionSwagger.Controller()
 export class DimensionController {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -34,7 +35,6 @@ export class DimensionController {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('DimensionController');
-    this.logger.debug('DimensionController initialized');
   }
 
   async canManageDimension(

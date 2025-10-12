@@ -13,10 +13,10 @@ import {
   Res,
   UseGuards,
   ForbiddenException,
-  Query,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthRequest } from '../common/types/interfaces';
+import { PathPrefix } from '../common/types/enums';
 import { AuthorService } from './author.service';
 import { CreateAuthorDto } from './dto/create-author.dto';
 import { UpdateAuthorDto } from './dto/update-author.dto';
@@ -24,8 +24,6 @@ import { AuthGuard } from '../common/guards/auth.guard';
 import { DbService } from '../common/services/db.service';
 import { AuthorSwagger } from './author.swagger';
 import { LoggerService } from '../common/services/logger.service';
-import { CruxService } from '../crux/crux.service';
-import { AuthorEmbed, PathPrefix } from '../common/types/enums';
 import { stripPathPrefix } from '../common/helpers/path-helpers';
 import Author from './entities/author.entity';
 import AuthorRaw from './entities/author-raw.entity';
@@ -34,16 +32,15 @@ import AuthorRaw from './entities/author-raw.entity';
 @UseGuards(AuthGuard)
 @AuthorSwagger.Controller()
 export class AuthorController {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
     private readonly authorService: AuthorService,
-    private readonly cruxService: CruxService,
     private readonly dbService: DbService,
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AuthorController');
-    this.logger.debug('AuthorController initialized');
   }
 
   async canManageAuthor(authorKey: string, req: AuthRequest): Promise<boolean> {
@@ -78,7 +75,6 @@ export class AuthorController {
   @AuthorSwagger.GetByIdentifier()
   async getByIdentifier(
     @Param('identifier') identifier: string,
-    @Query('embed') embed?: AuthorEmbed,
   ): Promise<Author> {
     let author: Author;
     const { hasPrefix, value } = stripPathPrefix(
@@ -89,11 +85,6 @@ export class AuthorController {
       author = await this.authorService.findByUsername(value);
     } else {
       author = await this.authorService.findByKey(value);
-    }
-
-    if (embed === AuthorEmbed.HOME && author.homeId) {
-      const homeCrux = await this.cruxService.findById(author.homeId);
-      author.home = homeCrux;
     }
 
     return author;

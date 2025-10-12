@@ -24,6 +24,7 @@ import Tag from '../tag/entities/tag.entity';
 
 @Injectable()
 export class PathService {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -35,7 +36,6 @@ export class PathService {
     private readonly homeService: HomeService,
   ) {
     this.logger = this.loggerService.createChildLogger('PathService');
-    this.logger.debug('PathService initialized');
   }
 
   asPath(data: PathRaw): Path {

@@ -18,6 +18,7 @@ import Tag from '../tag/entities/tag.entity';
 
 @Injectable()
 export class ThemeService {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -27,7 +28,6 @@ export class ThemeService {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('ThemeService');
-    this.logger.debug('ThemeService initialized');
   }
 
   asTheme(data: ThemeRaw): Theme {

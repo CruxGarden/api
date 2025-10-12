@@ -34,6 +34,7 @@ import { AuthCredentials } from '../common/types/interfaces';
 )
 @AuthSwagger.Controller()
 export class AuthController {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -41,7 +42,6 @@ export class AuthController {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AuthController');
-    this.logger.debug('AuthController initialized');
   }
 
   @Post('code')

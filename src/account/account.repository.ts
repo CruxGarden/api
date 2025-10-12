@@ -10,6 +10,7 @@ import AccountRaw from './entities/account-raw.entity';
 
 @Injectable()
 export class AccountRepository {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -17,7 +18,6 @@ export class AccountRepository {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AccountRepository');
-    this.logger.debug('AccountRepository initialized');
   }
 
   private static readonly TABLE_NAME = 'accounts';

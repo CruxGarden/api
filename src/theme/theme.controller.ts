@@ -36,6 +36,7 @@ import { HomeService } from '../home/home.service';
 @UseGuards(AuthGuard)
 @ThemeSwagger.Controller()
 export class ThemeController {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -46,7 +47,6 @@ export class ThemeController {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('ThemeController');
-    this.logger.debug('ThemeController initialized');
   }
 
   async canManageTheme(themeKey: string, req: AuthRequest): Promise<void> {

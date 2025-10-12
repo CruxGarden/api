@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { toEntityFields } from '../common/helpers/case-helpers';
 import { KeyMaster } from '../common/services/key.master';
+import { DELETE_CONFIRMATION_TEXT } from '../common/types/constants';
 import { LoggerService } from '../common/services/logger.service';
 import { AccountRepository } from './account.repository';
 import { CreateAccountDto } from './dto/create-account.dto';
@@ -15,9 +16,9 @@ import { DeleteAccountDto } from './dto/delete-account.dto';
 import Account from './entities/account.entity';
 import AccountRaw from './entities/account-raw.entity';
 
-const DELETE_CONFIRMATION_TEXT = 'DELETE MY ACCOUNT';
 @Injectable()
 export class AccountService {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -26,7 +27,6 @@ export class AccountService {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AccountService');
-    this.logger.debug('AccountService initialized');
   }
 
   asAccount(data: AccountRaw): Account {

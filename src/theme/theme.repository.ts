@@ -11,6 +11,7 @@ import { UpdateThemeDto } from './dto/update-theme.dto';
 
 @Injectable()
 export class ThemeRepository {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -18,7 +19,6 @@ export class ThemeRepository {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('ThemeRepository');
-    this.logger.debug('ThemeRepository initialized');
   }
 
   private static readonly TABLE_NAME = 'themes';

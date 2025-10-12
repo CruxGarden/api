@@ -27,17 +27,15 @@ import Attachment from './entities/attachment.entity';
 @UseGuards(AuthGuard)
 @AttachmentSwagger.Controller()
 export class AttachmentController {
+  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
     private readonly authorService: AuthorService,
     private readonly attachmentService: AttachmentService,
-    // private readonly dbService: DbService,
-    // private readonly homeService: HomeService,
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AttachmentController');
-    this.logger.debug('AttachmentController initialized');
   }
 
   async canManageAttachment(

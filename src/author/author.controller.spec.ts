@@ -2,16 +2,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AuthorController } from './author.controller';
 import { AuthorService } from './author.service';
-import { CruxService } from '../crux/crux.service';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
 import { AuthRequest } from '../common/types/interfaces';
-import { AccountRole, AuthorEmbed } from '../common/types/enums';
+import { AccountRole } from '../common/types/enums';
 
 describe('AuthorController', () => {
   let controller: AuthorController;
   let service: jest.Mocked<AuthorService>;
-  let cruxService: jest.Mocked<CruxService>;
   let dbService: jest.Mocked<DbService>;
 
   const mockAuthor = {
@@ -26,12 +24,6 @@ describe('AuthorController', () => {
     updated: new Date(),
     deleted: null,
     toJSON: jest.fn().mockReturnThis(),
-  };
-
-  const mockCrux = {
-    id: 'crux-home-123',
-    key: 'crux-key',
-    title: 'Home Crux',
   };
 
   const mockRequest: AuthRequest = {
@@ -56,10 +48,6 @@ describe('AuthorController', () => {
       delete: jest.fn(),
     };
 
-    const mockCruxService = {
-      findById: jest.fn(),
-    };
-
     const mockDbService = {
       paginate: jest.fn(),
     };
@@ -77,7 +65,6 @@ describe('AuthorController', () => {
       controllers: [AuthorController],
       providers: [
         { provide: AuthorService, useValue: mockService },
-        { provide: CruxService, useValue: mockCruxService },
         { provide: DbService, useValue: mockDbService },
         { provide: LoggerService, useValue: mockLoggerService },
       ],
@@ -85,7 +72,6 @@ describe('AuthorController', () => {
 
     controller = module.get<AuthorController>(AuthorController);
     service = module.get(AuthorService);
-    cruxService = module.get(CruxService);
     dbService = module.get(DbService);
   });
 
@@ -120,33 +106,6 @@ describe('AuthorController', () => {
 
       expect(result).toEqual(mockAuthor);
       expect(service.findByUsername).toHaveBeenCalledWith('testuser');
-    });
-
-    it('should embed home crux when requested', async () => {
-      const authorWithHome = { ...mockAuthor, home: undefined };
-      service.findByKey.mockResolvedValue(authorWithHome);
-      cruxService.findById.mockResolvedValue(mockCrux as any);
-
-      const result = await controller.getByIdentifier(
-        'author-key',
-        AuthorEmbed.HOME,
-      );
-
-      expect(result.home).toEqual(mockCrux);
-      expect(cruxService.findById).toHaveBeenCalledWith('crux-home-123');
-    });
-
-    it('should not embed home when author has no homeId', async () => {
-      const authorWithoutHome = { ...mockAuthor, homeId: undefined };
-      service.findByKey.mockResolvedValue(authorWithoutHome);
-
-      const result = await controller.getByIdentifier(
-        'author-key',
-        AuthorEmbed.HOME,
-      );
-
-      expect(cruxService.findById).not.toHaveBeenCalled();
-      expect(result).toEqual(authorWithoutHome);
     });
   });
 
