@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { KeyMaster } from './services/key.master';
 import { DbService } from './services/db.service';
+import { LoggerService } from './services/logger.service';
 import { Request, Response } from 'express';
 
 describe('Common Module', () => {
@@ -90,16 +91,37 @@ describe('Common Module', () => {
   describe('DbService', () => {
     let service: DbService;
 
+    const mockLoggerService = {
+      createChildLogger: jest.fn().mockReturnValue({
+        info: jest.fn(),
+        debug: jest.fn(),
+        error: jest.fn(),
+        warn: jest.fn(),
+      }),
+    };
+
     beforeEach(async () => {
       const module: TestingModule = await Test.createTestingModule({
-        providers: [DbService],
+        providers: [
+          DbService,
+          {
+            provide: LoggerService,
+            useValue: mockLoggerService,
+          },
+        ],
       }).compile();
 
       service = module.get<DbService>(DbService);
+
+      // Mock onModuleInit to prevent actual database connection in tests
+      jest.spyOn(service, 'onModuleInit').mockResolvedValue(undefined);
     });
 
     afterEach(async () => {
-      await service.onModuleDestroy();
+      if (service) {
+        await service.onModuleDestroy();
+      }
+      jest.clearAllMocks();
     });
 
     describe('query', () => {

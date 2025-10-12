@@ -3,6 +3,7 @@ import { DbService } from './common/services/db.service';
 import { RedisService } from './common/services/redis.service';
 import { HealthStatus, ServiceHealth } from './common/types/interfaces';
 import { HealthStatusType, ServiceHealthType } from './common/types/enums';
+import { version } from '../package.json';
 
 @Injectable()
 export class AppService {
@@ -28,6 +29,7 @@ export class AppService {
 
     return {
       status: overallStatus,
+      version,
       timestamp: new Date().toISOString(),
       services: {
         database,

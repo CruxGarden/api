@@ -27,7 +27,7 @@ export const AppSwagger = {
           'Health status retrieved successfully. Always returns 200 OK even if services are down - check the status field for actual health.',
         schema: {
           type: 'object',
-          required: ['status', 'timestamp', 'services'],
+          required: ['status', 'version', 'timestamp', 'services'],
           properties: {
             status: {
               type: 'string',
@@ -35,6 +35,11 @@ export const AppSwagger = {
               example: 'healthy',
               description:
                 'Overall health: "healthy" = all up, "degraded" = some down, "unhealthy" = critical services down',
+            },
+            version: {
+              type: 'string',
+              example: '0.0.1',
+              description: 'API version',
             },
             timestamp: {
               type: 'string',

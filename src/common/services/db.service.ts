@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 // import { Knex, knex } from 'knex';
 import knex, { Knex } from 'knex';
 import knexConfig from '../../../knexfile';
@@ -6,6 +6,7 @@ import { attachPaginate } from 'knex-paginate';
 import { URL } from 'url';
 import { Request, Response } from 'express';
 import * as formatLink from 'format-link-header';
+import { LoggerService } from './logger.service';
 
 attachPaginate();
 
@@ -17,16 +18,41 @@ export interface PaginationOptions<TRaw = any, TModel = any> {
 }
 
 @Injectable()
-export class DbService implements OnModuleDestroy {
+export class DbService implements OnModuleInit, OnModuleDestroy {
   private client: Knex;
+  private readonly logger: LoggerService;
 
-  constructor() {
+  constructor(private readonly loggerService: LoggerService) {
+    this.logger = this.loggerService.createChildLogger('DbService');
+
     const config =
       process.env.NODE_ENV === 'production'
         ? knexConfig.production
         : knexConfig.development;
 
     this.client = knex(config);
+
+    // Set up connection pool event listeners
+    const pool = (this.client.client as any).pool;
+    if (pool) {
+      pool.on('createSuccess', () => {
+        this.logger.info('Database client connected');
+      });
+      pool.on('createFail', (err: Error) => {
+        this.logger.error('Database client connection failed', err);
+      });
+    }
+  }
+
+  async onModuleInit() {
+    try {
+      // Test the connection
+      await this.client.raw('SELECT 1');
+      this.logger.debug('Database connection established');
+    } catch (error) {
+      this.logger.error('Failed to establish database connection', error);
+      throw error;
+    }
   }
 
   query(): Knex {

@@ -13,6 +13,7 @@ export interface AuthRequest extends Request {
 
 export interface HealthStatus {
   status: HealthStatusType;
+  version: string;
   timestamp: string;
   services: {
     database: ServiceHealth;

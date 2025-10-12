@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { createClient } from 'redis';
 import { LoggerService } from '../services/logger.service';
 
@@ -6,7 +6,7 @@ let redis: any;
 let connected = false;
 
 @Injectable()
-export class RedisService {
+export class RedisService implements OnModuleInit {
   private readonly logger: LoggerService;
 
   constructor(private readonly loggerService: LoggerService) {
@@ -21,6 +21,11 @@ export class RedisService {
       );
     }
   }
+
+  async onModuleInit() {
+    await this.connect();
+  }
+
   async connect() {
     if (connected) return;
 
