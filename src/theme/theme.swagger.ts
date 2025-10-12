@@ -53,6 +53,11 @@ export const ThemeSwagger = {
               format: 'uuid',
               example: '550e8400-e29b-41d4-a716-446655440001',
             },
+            homeId: {
+              type: 'string',
+              format: 'uuid',
+              example: '550e8400-e29b-41d4-a716-446655440002',
+            },
             title: { type: 'string', example: 'Ocean Blue' },
             key: { type: 'string', example: 'ocean-blue' },
             description: {
@@ -254,6 +259,7 @@ export const ThemeSwagger = {
               resourceType: { type: 'string', example: 'theme' },
               resourceId: { type: 'string', format: 'uuid' },
               authorId: { type: 'string', format: 'uuid' },
+              homeId: { type: 'string', format: 'uuid' },
               created: { type: 'string', format: 'date-time' },
               updated: { type: 'string', format: 'date-time' },
             },
@@ -303,6 +309,7 @@ export const ThemeSwagger = {
               resourceType: { type: 'string', example: 'theme' },
               resourceId: { type: 'string', format: 'uuid' },
               authorId: { type: 'string', format: 'uuid' },
+              homeId: { type: 'string', format: 'uuid' },
               created: { type: 'string', format: 'date-time' },
               updated: { type: 'string', format: 'date-time' },
             },

@@ -201,8 +201,16 @@ export const AuthorSwagger = {
                   type: 'string',
                   example: 'Software developer and writer',
                 },
-                accountId: { type: 'string', example: 'account_456' },
-                homeId: { type: 'string', example: 'crux_789' },
+                accountId: {
+                  type: 'string',
+                  format: 'uuid',
+                  example: '550e8400-e29b-41d4-a716-446655440000',
+                },
+                homeId: {
+                  type: 'string',
+                  format: 'uuid',
+                  example: '550e8400-e29b-41d4-a716-446655440001',
+                },
                 created: { type: 'string', format: 'date-time' },
                 updated: { type: 'string', format: 'date-time' },
               },

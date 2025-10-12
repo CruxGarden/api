@@ -1,0 +1,689 @@
+{
+  "info": {
+    "name": "Crux Garden - Home & Attachments",
+    "description": "Postman collection for Crux Garden API - Home and Attachment endpoints\n\n## Setup Instructions\n\n1. Set environment variables:\n   - `base_url`: Your API base URL (default: http://localhost:10000)\n   - `access_token`: Your JWT access token\n   - `home_key`: A home key for testing\n   - `attachment_key`: An attachment key for testing\n   - `crux_key`: A crux key for testing attachments on cruxes\n\n2. Authentication:\n   - Most endpoints require authentication\n   - Use the Auth endpoints to get an access_token\n   - Home management requires ADMIN role\n   - Attachment management requires ownership\n\n3. File Uploads:\n   - Attachments support multipart/form-data\n   - Max file size: 50MB\n   - File types are validated by MIME type\n\n## Notes\n- All timestamps are in ISO 8601 format\n- Pagination is supported with `page` and `perPage` query parameters\n- Soft deletes are used (records are marked deleted, not removed)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "crux-garden-api"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:10000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Homes",
+      "item": [
+        {
+          "name": "Get All Homes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/homes?page=1&perPage=25",
+              "host": ["{{base_url}}"],
+              "path": ["homes"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number (default: 1)"
+                },
+                {
+                  "key": "perPage",
+                  "value": "25",
+                  "description": "Items per page (default: 25)"
+                }
+              ]
+            },
+            "description": "Retrieves a paginated list of all homes. Requires authentication.\n\n**Response Headers:**\n- `Link`: RFC 5988 pagination links (first, prev, next, last)\n- `Pagination`: JSON object with currentPage, perPage, total"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is an array\", function () {",
+                  "    pm.expect(pm.response.json()).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test(\"Has pagination headers\", function () {",
+                  "    pm.response.to.have.header('Link');",
+                  "    pm.response.to.have.header('Pagination');",
+                  "});",
+                  "",
+                  "if (pm.response.json().length > 0) {",
+                  "    const home = pm.response.json()[0];",
+                  "    pm.environment.set('home_key', home.key);",
+                  "    pm.test(\"Home has required fields\", function () {",
+                  "        pm.expect(home).to.have.property('id');",
+                  "        pm.expect(home).to.have.property('key');",
+                  "        pm.expect(home).to.have.property('name');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Home by Key",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/homes/{{home_key}}",
+              "host": ["{{base_url}}"],
+              "path": ["homes", "{{home_key}}"]
+            },
+            "description": "Retrieves a specific home by its unique key. Requires authentication.\n\n**Path Parameters:**\n- `homeKey`: The unique key of the home"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is an object\", function () {",
+                  "    const home = pm.response.json();",
+                  "    pm.expect(home).to.be.an('object');",
+                  "    pm.expect(home).to.have.property('id');",
+                  "    pm.expect(home).to.have.property('key');",
+                  "    pm.expect(home).to.have.property('name');",
+                  "    pm.expect(home).to.have.property('type');",
+                  "    pm.expect(home).to.have.property('kind');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Home (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My Knowledge Garden\",\n  \"description\": \"A personal knowledge garden for collecting and connecting ideas\",\n  \"primary\": false,\n  \"type\": \"personal\",\n  \"kind\": \"garden\",\n  \"meta\": {\n    \"color\": \"blue\",\n    \"icon\": \"tree\",\n    \"tags\": [\"knowledge\", \"personal\"]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/homes",
+              "host": ["{{base_url}}"],
+              "path": ["homes"]
+            },
+            "description": "Creates a new home. **Requires ADMIN role.**\n\n**Request Body:**\n- `name` (required): Name of the home\n- `description` (optional): Description of the home\n- `primary` (optional): Whether this is the primary home\n- `type` (required): Type of home (e.g., 'personal', 'team', 'public')\n- `kind` (required): Kind of home (e.g., 'garden', 'archive', 'workspace')\n- `meta` (optional): Additional metadata as JSON object"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Home created successfully\", function () {",
+                  "    const home = pm.response.json();",
+                  "    pm.expect(home).to.have.property('id');",
+                  "    pm.expect(home).to.have.property('key');",
+                  "    pm.expect(home.name).to.eql('My Knowledge Garden');",
+                  "    pm.environment.set('home_key', home.key);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Home (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Garden Name\",\n  \"description\": \"Updated description with new information\",\n  \"meta\": {\n    \"color\": \"green\",\n    \"icon\": \"garden\",\n    \"updated\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/homes/{{home_key}}",
+              "host": ["{{base_url}}"],
+              "path": ["homes", "{{home_key}}"]
+            },
+            "description": "Updates an existing home. **Requires ADMIN role.**\n\nThis is a PATCH request, so all fields are optional. Only provided fields will be updated.\n\n**Path Parameters:**\n- `homeKey`: The unique key of the home to update"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Home updated successfully\", function () {",
+                  "    const home = pm.response.json();",
+                  "    pm.expect(home.name).to.eql('Updated Garden Name');",
+                  "    pm.expect(home.description).to.include('Updated description');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Home (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/homes/{{home_key}}",
+              "host": ["{{base_url}}"],
+              "path": ["homes", "{{home_key}}"]
+            },
+            "description": "Soft deletes a home. **Requires ADMIN role.**\n\nThe home is not permanently deleted but marked as deleted and will no longer appear in queries.\n\n**Path Parameters:**\n- `homeKey`: The unique key of the home to delete"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.test(\"Response body is empty\", function () {",
+                  "    pm.expect(pm.response.text()).to.be.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Home management endpoints. Homes are containers for organizing cruxes, paths, and other resources.\n\n**Authorization:**\n- GET requests: Requires authentication\n- POST, PATCH, DELETE: Requires ADMIN role"
+    },
+    {
+      "name": "Attachments",
+      "item": [
+        {
+          "name": "Crux Attachments",
+          "item": [
+            {
+              "name": "Get Crux Attachments",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/cruxes/{{crux_key}}/attachments",
+                  "host": ["{{base_url}}"],
+                  "path": ["cruxes", "{{crux_key}}", "attachments"]
+                },
+                "description": "Retrieves all attachments for a specific crux.\n\n**Path Parameters:**\n- `cruxKey`: The unique key of the crux"
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test(\"Response is an array\", function () {",
+                      "    pm.expect(pm.response.json()).to.be.an('array');",
+                      "});",
+                      "",
+                      "if (pm.response.json().length > 0) {",
+                      "    const attachment = pm.response.json()[0];",
+                      "    pm.environment.set('attachment_key', attachment.key);",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Upload Attachment to Crux",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": [],
+                      "description": "File to upload (max 50MB)"
+                    },
+                    {
+                      "key": "type",
+                      "value": "image",
+                      "type": "text",
+                      "description": "Type of attachment (e.g., 'image', 'document', 'video', 'audio')"
+                    },
+                    {
+                      "key": "kind",
+                      "value": "photo",
+                      "type": "text",
+                      "description": "Kind of attachment (e.g., 'photo', 'screenshot', 'diagram', 'pdf')"
+                    },
+                    {
+                      "key": "meta",
+                      "value": "{\"caption\": \"Example image\", \"width\": 1920, \"height\": 1080}",
+                      "type": "text",
+                      "description": "Optional metadata as JSON string"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/cruxes/{{crux_key}}/attachments",
+                  "host": ["{{base_url}}"],
+                  "path": ["cruxes", "{{crux_key}}", "attachments"]
+                },
+                "description": "Uploads a new attachment to a crux. The file is stored in S3 and metadata in the database.\n\n**Requirements:**\n- Must own the crux\n- File size max: 50MB\n- Content-Type: multipart/form-data\n\n**Form Fields:**\n- `file` (required): The file to upload\n- `type` (required): Type of attachment\n- `kind` (required): Kind of attachment\n- `meta` (optional): JSON metadata"
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 201\", function () {",
+                      "    pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "pm.test(\"Attachment created\", function () {",
+                      "    const attachment = pm.response.json();",
+                      "    pm.expect(attachment).to.have.property('id');",
+                      "    pm.expect(attachment).to.have.property('key');",
+                      "    pm.expect(attachment).to.have.property('filename');",
+                      "    pm.expect(attachment).to.have.property('mimeType');",
+                      "    pm.expect(attachment.resourceType).to.eql('crux');",
+                      "    pm.environment.set('attachment_key', attachment.key);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Download Crux Attachment",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/cruxes/{{crux_key}}/attachments/{{attachment_key}}/download",
+                  "host": ["{{base_url}}"],
+                  "path": [
+                    "cruxes",
+                    "{{crux_key}}",
+                    "attachments",
+                    "{{attachment_key}}",
+                    "download"
+                  ]
+                },
+                "description": "Downloads an attachment file from a crux.\n\n**Path Parameters:**\n- `cruxKey`: The unique key of the crux\n- `attachmentKey`: The unique key of the attachment\n\n**Response:**\n- Content-Type header set to file's MIME type\n- Content-Disposition header with filename\n- Binary file data"
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test(\"Has proper headers\", function () {",
+                      "    pm.response.to.have.header('Content-Type');",
+                      "    pm.response.to.have.header('Content-Disposition');",
+                      "    pm.response.to.have.header('Cache-Control', 'max-age=31536000');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ]
+            }
+          ],
+          "description": "Attachment endpoints nested under cruxes. These allow uploading, viewing, and downloading files attached to specific cruxes."
+        },
+        {
+          "name": "Attachment Management",
+          "item": [
+            {
+              "name": "Update Attachment (Metadata Only)",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"document\",\n  \"kind\": \"report\",\n  \"meta\": {\n    \"caption\": \"Updated caption\",\n    \"tags\": [\"important\", \"review\"]\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/attachments/{{attachment_key}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["attachments", "{{attachment_key}}"]
+                },
+                "description": "Updates attachment metadata without replacing the file.\n\n**Requirements:**\n- Must own the attachment\n- All fields are optional\n\n**Path Parameters:**\n- `attachmentKey`: The unique key of the attachment"
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test(\"Attachment updated\", function () {",
+                      "    const attachment = pm.response.json();",
+                      "    pm.expect(attachment.type).to.eql('document');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Update Attachment (With New File)",
+              "request": {
+                "method": "PUT",
+                "header": [],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": [],
+                      "description": "New file to replace existing (max 50MB)"
+                    },
+                    {
+                      "key": "type",
+                      "value": "image",
+                      "type": "text",
+                      "description": "Updated type"
+                    },
+                    {
+                      "key": "kind",
+                      "value": "screenshot",
+                      "type": "text",
+                      "description": "Updated kind"
+                    },
+                    {
+                      "key": "meta",
+                      "value": "{\"caption\": \"New screenshot\"}",
+                      "type": "text",
+                      "description": "Updated metadata as JSON string"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/attachments/{{attachment_key}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["attachments", "{{attachment_key}}"]
+                },
+                "description": "Updates an attachment and replaces the file. The old file is deleted from S3.\n\n**Requirements:**\n- Must own the attachment\n- File size max: 50MB\n- Content-Type: multipart/form-data\n\n**Form Fields:**\n- `file` (optional): New file to upload\n- `type` (optional): Updated type\n- `kind` (optional): Updated kind\n- `meta` (optional): Updated metadata as JSON string"
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test(\"File updated\", function () {",
+                      "    const attachment = pm.response.json();",
+                      "    pm.expect(attachment).to.have.property('filename');",
+                      "    pm.expect(attachment).to.have.property('size');",
+                      "    pm.expect(attachment).to.have.property('mimeType');",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Delete Attachment",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/attachments/{{attachment_key}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["attachments", "{{attachment_key}}"]
+                },
+                "description": "Deletes an attachment. The file is removed from S3 and the database record is soft-deleted.\n\n**Requirements:**\n- Must own the attachment\n\n**Path Parameters:**\n- `attachmentKey`: The unique key of the attachment to delete\n\n**Note:** If S3 deletion fails, the database record is still deleted (graceful degradation)."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 204\", function () {",
+                      "    pm.response.to.have.status(204);",
+                      "});",
+                      "",
+                      "pm.test(\"Response body is empty\", function () {",
+                      "    pm.expect(pm.response.text()).to.be.empty;",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ]
+            }
+          ],
+          "description": "Direct attachment management endpoints. These operate on attachments by their key, regardless of the parent resource."
+        }
+      ],
+      "description": "Attachment endpoints for managing files attached to resources (primarily cruxes).\n\n**Features:**\n- File uploads to AWS S3\n- Support for images, documents, videos, audio\n- Max file size: 50MB\n- Metadata storage in PostgreSQL\n- Owner-based access control"
+    },
+    {
+      "name": "Examples",
+      "item": [
+        {
+          "name": "Error - Unauthorized (No Token)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/homes",
+              "host": ["{{base_url}}"],
+              "path": ["homes"]
+            },
+            "description": "Example of authentication error when no token is provided.\n\n**Expected Response:** 401 Unauthorized"
+          },
+          "response": []
+        },
+        {
+          "name": "Error - Forbidden (Non-Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Home\",\n  \"type\": \"personal\",\n  \"kind\": \"garden\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/homes",
+              "host": ["{{base_url}}"],
+              "path": ["homes"]
+            },
+            "description": "Example of authorization error when a non-admin user tries to create a home.\n\n**Expected Response:** 403 Forbidden\n\nNote: Use a token with role='author' (not 'admin') to test this."
+          },
+          "response": []
+        },
+        {
+          "name": "Error - Not Found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/homes/nonexistent-key",
+              "host": ["{{base_url}}"],
+              "path": ["homes", "nonexistent-key"]
+            },
+            "description": "Example of not found error when requesting a non-existent resource.\n\n**Expected Response:** 404 Not Found"
+          },
+          "response": []
+        },
+        {
+          "name": "Error - Bad Request (Invalid Data)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Missing required fields\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/homes",
+              "host": ["{{base_url}}"],
+              "path": ["homes"]
+            },
+            "description": "Example of validation error when required fields are missing.\n\n**Expected Response:** 400 Bad Request"
+          },
+          "response": []
+        },
+        {
+          "name": "Error - File Too Large",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "A file larger than 50MB"
+                },
+                {
+                  "key": "type",
+                  "value": "document",
+                  "type": "text"
+                },
+                {
+                  "key": "kind",
+                  "value": "pdf",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/cruxes/{{crux_key}}/attachments",
+              "host": ["{{base_url}}"],
+              "path": ["cruxes", "{{crux_key}}", "attachments"]
+            },
+            "description": "Example of file size validation error.\n\n**Expected Response:** 400 Bad Request\n\nMessage: \"File size exceeds maximum allowed size of 50MB\""
+          },
+          "response": []
+        }
+      ],
+      "description": "Example requests demonstrating various error scenarios and edge cases."
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global pre-request script",
+          "// Set default values if not present",
+          "if (!pm.environment.get('base_url')) {",
+          "    pm.environment.set('base_url', 'http://localhost:10000');",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test script",
+          "pm.test(\"Response time is acceptable\", function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "// Log errors for debugging",
+          "if (pm.response.code >= 400) {",
+          "    console.log('Error Response:', pm.response.json());",
+          "}"
+        ]
+      }
+    }
+  ]
+}

@@ -93,7 +93,16 @@ export const TagSwagger = {
               },
               resourceId: { type: 'string', example: 'crux_456' },
               label: { type: 'string', example: 'frontend-development' },
-              authorId: { type: 'string', example: 'author_789' },
+              authorId: {
+                type: 'string',
+                format: 'uuid',
+                example: '550e8400-e29b-41d4-a716-446655440000',
+              },
+              homeId: {
+                type: 'string',
+                format: 'uuid',
+                example: '550e8400-e29b-41d4-a716-446655440001',
+              },
               created: { type: 'string', format: 'date-time' },
               updated: { type: 'string', format: 'date-time' },
             },
