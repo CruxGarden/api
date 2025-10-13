@@ -211,6 +211,9 @@ export const AuthorSwagger = {
                   format: 'uuid',
                   example: '550e8400-e29b-41d4-a716-446655440001',
                 },
+                type: { type: 'string', example: 'individual' },
+                kind: { type: 'string', example: 'writer' },
+                meta: { type: 'object', example: {} },
                 created: { type: 'string', format: 'date-time' },
                 updated: { type: 'string', format: 'date-time' },
               },
@@ -228,6 +231,9 @@ export const AuthorSwagger = {
                   example: 'Software developer and writer',
                 },
                 accountId: { type: 'string', example: 'account_456' },
+                type: { type: 'string', example: 'individual' },
+                kind: { type: 'string', example: 'writer' },
+                meta: { type: 'object', example: {} },
                 home: {
                   type: 'object',
                   properties: {

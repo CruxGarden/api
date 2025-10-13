@@ -15,7 +15,7 @@ import { LoggerService } from '../common/services/logger.service';
 import { TagService } from '../tag/tag.service';
 import { CruxService } from '../crux/crux.service';
 import { HomeService } from '../home/home.service';
-import { ResourceType } from '../common/types/enums';
+import { PathType, PathVisibility, ResourceType } from '../common/types/enums';
 import PathRaw from './entities/path-raw.entity';
 import Path from './entities/path.entity';
 import MarkerRaw from './entities/marker-raw.entity';
@@ -74,6 +74,8 @@ export class PathService {
   async create(createPathDto: CreatePathDto): Promise<Path> {
     createPathDto.id = this.keyMaster.generateId();
     createPathDto.key = this.keyMaster.generateKey();
+
+    this.applyDefaults(createPathDto);
 
     const created = await this.pathRepository.create(createPathDto);
     if (created.error)
@@ -219,4 +221,9 @@ export class PathService {
   }
 
   /* ~path tags */
+
+  private applyDefaults(dto: CreatePathDto): void {
+    if (!dto.type) dto.type = PathType.LIVING;
+    if (!dto.visibility) dto.visibility = PathVisibility.UNLISTED;
+  }
 }

@@ -99,7 +99,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"slug\": \"my-awesome-crux\",\n  \"title\": \"My Awesome Crux\",\n  \"description\": \"This is a description of my crux\",\n  \"data\": \"This is the content of my crux\",\n  \"type\": \"text\",\n  \"status\": \"living\",\n  \"visibility\": \"public\"\n}"
+          "raw": "{\n  \"slug\": \"my-awesome-crux\",\n  \"title\": \"My Awesome Crux\",\n  \"description\": \"This is a description of my crux\",\n  \"data\": \"This is the content of my crux\",\n  \"type\": \"text\",\n  \"kind\": \"note\",\n  \"status\": \"living\",\n  \"visibility\": \"public\",\n  \"meta\": {}\n}"
         },
         "url": {
           "raw": "{{base_url}}/cruxes",
@@ -122,7 +122,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"title\": \"My Updated Crux\",\n  \"description\": \"This is an updated description\",\n  \"data\": \"This is the updated content of my crux\",\n  \"status\": \"living\",\n  \"visibility\": \"private\"\n}"
+          "raw": "{\n  \"title\": \"My Updated Crux\",\n  \"description\": \"This is an updated description\",\n  \"data\": \"This is the updated content of my crux\",\n  \"kind\": \"article\",\n  \"status\": \"living\",\n  \"visibility\": \"private\",\n  \"meta\": {\"readTime\": 5}\n}"
         },
         "url": {
           "raw": "{{base_url}}/cruxes/{{crux_key}}",
@@ -218,7 +218,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"targetKey\": \"target-crux-key\",\n  \"type\": \"gate\",\n  \"weight\": 1,\n  \"note\": \"Connection note\"\n}"
+          "raw": "{\n  \"targetKey\": \"target-crux-key\",\n  \"type\": \"gate\",\n  \"kind\": \"reference\",\n  \"weight\": 1,\n  \"note\": \"Connection note\",\n  \"meta\": {}\n}"
         },
         "url": {
           "raw": "{{base_url}}/cruxes/{{crux_key}}/dimensions",

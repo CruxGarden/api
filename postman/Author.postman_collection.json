@@ -116,7 +116,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"username\": \"johndoe\",\n  \"displayName\": \"John Doe\",\n  \"bio\": \"Software developer and writer passionate about clean code and great user experiences.\"\n}"
+							"raw": "{\n  \"username\": \"johndoe\",\n  \"displayName\": \"John Doe\",\n  \"bio\": \"Software developer and writer passionate about clean code and great user experiences.\",\n  \"type\": \"individual\",\n  \"kind\": \"writer\",\n  \"meta\": {}\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/authors",
@@ -226,7 +226,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"displayName\": \"John Updated\",\n  \"bio\": \"Updated bio with new information about my journey in software development.\"\n}"
+							"raw": "{\n  \"displayName\": \"John Updated\",\n  \"bio\": \"Updated bio with new information about my journey in software development.\",\n  \"kind\": \"developer\",\n  \"meta\": {\"specialty\": \"backend\"}\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/authors/{{author_key}}",

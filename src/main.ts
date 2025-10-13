@@ -8,7 +8,7 @@ import { setupRedoc } from './redoc.middleware';
 import { EnvValidator } from './common/validators/env.validator';
 import { version } from '../package.json';
 
-EnvValidator.validate();
+if (process.env.NODE_ENV === 'production') EnvValidator.validate();
 
 const port = process.env.PORT || 10000;
 const hostname = process.env.HOSTNAME || '0.0.0.0';

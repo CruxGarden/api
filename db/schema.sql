@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict I4a1sp3PBNgW0LvGgZUvVlkhLtnhgHT8mbTYKLxy6BqchT7r1c8oQZReh7KcSaM
+\restrict Swd6Rex4i3UZJnXtTGMlrndd8U81dFIsgCzWSfZXfE8dpceMzcAMxTxH3lTo6ed
 
--- Dumped from database version 15.14
--- Dumped by pg_dump version 15.14 (Homebrew)
+-- Dumped from database version 16.10
+-- Dumped by pg_dump version 16.10
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -17,20 +17,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: public; Type: SCHEMA; Schema: -; Owner: -
---
-
-CREATE SCHEMA public;
-
-
---
--- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON SCHEMA public IS 'standard public schema';
-
 
 SET default_tablespace = '';
 
@@ -47,7 +33,32 @@ CREATE TABLE public.accounts (
     created timestamp with time zone DEFAULT now() NOT NULL,
     updated timestamp with time zone DEFAULT now() NOT NULL,
     deleted timestamp with time zone,
-    key character varying(255) NOT NULL
+    key character varying(255) NOT NULL,
+    home_id uuid NOT NULL
+);
+
+
+--
+-- Name: attachments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.attachments (
+    id uuid NOT NULL,
+    key character varying(255) NOT NULL,
+    type character varying(255) NOT NULL,
+    kind character varying(255) NOT NULL,
+    meta jsonb,
+    resource_id uuid NOT NULL,
+    resource_type character varying(255) NOT NULL,
+    author_id uuid NOT NULL,
+    encoding character varying(255) NOT NULL,
+    mime_type character varying(255) NOT NULL,
+    filename character varying(255) NOT NULL,
+    size bigint NOT NULL,
+    created timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted timestamp with time zone,
+    home_id uuid NOT NULL
 );
 
 
@@ -65,7 +76,10 @@ CREATE TABLE public.authors (
     created timestamp with time zone DEFAULT now() NOT NULL,
     updated timestamp with time zone DEFAULT now() NOT NULL,
     deleted timestamp with time zone,
-    home_id uuid
+    home_id uuid,
+    type character varying(255),
+    kind character varying(255),
+    meta jsonb
 );
 
 
@@ -79,16 +93,18 @@ CREATE TABLE public.cruxes (
     slug character varying(255) NOT NULL,
     title text,
     data text NOT NULL,
-    type character varying(100) DEFAULT 'text'::character varying NOT NULL,
+    type character varying(100) NOT NULL,
     theme_id uuid,
     author_id uuid NOT NULL,
     created timestamp with time zone DEFAULT now() NOT NULL,
     updated timestamp with time zone DEFAULT now() NOT NULL,
     deleted timestamp with time zone,
-    status character varying(100) DEFAULT 'living'::character varying NOT NULL,
-    visibility character varying(100) DEFAULT 'unlisted'::character varying NOT NULL,
+    status character varying(100) NOT NULL,
+    visibility character varying(100) NOT NULL,
     description text,
-    meta jsonb
+    meta jsonb,
+    home_id uuid NOT NULL,
+    kind character varying(255)
 );
 
 
@@ -108,70 +124,30 @@ CREATE TABLE public.dimensions (
     author_id uuid,
     note text,
     key character varying(255) NOT NULL,
+    home_id uuid NOT NULL,
+    kind character varying(255),
+    meta jsonb,
     CONSTRAINT check_dimensions_no_self_reference CHECK ((source_id <> target_id))
 );
 
 
 --
--- Name: knex_migrations; Type: TABLE; Schema: public; Owner: -
+-- Name: homes; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.knex_migrations (
-    id integer NOT NULL,
-    name character varying(255),
-    batch integer,
-    migration_time timestamp with time zone
+CREATE TABLE public.homes (
+    id uuid NOT NULL,
+    key character varying(255) NOT NULL,
+    name character varying(255) NOT NULL,
+    description text,
+    "primary" boolean DEFAULT false NOT NULL,
+    type character varying(255) NOT NULL,
+    kind character varying(255) NOT NULL,
+    meta jsonb,
+    created timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted timestamp with time zone
 );
-
-
---
--- Name: knex_migrations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.knex_migrations_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: knex_migrations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.knex_migrations_id_seq OWNED BY public.knex_migrations.id;
-
-
---
--- Name: knex_migrations_lock; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.knex_migrations_lock (
-    index integer NOT NULL,
-    is_locked integer
-);
-
-
---
--- Name: knex_migrations_lock_index_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.knex_migrations_lock_index_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: knex_migrations_lock_index_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.knex_migrations_lock_index_seq OWNED BY public.knex_migrations_lock.index;
 
 
 --
@@ -203,7 +179,7 @@ CREATE TABLE public.paths (
     slug character varying(255) NOT NULL,
     title text,
     description text,
-    type character varying(100) DEFAULT 'living'::character varying NOT NULL,
+    type character varying(100) NOT NULL,
     visibility character varying(100) DEFAULT 'unlisted'::character varying NOT NULL,
     author_id uuid NOT NULL,
     created timestamp with time zone DEFAULT now() NOT NULL,
@@ -211,7 +187,9 @@ CREATE TABLE public.paths (
     deleted timestamp with time zone,
     kind character varying(100) NOT NULL,
     entry uuid NOT NULL,
-    theme_id uuid
+    theme_id uuid,
+    home_id uuid NOT NULL,
+    meta jsonb
 );
 
 
@@ -229,7 +207,8 @@ CREATE TABLE public.tags (
     resource_id uuid NOT NULL,
     author_id uuid,
     system boolean DEFAULT false NOT NULL,
-    key character varying(255) NOT NULL
+    key character varying(255) NOT NULL,
+    home_id uuid NOT NULL
 );
 
 
@@ -255,22 +234,12 @@ CREATE TABLE public.themes (
     text_color character varying(255),
     font character varying(100),
     mode character varying(100),
-    author_id uuid
+    author_id uuid,
+    home_id uuid NOT NULL,
+    type character varying(255),
+    kind character varying(255),
+    meta jsonb
 );
-
-
---
--- Name: knex_migrations id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.knex_migrations ALTER COLUMN id SET DEFAULT nextval('public.knex_migrations_id_seq'::regclass);
-
-
---
--- Name: knex_migrations_lock index; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.knex_migrations_lock ALTER COLUMN index SET DEFAULT nextval('public.knex_migrations_lock_index_seq'::regclass);
 
 
 --
@@ -295,6 +264,22 @@ ALTER TABLE ONLY public.accounts
 
 ALTER TABLE ONLY public.accounts
     ADD CONSTRAINT accounts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: attachments attachments_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attachments
+    ADD CONSTRAINT attachments_key_unique UNIQUE (key);
+
+
+--
+-- Name: attachments attachments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attachments
+    ADD CONSTRAINT attachments_pkey PRIMARY KEY (id);
 
 
 --
@@ -362,19 +347,19 @@ ALTER TABLE ONLY public.dimensions
 
 
 --
--- Name: knex_migrations_lock knex_migrations_lock_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: homes homes_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.knex_migrations_lock
-    ADD CONSTRAINT knex_migrations_lock_pkey PRIMARY KEY (index);
+ALTER TABLE ONLY public.homes
+    ADD CONSTRAINT homes_key_unique UNIQUE (key);
 
 
 --
--- Name: knex_migrations knex_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: homes homes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.knex_migrations
-    ADD CONSTRAINT knex_migrations_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.homes
+    ADD CONSTRAINT homes_pkey PRIMARY KEY (id);
 
 
 --
@@ -488,10 +473,66 @@ CREATE INDEX idx_accounts_email ON public.accounts USING btree (email);
 
 
 --
+-- Name: idx_accounts_home_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_accounts_home_id ON public.accounts USING btree (home_id);
+
+
+--
 -- Name: idx_accounts_key; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_accounts_key ON public.accounts USING btree (key);
+
+
+--
+-- Name: idx_attachments_author_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attachments_author_id ON public.attachments USING btree (author_id);
+
+
+--
+-- Name: idx_attachments_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attachments_created ON public.attachments USING btree (created);
+
+
+--
+-- Name: idx_attachments_home_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attachments_home_id ON public.attachments USING btree (home_id);
+
+
+--
+-- Name: idx_attachments_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attachments_key ON public.attachments USING btree (key);
+
+
+--
+-- Name: idx_attachments_kind; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attachments_kind ON public.attachments USING btree (kind);
+
+
+--
+-- Name: idx_attachments_resource; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attachments_resource ON public.attachments USING btree (resource_id, resource_type);
+
+
+--
+-- Name: idx_attachments_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attachments_type ON public.attachments USING btree (type);
 
 
 --
@@ -537,6 +578,13 @@ CREATE INDEX idx_cruxes_created ON public.cruxes USING btree (created);
 
 
 --
+-- Name: idx_cruxes_home_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_cruxes_home_id ON public.cruxes USING btree (home_id);
+
+
+--
 -- Name: idx_cruxes_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -579,10 +627,52 @@ CREATE INDEX idx_dimensions_author_id ON public.dimensions USING btree (author_i
 
 
 --
+-- Name: idx_dimensions_home_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dimensions_home_id ON public.dimensions USING btree (home_id);
+
+
+--
 -- Name: idx_dimensions_key; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_dimensions_key ON public.dimensions USING btree (key);
+
+
+--
+-- Name: idx_homes_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_homes_created ON public.homes USING btree (created);
+
+
+--
+-- Name: idx_homes_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_homes_key ON public.homes USING btree (key);
+
+
+--
+-- Name: idx_homes_kind; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_homes_kind ON public.homes USING btree (kind);
+
+
+--
+-- Name: idx_homes_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_homes_type ON public.homes USING btree (type);
+
+
+--
+-- Name: idx_homes_unique_primary; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_homes_unique_primary ON public.homes USING btree ("primary") WHERE (("primary" = true) AND (deleted IS NULL));
 
 
 --
@@ -649,6 +739,13 @@ CREATE INDEX idx_paths_created ON public.paths USING btree (created);
 
 
 --
+-- Name: idx_paths_home_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_paths_home_id ON public.paths USING btree (home_id);
+
+
+--
 -- Name: idx_paths_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -681,6 +778,13 @@ CREATE INDEX idx_paths_visibility ON public.paths USING btree (visibility);
 --
 
 CREATE INDEX idx_tags_author_id ON public.tags USING btree (author_id);
+
+
+--
+-- Name: idx_tags_home_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_tags_home_id ON public.tags USING btree (home_id);
 
 
 --
@@ -726,6 +830,13 @@ CREATE INDEX idx_themes_author_id ON public.themes USING btree (author_id);
 
 
 --
+-- Name: idx_themes_home_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_themes_home_id ON public.themes USING btree (home_id);
+
+
+--
 -- Name: idx_themes_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -737,6 +848,30 @@ CREATE INDEX idx_themes_key ON public.themes USING btree (key);
 --
 
 CREATE INDEX idx_themes_title ON public.themes USING btree (title);
+
+
+--
+-- Name: accounts accounts_home_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounts
+    ADD CONSTRAINT accounts_home_id_foreign FOREIGN KEY (home_id) REFERENCES public.homes(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: attachments attachments_author_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attachments
+    ADD CONSTRAINT attachments_author_id_foreign FOREIGN KEY (author_id) REFERENCES public.authors(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: attachments attachments_home_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attachments
+    ADD CONSTRAINT attachments_home_id_foreign FOREIGN KEY (home_id) REFERENCES public.homes(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 
 --
@@ -752,7 +887,7 @@ ALTER TABLE ONLY public.authors
 --
 
 ALTER TABLE ONLY public.authors
-    ADD CONSTRAINT authors_home_id_foreign FOREIGN KEY (home_id) REFERENCES public.cruxes(id) ON DELETE SET NULL;
+    ADD CONSTRAINT authors_home_id_foreign FOREIGN KEY (home_id) REFERENCES public.homes(id) ON UPDATE CASCADE ON DELETE SET NULL;
 
 
 --
@@ -761,6 +896,14 @@ ALTER TABLE ONLY public.authors
 
 ALTER TABLE ONLY public.cruxes
     ADD CONSTRAINT cruxes_author_id_fkey FOREIGN KEY (author_id) REFERENCES public.authors(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: cruxes cruxes_home_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cruxes
+    ADD CONSTRAINT cruxes_home_id_foreign FOREIGN KEY (home_id) REFERENCES public.homes(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 
 --
@@ -777,6 +920,14 @@ ALTER TABLE ONLY public.cruxes
 
 ALTER TABLE ONLY public.dimensions
     ADD CONSTRAINT dimensions_author_id_foreign FOREIGN KEY (author_id) REFERENCES public.authors(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+-- Name: dimensions dimensions_home_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dimensions
+    ADD CONSTRAINT dimensions_home_id_foreign FOREIGN KEY (home_id) REFERENCES public.homes(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 
 --
@@ -836,6 +987,14 @@ ALTER TABLE ONLY public.paths
 
 
 --
+-- Name: paths paths_home_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.paths
+    ADD CONSTRAINT paths_home_id_foreign FOREIGN KEY (home_id) REFERENCES public.homes(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
 -- Name: paths paths_theme_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -852,6 +1011,14 @@ ALTER TABLE ONLY public.tags
 
 
 --
+-- Name: tags tags_home_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tags
+    ADD CONSTRAINT tags_home_id_foreign FOREIGN KEY (home_id) REFERENCES public.homes(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
 -- Name: themes themes_author_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -860,8 +1027,16 @@ ALTER TABLE ONLY public.themes
 
 
 --
+-- Name: themes themes_home_id_foreign; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.themes
+    ADD CONSTRAINT themes_home_id_foreign FOREIGN KEY (home_id) REFERENCES public.homes(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
 -- PostgreSQL database dump complete
 --
 
-\unrestrict I4a1sp3PBNgW0LvGgZUvVlkhLtnhgHT8mbTYKLxy6BqchT7r1c8oQZReh7KcSaM
+\unrestrict Swd6Rex4i3UZJnXtTGMlrndd8U81dFIsgCzWSfZXfE8dpceMzcAMxTxH3lTo6ed
 

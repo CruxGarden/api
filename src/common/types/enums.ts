@@ -9,6 +9,10 @@ export enum CruxStatus {
   FROZEN = 'frozen',
 }
 
+export enum CruxType {
+  MARKDOWN = 'markdown',
+}
+
 export enum CruxVisibility {
   PUBLIC = 'public',
   PRIVATE = 'private',

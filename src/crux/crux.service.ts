@@ -15,7 +15,13 @@ import CruxRaw from './entities/crux-raw.entity';
 import Crux from './entities/crux.entity';
 import Dimension from '../dimension/entities/dimension.entity';
 import DimensionRaw from '../dimension/entities/dimension-raw.entity';
-import { DimensionType, ResourceType } from '../common/types/enums';
+import {
+  CruxStatus,
+  CruxType,
+  CruxVisibility,
+  DimensionType,
+  ResourceType,
+} from '../common/types/enums';
 import { CreateDimensionDto } from '../dimension/dto/create-dimension.dto';
 import { UpdateDimensionDto } from '../dimension/dto/update-dimension.dto';
 import { TagService } from '../tag/tag.service';
@@ -76,6 +82,8 @@ export class CruxService {
   async create(createCruxDto: CreateCruxDto): Promise<Crux> {
     createCruxDto.id = this.keyMaster.generateId();
     createCruxDto.key = this.keyMaster.generateKey();
+
+    this.applyDefaults(createCruxDto);
 
     const created = await this.cruxRepository.create(createCruxDto);
     if (created.error)
@@ -219,4 +227,10 @@ export class CruxService {
   }
 
   /* ~crux attachments */
+
+  private applyDefaults(dto: CreateCruxDto): void {
+    if (!dto.type) dto.type = CruxType.MARKDOWN;
+    if (!dto.status) dto.status = CruxStatus.LIVING;
+    if (!dto.visibility) dto.visibility = CruxVisibility.UNLISTED;
+  }
 }

@@ -50,6 +50,7 @@ export const DimensionSwagger = {
             sourceId: { type: 'string', example: 'crux_123' },
             targetId: { type: 'string', example: 'crux_456' },
             type: { type: 'string', example: 'gate' },
+            kind: { type: 'string', example: 'reference' },
             weight: { type: 'number', example: 1 },
             note: { type: 'string', example: 'Prerequisite concept' },
             authorId: {
@@ -62,6 +63,7 @@ export const DimensionSwagger = {
               format: 'uuid',
               example: '550e8400-e29b-41d4-a716-446655440001',
             },
+            meta: { type: 'object', example: {} },
             created: { type: 'string', format: 'date-time' },
             updated: { type: 'string', format: 'date-time' },
           },
@@ -217,6 +219,7 @@ export const DimensionSwagger = {
             sourceId: { type: 'string', example: 'crux_123' },
             targetId: { type: 'string', example: 'crux_456' },
             type: { type: 'string', example: 'gate' },
+            kind: { type: 'string', example: 'reference' },
             weight: { type: 'number', example: 2 },
             note: { type: 'string', example: 'Updated note' },
             authorId: {
@@ -229,6 +232,7 @@ export const DimensionSwagger = {
               format: 'uuid',
               example: '550e8400-e29b-41d4-a716-446655440001',
             },
+            meta: { type: 'object', example: {} },
           },
         },
       }),

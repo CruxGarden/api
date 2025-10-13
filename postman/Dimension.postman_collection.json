@@ -64,7 +64,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"type\": \"garden\",\n  \"weight\": 2,\n  \"note\": \"Updated relationship note\"\n}"
+          "raw": "{\n  \"type\": \"garden\",\n  \"kind\": \"reference\",\n  \"weight\": 2,\n  \"note\": \"Updated relationship note\",\n  \"meta\": {\"strength\": \"strong\"}\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/dimensions/{{dimensionKey}}",

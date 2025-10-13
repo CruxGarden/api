@@ -58,6 +58,7 @@ export const PathSwagger = {
               authorId: { type: 'string', format: 'uuid' },
               homeId: { type: 'string', format: 'uuid' },
               themeId: { type: 'string', format: 'uuid' },
+              meta: { type: 'object', example: {} },
               created: { type: 'string', format: 'date-time' },
               updated: { type: 'string', format: 'date-time' },
             },

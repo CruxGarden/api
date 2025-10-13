@@ -99,7 +99,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"title\": \"Ocean Blue\",\n  \"description\": \"A calming blue theme inspired by ocean waters\",\n  \"primaryColor\": \"#2563eb\",\n  \"secondaryColor\": \"#3b82f6\",\n  \"tertiaryColor\": \"#60a5fa\",\n  \"quaternaryColor\": \"#93c5fd\",\n  \"borderRadius\": \"8px\",\n  \"backgroundColor\": \"#ffffff\",\n  \"panelColor\": \"#f5f5f5\",\n  \"textColor\": \"#000000\",\n  \"font\": \"Inter\",\n  \"mode\": \"light\"\n}"
+          "raw": "{\n  \"title\": \"Ocean Blue\",\n  \"description\": \"A calming blue theme inspired by ocean waters\",\n  \"type\": \"color-scheme\",\n  \"kind\": \"minimalist\",\n  \"primaryColor\": \"#2563eb\",\n  \"secondaryColor\": \"#3b82f6\",\n  \"tertiaryColor\": \"#60a5fa\",\n  \"quaternaryColor\": \"#93c5fd\",\n  \"borderRadius\": \"8px\",\n  \"backgroundColor\": \"#ffffff\",\n  \"panelColor\": \"#f5f5f5\",\n  \"textColor\": \"#000000\",\n  \"font\": \"Inter\",\n  \"mode\": \"light\",\n  \"meta\": {}\n}"
         },
         "url": {
           "raw": "{{base_url}}/themes",
@@ -122,7 +122,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"title\": \"Ocean Blue Updated\",\n  \"description\": \"An updated calming blue theme\",\n  \"primaryColor\": \"#1e40af\",\n  \"mode\": \"dark\"\n}"
+          "raw": "{\n  \"title\": \"Ocean Blue Updated\",\n  \"description\": \"An updated calming blue theme\",\n  \"kind\": \"professional\",\n  \"primaryColor\": \"#1e40af\",\n  \"mode\": \"dark\",\n  \"meta\": {\"contrast\": \"high\"}\n}"
         },
         "url": {
           "raw": "{{base_url}}/themes/{{theme_key}}",

@@ -60,6 +60,7 @@
     "seed:run:prod": "npx knex seed:run --env production",
     "docker:redis:connect": "docker exec -it cruxgarden-dev-redis redis-cli",
     "docker:db:connect": "docker exec -it cruxgarden-dev-postgres psql -U cruxgarden -d cruxgarden",
+    "docker:db:dump": "docker exec cruxgarden-dev-postgres pg_dump -U cruxgarden -d cruxgarden --schema-only --no-owner --no-acl --exclude-table=knex_migrations --exclude-table=knex_migrations_lock --exclude-table=knex_migrations_id_seq --exclude-table=knex_migrations_lock_index_seq > db/schema.sql",
     "docker:api:connect": "docker exec -it cruxgarden-dev-api sh",
     "docker:dev": "cd docker && docker-compose --env-file ../.env -f docker-compose.dev.yml up -d --remove-orphans && docker rm cruxgarden-dev-migrations 2>/dev/null || true",
     "docker:down": "cd docker && docker-compose --env-file ../.env -f docker-compose.dev.yml down",

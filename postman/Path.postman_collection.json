@@ -92,7 +92,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"slug\": \"my-learning-path\",\n  \"title\": \"My Learning Path\",\n  \"description\": \"A curated path through learning materials\",\n  \"type\": \"living\",\n  \"visibility\": \"public\",\n  \"kind\": \"guide\",\n  \"entry\": \"{{entryMarkerId}}\"\n}"
+          "raw": "{\n  \"slug\": \"my-learning-path\",\n  \"title\": \"My Learning Path\",\n  \"description\": \"A curated path through learning materials\",\n  \"type\": \"living\",\n  \"visibility\": \"public\",\n  \"kind\": \"guide\",\n  \"entry\": \"{{entryMarkerId}}\",\n  \"meta\": {}\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/paths",
@@ -115,7 +115,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"title\": \"My Updated Learning Path\",\n  \"description\": \"An improved curated path\",\n  \"type\": \"frozen\",\n  \"visibility\": \"private\"\n}"
+          "raw": "{\n  \"title\": \"My Updated Learning Path\",\n  \"description\": \"An improved curated path\",\n  \"type\": \"frozen\",\n  \"visibility\": \"private\",\n  \"meta\": {\"difficulty\": \"intermediate\"}\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/paths/{{pathKey}}",
