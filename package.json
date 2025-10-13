@@ -28,7 +28,7 @@
   ],
   "scripts": {
     "setup": "npm ci && npm run docker:db && sleep 5 && npm run migrate:dev",
-    "reset": "rm -rf node_modules && npm ci && npm run docker:clean && npm run docker:db && npm run migrate:dev",
+    "reset": "./scripts/reset.sh && npm run docker:clean && npm run docker:db && npm run migrate:dev",
     "dev": "npm run docker:db && npm run start:dev",
     "prepare": "npm run build",
     "build": "nest build",
