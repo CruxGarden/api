@@ -31,38 +31,68 @@ This project adheres to a code of conduct that all contributors are expected to 
 ### Prerequisites
 
 - Node.js (v18 or higher)
-- npm or yarn
-- PostgreSQL
-- Redis (for caching)
+- Docker (recommended) or PostgreSQL and Redis
 
 ### Installation
 
+#### Option 1: With Docker (Recommended)
+
 ```bash
-# Install dependencies
-npm install
-
-# Set up environment variables
+# Copy environment template
 cp .env.example .env
-# Edit .env with your local configuration
 
-# Run migrations and seeds
-npm run migrate:latest && npm run migrate:seed
+# Edit .env and set your JWT_SECRET (minimum 32 characters)
+# Other variables have sensible defaults or will run in mock mode
+
+# Install dependencies, start Docker containers, run migrations
+npm run setup
+
+# Start development server
+npm run dev
+```
+
+#### Option 2: Without Docker
+
+Using your own PostgreSQL and Redis:
+
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Update .env with your database and Redis URLs:
+# DATABASE_URL=postgresql://user:password@localhost:5432/cruxgarden
+# REDIS_URL=redis://localhost:6379
+# JWT_SECRET=your-secret-key-minimum-32-characters
+
+# Install dependencies
+npm ci
+
+# Run migrations
+npm run migrate:dev
 
 # Start development server
 npm run start:dev
 ```
 
+The API will be available at `http://localhost:3000`. Visit `http://localhost:3000/docs` for interactive API documentation.
+
 ### Environment Variables
 
-Ensure you have the following environment variables configured in your `.env` file:
+**Required:**
+- `JWT_SECRET` - JWT token signing secret (minimum 32 characters)
 
-- `JWT_SECRET` - Secret key for JWT tokens
-- `DATABASE_URL` - Postgres database connection string
+**Database & Cache** (auto-configured with Docker):
+- `DATABASE_URL` - PostgreSQL connection string
 - `REDIS_URL` - Redis connection string
-- `AWS_SES_FROM_EMAIL` - Email service configuration for SES
-- `AWS_ACCESS_KEY_ID` - AWS Config
-- `AWS_SECRET_ACCESS_KEY` - AWS Config
-- `AWS_REGION` - AWS Config
+
+**AWS Services** (optional - runs in mock mode if not configured):
+- `AWS_ACCESS_KEY_ID` - AWS access key
+- `AWS_SECRET_ACCESS_KEY` - AWS secret key
+- `AWS_REGION` - AWS region (e.g., `us-east-1`)
+- `AWS_SES_FROM_EMAIL` - Email sender address
+- `AWS_S3_ATTACHMENTS_BUCKET` - S3 bucket for file storage
+
+Without AWS credentials, emails and file operations are logged to console. See `.env.example` for additional configuration options.
 
 ## How to Contribute
 
@@ -138,8 +168,14 @@ npm run lint
 ### Writing Tests
 
 ```bash
-# Run all tests
+# Run unit tests
 npm test
+
+# Run integration tests
+npm run test:integration
+
+# Run all tests (unit + integration)
+npm run test:all
 
 # Run tests in watch mode
 npm run test:watch
@@ -147,7 +183,7 @@ npm run test:watch
 # Run tests for specific module
 npm run test:module <module-name>
 
-# Run tests with coverage
+# Run tests with coverage (excludes .spec, swagger, DTOs, entities)
 npm run test:cov
 ```
 
@@ -261,7 +297,7 @@ improving coverage from 88% to 93%.
 1. Ensure your code follows the coding standards
 2. Run the linter and formatter: `npm run lint && npm run format`
 3. Write or update tests for your changes
-4. Ensure all tests pass: `npm test`
+4. Ensure all tests pass: `npm run test:all`
 5. Update documentation if needed
 6. Rebase your branch on the latest main branch
 
@@ -324,7 +360,9 @@ Why are these changes needed?
 
 If you have questions or need help:
 
-- Open a discussion on GitHub
+- **Ask questions** via [GitHub Discussions](https://github.com/CruxGarden/api/discussions)
+- **Report bugs** via [GitHub Issues](https://github.com/CruxGarden/api/issues)
+- **Request features** via [GitHub Issues](https://github.com/CruxGarden/api/issues)
 - Review existing issues and documentation
 - Reach out to maintainers
 
