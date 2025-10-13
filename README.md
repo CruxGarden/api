@@ -13,7 +13,7 @@ Crux Garden is a model of how ideas manifest and develop over time. The heart of
 
 These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate to one another.
 
-The power of a system that models ideas at such a primitive scale is that literally any idea or framework of ideas can be realized inside Crux Garden, from interactive stories to personal web pages to project management tools to research systems.
+The power of a system that models ideas at such a primitive scale is that literally any idea or framework of ideas can be realized inside Crux Garden: interactive fiction with evolving storylines, personal knowledge bases connecting insights across domains, product development roadmaps linking requirements to releases, research systems tracking citations and discoveries, or anything else where ideas have origins, consequences, transformation, and connection.
 
 Along with Cruxes and Dimensions, there are several other types including Tags, Themes, and Paths. See the database schema in `db/schema.sql` or the API documentation at `/docs` for details.
 
