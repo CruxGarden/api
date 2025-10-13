@@ -11,6 +11,7 @@ export default class Path {
   authorId: string;
   homeId: string;
   themeId?: string;
+  meta?: any;
   created: Date;
   updated: Date;
   deleted?: Date;

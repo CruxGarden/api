@@ -40,7 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Authentication with JWT and refresh tokens
 - Email-based passwordless authentication
 - Author and account management
-- Supabase database integration
 - Redis caching layer
 - Pagination support for list endpoints
 - Comprehensive API documentation
@@ -48,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Technical
 - NestJS framework
 - TypeScript
-- PostgreSQL via Supabase
+- PostgreSQL
 - Redis for session management
 - Knex.js for migrations
 - Jest for testing

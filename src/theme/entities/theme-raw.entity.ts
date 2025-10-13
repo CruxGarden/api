@@ -5,6 +5,8 @@ export default interface ThemeRaw {
   title: string;
   key: string;
   description?: string;
+  type?: string;
+  kind?: string;
   primary_color: string;
   secondary_color: string;
   tertiary_color: string;
@@ -15,6 +17,7 @@ export default interface ThemeRaw {
   text_color?: string;
   font?: string;
   mode?: string;
+  meta?: any;
   created: Date;
   updated: Date;
   deleted: Date | null;

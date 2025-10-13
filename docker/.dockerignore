@@ -48,10 +48,6 @@ docs/
 # CI/CD (already handled by GitHub Actions)
 .github/
 
-# Supabase local dev
-supabase/
-.supabase/
-
 # Scripts
 scripts/
 

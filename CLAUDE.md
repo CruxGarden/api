@@ -28,11 +28,6 @@ npm run test:integration  # Run integration tests
 npm run lint              # ESLint with auto-fix
 npm run format            # Format with Prettier
 
-# Database
-npm run db:start          # Start local Supabase
-npm run db:stop           # Stop local Supabase
-npm run db:reset          # Reset Supabase database
-
 # Migrations & Seeds
 npm run migrate:latest    # Run all migrations
 npm run migrate:rollback  # Rollback last migration

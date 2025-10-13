@@ -4,10 +4,12 @@ export default class Dimension {
   sourceId: string;
   targetId: string;
   type: 'gate' | 'garden' | 'growth' | 'graft';
+  kind?: string;
   weight?: number;
   authorId?: string;
   homeId: string;
   note?: string;
+  meta?: any;
   created: Date;
   updated: Date;
   deleted?: Date;

@@ -6,6 +6,7 @@ export default class Crux {
   description?: string;
   data: string;
   type: string;
+  kind?: string;
   themeId?: string;
   status: 'living' | 'frozen';
   visibility: 'public' | 'private' | 'unlisted';

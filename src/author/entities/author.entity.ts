@@ -6,6 +6,9 @@ export default class Author {
   bio?: string;
   accountId: string;
   homeId: string;
+  type?: string;
+  kind?: string;
+  meta?: any;
   created: Date;
   updated: Date;
   deleted?: Date;

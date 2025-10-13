@@ -5,6 +5,8 @@ export default class Theme {
   title: string;
   key: string;
   description?: string;
+  type?: string;
+  kind?: string;
   primaryColor: string;
   secondaryColor: string;
   tertiaryColor: string;
@@ -15,6 +17,7 @@ export default class Theme {
   textColor?: string;
   font?: string;
   mode?: string;
+  meta?: any;
   created: Date;
   updated: Date;
   deleted?: Date;

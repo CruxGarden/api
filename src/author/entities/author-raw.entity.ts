@@ -6,6 +6,9 @@ export default interface AuthorRaw {
   display_name: string;
   bio?: string;
   home_id?: string;
+  type?: string;
+  kind?: string;
+  meta?: any;
   created: Date;
   updated: Date;
   deleted: Date | null;

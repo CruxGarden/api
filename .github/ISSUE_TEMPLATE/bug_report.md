@@ -34,7 +34,7 @@ If applicable, add screenshots to help explain your problem.
 - **OS**: [e.g., macOS, Ubuntu 20.04, Windows 10]
 - **Node.js Version**: [e.g., 18.17.0]
 - **npm/yarn Version**: [e.g., npm 9.6.7]
-- **Database**: [e.g., Supabase local, Supabase cloud]
+- **Database**: [e.g., local, cloud]
 - **Redis Version**: [e.g., 7.0.0]
 
 ## API Version

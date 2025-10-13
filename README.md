@@ -123,11 +123,6 @@ npm run test:module       # Run specific module tests
 npm run lint              # Run ESLint with auto-fix
 npm run format            # Format code with Prettier
 
-# Database
-npm run db:start          # Start local Supabase
-npm run db:stop           # Stop local Supabase
-npm run db:reset          # Reset Supabase database
-
 # Migrations & Seeds
 npm run migrate:latest    # Run migrations
 npm run migrate:rollback  # Rollback last migration
@@ -194,7 +189,6 @@ Changes to files in `src/` will automatically reload the API. This uses volume m
 Run everything locally without Docker:
 
 ```bash
-# Start local Supabase (requires Supabase CLI)
 npm run db:start
 
 # Run migrations
