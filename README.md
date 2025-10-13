@@ -13,11 +13,13 @@ Crux Garden is a model of how ideas manifest and develop over time. The heart of
 
 These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate to one another.
 
-The power of a system that models ideas at such a primitive scale is that literally any idea or framework of ideas can be realized inside Crux Garden.
+The power of a system that models ideas at such a primitive scale is that literally any idea or framework of ideas can be realized inside Crux Garden, from interactive stories to personal web pages to project management tools to research systems.
 
 Along with Cruxes and Dimensions, there are several other types including Tags, Themes, and Paths. See the database schema in `db/schema.sql` or the API documentation at `/docs` for details.
 
 For further reading on the goals and ambitions of Crux Garden, explore the history of the [Digital Garden](https://maggieappleton.com/garden-history) movement and the 1945 essay [As We May Think](https://en.wikipedia.org/wiki/As_We_May_Think) by Vannevar Bush.
+
+Will Stepp, October 2025
 
 ## Getting Started
 
