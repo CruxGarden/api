@@ -8,7 +8,7 @@ Crux Garden is a model of how ideas manifest and develop over time. The heart of
 
 - **GATES** — Cruxes which influenced or inspired a Crux; its origins and sources.
 - **GARDENS** — Cruxes which emerged or grew from a Crux, its creations and consequences.
-- **GROWTH** — Cruxes which capture how a Crux developed over time, its transformation and refinement.
+- **GROWTH** — How a Crux developed over time, its transformation and refinement.
 - **GRAFTS** — Cruxes which connect to a Crux laterally, its associations and resonances.
 
 These four Dimensions capture the fundamental ways that Cruxes, or ideas, relate to one another.
