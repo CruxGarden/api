@@ -3,6 +3,7 @@ import {
   ApiOperation,
   ApiResponse,
   ApiParam,
+  ApiQuery,
   ApiBody,
   ApiBearerAuth,
   ApiUnauthorizedResponse,
@@ -128,16 +129,24 @@ export const CruxSwagger = {
       ApiForbiddenResponse({ description: 'Insufficient permissions' }),
     ),
 
-  GetByKey: () =>
+  GetByIdentifier: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get a crux by key',
-        description: 'Retrieves a specific crux by its unique key.',
+        summary: 'Get a crux by identifier',
+        description:
+          'Retrieves a specific crux by its UUID, key, or slug (prefixed with +).',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the crux',
-        example: 'abc123',
+        name: 'identifier',
+        description: 'The UUID, key, or slug (with + prefix) of the crux',
+        examples: {
+          uuid: {
+            value: 'be464476-892a-40f5-b26b-ee340f060c72',
+            description: 'UUID',
+          },
+          key: { value: 'abc123', description: 'Short key' },
+          slug: { value: '+my-crux', description: 'Slug with + prefix' },
+        },
       }),
       ApiResponse({
         status: 200,
@@ -343,23 +352,105 @@ export const CruxSwagger = {
       ApiOperation({
         summary: 'Get dimensions for a crux',
         description:
-          'Retrieves all dimensional relationships for a crux, optionally filtered by type.',
+          'Retrieves all dimensional relationships where this crux is the source. Dimensions can be filtered by type and optionally include embedded source/target crux data.',
       }),
       ApiParam({
         name: 'cruxKey',
-        description: 'The unique key of the crux',
+        description: 'The unique key of the source crux',
         example: 'abc123',
+      }),
+      ApiQuery({
+        name: 'type',
+        required: false,
+        enum: ['gate', 'garden', 'growth', 'graft'],
+        description:
+          'Filter dimensions by type. Gates are origins/sources, Gardens are creations/consequences, Growth is evolution over time, Grafts are lateral connections.',
+        example: 'gate',
+      }),
+      ApiQuery({
+        name: 'embed',
+        required: false,
+        description:
+          'Control which related crux data to embed in the response. Can be a single value or comma-separated list (order-agnostic, case-insensitive). Default: "target"',
+        examples: {
+          default: {
+            value: 'target',
+            description:
+              'Default - embeds target crux only (key, slug, title, data)',
+          },
+          none: {
+            value: 'none',
+            description: 'No embedded data - returns only IDs',
+          },
+          source: {
+            value: 'source',
+            description: 'Embeds source crux data only',
+          },
+          both: {
+            value: 'source,target',
+            description: 'Embeds both source and target crux data',
+          },
+          bothReversed: {
+            value: 'target,source',
+            description: 'Order does not matter - same as source,target',
+          },
+        },
       }),
       ApiResponse({
         status: 200,
         description: 'Dimensions retrieved successfully',
         schema: {
-          type: 'object',
-          properties: {
-            gate: { type: 'array', items: { type: 'object' } },
-            garden: { type: 'array', items: { type: 'object' } },
-            growth: { type: 'array', items: { type: 'object' } },
-            graft: { type: 'array', items: { type: 'object' } },
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              key: { type: 'string', example: 'dim_abc123' },
+              sourceId: {
+                type: 'string',
+                format: 'uuid',
+                description: 'Always present - ID of the source crux',
+              },
+              targetId: {
+                type: 'string',
+                format: 'uuid',
+                description: 'Always present - ID of the target crux',
+              },
+              type: {
+                type: 'string',
+                enum: ['gate', 'garden', 'growth', 'graft'],
+                example: 'gate',
+              },
+              kind: { type: 'string', example: 'inspiration' },
+              weight: { type: 'number', example: 1 },
+              note: { type: 'string', example: 'This inspired that idea' },
+              created: { type: 'string', format: 'date-time' },
+              updated: { type: 'string', format: 'date-time' },
+              source: {
+                type: 'object',
+                description:
+                  'Embedded source crux data (only present if embed includes "source")',
+                properties: {
+                  id: { type: 'string', format: 'uuid' },
+                  key: { type: 'string', example: 'crux_abc' },
+                  slug: { type: 'string', example: 'my-source-crux' },
+                  title: { type: 'string', example: 'Source Crux Title' },
+                  data: { type: 'string', example: 'Source crux content...' },
+                },
+              },
+              target: {
+                type: 'object',
+                description:
+                  'Embedded target crux data (present by default, excluded if embed=none or embed=source)',
+                properties: {
+                  id: { type: 'string', format: 'uuid' },
+                  key: { type: 'string', example: 'crux_xyz' },
+                  slug: { type: 'string', example: 'my-target-crux' },
+                  title: { type: 'string', example: 'Target Crux Title' },
+                  data: { type: 'string', example: 'Target crux content...' },
+                },
+              },
+            },
           },
         },
       }),

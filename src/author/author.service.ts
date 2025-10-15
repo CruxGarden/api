@@ -13,6 +13,9 @@ import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import AuthorRaw from './entities/author-raw.entity';
 import Author from './entities/author.entity';
+import { CruxService } from '../crux/crux.service';
+import { CreateCruxDto } from '../crux/dto/create-crux.dto';
+import { CruxStatus, CruxVisibility } from '../common/types/enums';
 
 @Injectable()
 export class AuthorService {
@@ -23,6 +26,7 @@ export class AuthorService {
     private readonly authorRepository: AuthorRepository,
     private readonly keyMaster: KeyMaster,
     private readonly loggerService: LoggerService,
+    private readonly cruxService: CruxService,
   ) {
     this.logger = this.loggerService.createChildLogger('AuthorService');
   }
@@ -120,6 +124,28 @@ export class AuthorService {
     return this.asAuthor(author);
   }
 
+  private async createRootCrux(
+    username: string,
+    authorId: string,
+    homeId: string,
+    accountId: string,
+  ): Promise<string> {
+    const rootCruxDto: CreateCruxDto = {
+      slug: `${username}-root`,
+      title: 'Welcome to Crux Garden!',
+      data: '## What are you thinking today?',
+      type: 'markdown',
+      authorId,
+      homeId,
+      accountId,
+      status: CruxStatus.LIVING,
+      visibility: CruxVisibility.UNLISTED,
+    };
+
+    const rootCrux = await this.cruxService.create(rootCruxDto);
+    return rootCrux.id;
+  }
+
   async create(createAuthorDto: CreateAuthorDto): Promise<Author> {
     createAuthorDto.id = this.keyMaster.generateId();
     createAuthorDto.key = this.keyMaster.generateKey();
@@ -138,7 +164,16 @@ export class AuthorService {
     if (existingByAccount)
       throw new ConflictException('Account already has an author profile');
 
-    // 4) create author
+    // 4) create root crux for the author
+    const rootCruxId = await this.createRootCrux(
+      createAuthorDto.username,
+      createAuthorDto.id,
+      createAuthorDto.homeId,
+      createAuthorDto.accountId,
+    );
+    createAuthorDto.rootId = rootCruxId;
+
+    // 5) create author with root_id
     const created = await this.authorRepository.create(createAuthorDto);
     if (created.error)
       throw new InternalServerErrorException(

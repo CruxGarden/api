@@ -40,6 +40,7 @@ describe('CruxService', () => {
   beforeEach(async () => {
     const mockRepository = {
       findBy: jest.fn(),
+      findByAuthorAndSlug: jest.fn(),
       findAllQuery: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -148,6 +149,48 @@ describe('CruxService', () => {
       await expect(service.findByKey('invalid-key')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('findByAuthorAndSlug', () => {
+    it('should return a crux when found', async () => {
+      repository.findByAuthorAndSlug.mockResolvedValue({
+        data: mockCruxRaw,
+        error: null,
+      });
+
+      const result = await service.findByAuthorAndSlug(
+        'author-123',
+        'test-crux',
+      );
+
+      expect(result.slug).toBe('test-crux');
+      expect(repository.findByAuthorAndSlug).toHaveBeenCalledWith(
+        'author-123',
+        'test-crux',
+      );
+    });
+
+    it('should throw NotFoundException when crux not found', async () => {
+      repository.findByAuthorAndSlug.mockResolvedValue({
+        data: null,
+        error: null,
+      });
+
+      await expect(
+        service.findByAuthorAndSlug('author-123', 'invalid-slug'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException on repository error', async () => {
+      repository.findByAuthorAndSlug.mockResolvedValue({
+        data: null,
+        error: new Error('DB Error'),
+      });
+
+      await expect(
+        service.findByAuthorAndSlug('author-123', 'test-crux'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -273,6 +316,8 @@ describe('CruxService', () => {
       expect(dimensionService.findBySourceIdAndTypeQuery).toHaveBeenCalledWith(
         'crux-123',
         DimensionType.GATE,
+        false,
+        true,
       );
     });
   });

@@ -7,6 +7,7 @@ import { URL } from 'url';
 import { Request, Response } from 'express';
 import * as formatLink from 'format-link-header';
 import { LoggerService } from './logger.service';
+import { toEntityFields } from '../helpers/case-helpers';
 
 attachPaginate();
 
@@ -21,6 +22,7 @@ export interface PaginationOptions<TRaw = any, TModel = any> {
 export class DbService implements OnModuleInit, OnModuleDestroy {
   private client: Knex;
   private readonly logger: LoggerService;
+  private hasLoggedConnectionError = false;
 
   constructor(private readonly loggerService: LoggerService) {
     this.logger = this.loggerService.createChildLogger('DbService');
@@ -39,7 +41,10 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         this.logger.info('Database client connected');
       });
       pool.on('createFail', (err: Error) => {
-        this.logger.error('Database client connection failed', err);
+        if (!this.hasLoggedConnectionError) {
+          this.logger.error('Database client connection failed', err);
+          this.hasLoggedConnectionError = true;
+        }
       });
     }
   }
@@ -145,7 +150,9 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       }),
     );
 
-    return opts.model ? r.data.map((d: TRaw) => new opts.model!(d)) : r.data;
+    return opts.model
+      ? r.data.map((d: TRaw) => new opts.model!(toEntityFields(d) as any))
+      : r.data;
   }
 
   async onModuleDestroy() {

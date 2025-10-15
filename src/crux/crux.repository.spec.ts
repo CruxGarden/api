@@ -31,6 +31,8 @@ describe('CruxRepository', () => {
       from: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orWhere: jest.fn().mockReturnThis(),
       whereNull: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       first: jest.fn(),
@@ -81,6 +83,37 @@ describe('CruxRepository', () => {
       mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
 
       const result = await repository.findBy('key', 'crux-key');
+
+      expect(result.data).toBeNull();
+      expect(result.error).toBeTruthy();
+    });
+  });
+
+  describe('findByAuthorAndSlug', () => {
+    it('should return crux when found', async () => {
+      mockQueryBuilder.first.mockResolvedValue(mockCrux);
+
+      const result = await repository.findByAuthorAndSlug(
+        'author-123',
+        'test-crux',
+      );
+
+      expect(result.data).toEqual(mockCrux);
+      expect(result.error).toBeNull();
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        'author_id',
+        'author-123',
+      );
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('slug', 'test-crux');
+    });
+
+    it('should return error on exception', async () => {
+      mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
+
+      const result = await repository.findByAuthorAndSlug(
+        'author-123',
+        'test-crux',
+      );
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
@@ -171,12 +204,15 @@ describe('CruxRepository', () => {
 
   describe('delete', () => {
     it('should soft delete crux successfully', async () => {
+      // Mock the initial fetch of the crux (to get author_id)
+      mockQueryBuilder.first.mockResolvedValueOnce(mockCrux);
       mockQueryBuilder.update.mockResolvedValue(1);
 
       const result = await repository.delete('crux-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeNull();
+      // Should be called twice: once for crux, once for dimensions
       expect(mockQueryBuilder.update).toHaveBeenCalledWith(
         expect.objectContaining({
           deleted: expect.any(Date),
@@ -185,7 +221,18 @@ describe('CruxRepository', () => {
       );
     });
 
+    it('should return error when crux not found', async () => {
+      mockQueryBuilder.first.mockResolvedValueOnce(null);
+
+      const result = await repository.delete('invalid-id');
+
+      expect(result.data).toBeNull();
+      expect(result.error).toBeTruthy();
+      expect(result.error?.message).toBe('Crux not found');
+    });
+
     it('should return error on exception', async () => {
+      mockQueryBuilder.first.mockResolvedValueOnce(mockCrux);
       mockQueryBuilder.update.mockRejectedValue(new Error('Delete failed'));
 
       const result = await repository.delete('crux-id');

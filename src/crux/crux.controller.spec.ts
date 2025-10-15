@@ -60,6 +60,7 @@ describe('CruxController', () => {
   beforeEach(async () => {
     const mockService = {
       findByKey: jest.fn(),
+      findByIdentifier: jest.fn(),
       findAllQuery: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -120,14 +121,14 @@ describe('CruxController', () => {
     });
   });
 
-  describe('getByKey', () => {
-    it('should return a crux by key', async () => {
-      service.findByKey.mockResolvedValue(mockCrux);
+  describe('getByIdentifier', () => {
+    it('should return a crux by identifier', async () => {
+      service.findByIdentifier.mockResolvedValue(mockCrux);
 
-      const result = await controller.getByKey('crux-key');
+      const result = await controller.getByIdentifier('crux-key');
 
       expect(result).toEqual(mockCrux);
-      expect(service.findByKey).toHaveBeenCalledWith('crux-key');
+      expect(service.findByIdentifier).toHaveBeenCalledWith('crux-key');
     });
   });
 
@@ -240,6 +241,8 @@ describe('CruxController', () => {
       expect(service.getDimensionsQuery).toHaveBeenCalledWith(
         'crux-id',
         DimensionType.GATE,
+        false,
+        true,
       );
     });
 

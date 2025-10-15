@@ -14,6 +14,7 @@ const generateKey = () => keyGenerator.rnd();
 export async function seed(knex: Knex): Promise<void> {
     const accountId = 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
     const authorId = 'e7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
+    const rootCruxId = 'f7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
 
     // ===== STEP 1: Create Primary Home =====
     const existingPrimaryHome = await knex("homes")
@@ -41,7 +42,31 @@ export async function seed(knex: Knex): Promise<void> {
         primaryHome = newHome;
     }
 
-    // ===== STEP 2: Create Keeper Account & Author =====
+    // ===== STEP 2: Create Root Crux for Keeper =====
+    const existingRootCrux = await knex("cruxes")
+        .where({ id: rootCruxId })
+        .first();
+
+    if (!existingRootCrux) {
+        const keeperRootCrux = {
+            id: rootCruxId,
+            key: generateKey(),
+            slug: 'keeper-root',
+            title: 'Welcome to Crux Garden!',
+            data: '## What are you thinking today?',
+            type: 'markdown',
+            status: 'living',
+            visibility: 'unlisted',
+            author_id: authorId,
+            home_id: primaryHome.id,
+            created: new Date(),
+            updated: new Date(),
+        };
+
+        await knex("cruxes").insert(keeperRootCrux);
+    }
+
+    // ===== STEP 3: Create Keeper Account & Author =====
     const keeperAccount = {
         id: accountId,
         key: generateKey(),
@@ -56,6 +81,7 @@ export async function seed(knex: Knex): Promise<void> {
         username: 'keeper',
         display_name: 'The Keeper',
         bio: 'The Keeper of the Crux Garden',
+        root_id: rootCruxId,
         account_id: accountId,
         home_id: primaryHome.id,
         created: new Date(),

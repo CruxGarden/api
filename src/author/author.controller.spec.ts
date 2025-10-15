@@ -4,6 +4,7 @@ import { AuthorController } from './author.controller';
 import { AuthorService } from './author.service';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
+import { CruxService } from '../crux/crux.service';
 import { AuthRequest } from '../common/types/interfaces';
 import { AccountRole } from '../common/types/enums';
 
@@ -11,6 +12,7 @@ describe('AuthorController', () => {
   let controller: AuthorController;
   let service: jest.Mocked<AuthorService>;
   let dbService: jest.Mocked<DbService>;
+  let cruxService: jest.Mocked<CruxService>;
 
   const mockAuthor = {
     id: 'author-id',
@@ -52,6 +54,11 @@ describe('AuthorController', () => {
       paginate: jest.fn(),
     };
 
+    const mockCruxService = {
+      findById: jest.fn(),
+      findByAuthorAndSlug: jest.fn(),
+    };
+
     const mockLoggerService = {
       createChildLogger: jest.fn().mockReturnValue({
         debug: jest.fn(),
@@ -66,6 +73,7 @@ describe('AuthorController', () => {
       providers: [
         { provide: AuthorService, useValue: mockService },
         { provide: DbService, useValue: mockDbService },
+        { provide: CruxService, useValue: mockCruxService },
         { provide: LoggerService, useValue: mockLoggerService },
       ],
     }).compile();
@@ -73,6 +81,7 @@ describe('AuthorController', () => {
     controller = module.get<AuthorController>(AuthorController);
     service = module.get(AuthorService);
     dbService = module.get(DbService);
+    cruxService = module.get(CruxService);
   });
 
   describe('getAll', () => {
@@ -220,6 +229,49 @@ describe('AuthorController', () => {
       await expect(
         controller.canManageAuthor('author-key', mockRequest),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getCruxBySlug', () => {
+    const mockCrux = {
+      id: 'crux-id',
+      key: 'crux-key',
+      slug: 'test-crux',
+      title: 'Test Crux',
+      data: 'Test content',
+      authorId: 'author-id',
+      homeId: 'home-id',
+      accountId: 'account-123',
+      created: new Date(),
+      updated: new Date(),
+    };
+
+    it('should return crux by author username and slug', async () => {
+      service.findByUsername.mockResolvedValue(mockAuthor);
+      cruxService.findByAuthorAndSlug.mockResolvedValue(mockCrux as any);
+
+      const result = await controller.getCruxBySlug('@testuser', 'test-crux');
+
+      expect(result).toEqual(mockCrux);
+      expect(service.findByUsername).toHaveBeenCalledWith('testuser');
+      expect(cruxService.findByAuthorAndSlug).toHaveBeenCalledWith(
+        'author-id',
+        'test-crux',
+      );
+    });
+
+    it('should return crux by author key and slug', async () => {
+      service.findByKey.mockResolvedValue(mockAuthor);
+      cruxService.findByAuthorAndSlug.mockResolvedValue(mockCrux as any);
+
+      const result = await controller.getCruxBySlug('author-key', 'test-crux');
+
+      expect(result).toEqual(mockCrux);
+      expect(service.findByKey).toHaveBeenCalledWith('author-key');
+      expect(cruxService.findByAuthorAndSlug).toHaveBeenCalledWith(
+        'author-id',
+        'test-crux',
+      );
     });
   });
 });

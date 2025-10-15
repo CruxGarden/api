@@ -8,10 +8,12 @@ import { AuthorService } from './author.service';
 import { AuthorRepository } from './author.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
+import { CruxService } from '../crux/crux.service';
 
 describe('AuthorService', () => {
   let service: AuthorService;
   let repository: jest.Mocked<AuthorRepository>;
+  let cruxService: jest.Mocked<CruxService>;
 
   const mockAuthorRaw = {
     id: 'author-id-123',
@@ -40,6 +42,16 @@ describe('AuthorService', () => {
       generateKey: jest.fn().mockReturnValue('generated-key'),
     };
 
+    const mockCruxService = {
+      create: jest.fn().mockResolvedValue({
+        id: 'root-crux-id',
+        key: 'root-crux-key',
+        slug: 'test-root',
+        title: 'Welcome to Crux Garden!',
+        data: 'What are you thinking?',
+      }),
+    };
+
     const mockLoggerService = {
       createChildLogger: jest.fn().mockReturnValue({
         debug: jest.fn(),
@@ -54,12 +66,14 @@ describe('AuthorService', () => {
         AuthorService,
         { provide: AuthorRepository, useValue: mockRepository },
         { provide: KeyMaster, useValue: mockKeyMaster },
+        { provide: CruxService, useValue: mockCruxService },
         { provide: LoggerService, useValue: mockLoggerService },
       ],
     }).compile();
 
     service = module.get<AuthorService>(AuthorService);
     repository = module.get(AuthorRepository);
+    cruxService = module.get(CruxService);
   });
 
   describe('findById', () => {
@@ -169,6 +183,7 @@ describe('AuthorService', () => {
       username: 'newuser',
       displayName: 'New User',
       accountId: 'account-456',
+      homeId: 'home-123',
     };
 
     it('should create an author successfully', async () => {
@@ -181,10 +196,12 @@ describe('AuthorService', () => {
       const result = await service.create(createDto);
 
       expect(result.id).toBe('author-id-123');
+      expect(cruxService.create).toHaveBeenCalled();
       expect(repository.create).toHaveBeenCalledWith({
         ...createDto,
         id: 'generated-id',
         key: 'generated-key',
+        rootId: 'root-crux-id',
       });
     });
 

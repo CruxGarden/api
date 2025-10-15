@@ -36,7 +36,7 @@ import CruxRaw from './entities/crux-raw.entity';
 import Author from '../author/entities/author.entity';
 import Dimension from '../dimension/entities/dimension.entity';
 import DimensionRaw from '../dimension/entities/dimension-raw.entity';
-import { DimensionType } from '../common/types/enums';
+import { DimensionType, DimensionEmbed } from '../common/types/enums';
 import { SyncTagsDto } from '../tag/dto/sync-tags.dto';
 import Tag from '../tag/entities/tag.entity';
 import { HomeService } from '../home/home.service';
@@ -95,10 +95,12 @@ export class CruxController {
     }) as Promise<Crux[]>;
   }
 
-  @Get(':cruxKey')
-  @CruxSwagger.GetByKey()
-  async getByKey(@Param('cruxKey') cruxKey: string): Promise<Crux> {
-    return this.cruxService.findByKey(cruxKey);
+  @Get(':identifier')
+  @CruxSwagger.GetByIdentifier()
+  async getByIdentifier(
+    @Param('identifier') identifier: string,
+  ): Promise<Crux> {
+    return this.cruxService.findByIdentifier(identifier);
   }
 
   @Post()
@@ -147,9 +149,32 @@ export class CruxController {
     @Res({ passthrough: true }) res: Response,
     @Param('cruxKey') cruxKey: string,
     @Query('type') type?: DimensionType,
+    @Query('embed') embed?: string,
   ): Promise<Dimension[]> {
     const sourceCrux = await this.getCruxByKey(cruxKey);
-    const query = this.cruxService.getDimensionsQuery(sourceCrux.id, type);
+
+    // Parse embed parameter (default: target only)
+    let embedSource = false;
+    let embedTarget = true;
+
+    if (embed) {
+      const embedValues = embed.split(',').map((v) => v.trim().toLowerCase());
+
+      if (embedValues.includes(DimensionEmbed.NONE)) {
+        embedSource = false;
+        embedTarget = false;
+      } else {
+        embedSource = embedValues.includes(DimensionEmbed.SOURCE);
+        embedTarget = embedValues.includes(DimensionEmbed.TARGET);
+      }
+    }
+
+    const query = this.cruxService.getDimensionsQuery(
+      sourceCrux.id,
+      type,
+      embedSource,
+      embedTarget,
+    );
 
     return this.dbService.paginate<DimensionRaw, Dimension>({
       model: Dimension,

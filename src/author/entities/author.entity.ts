@@ -4,6 +4,7 @@ export default class Author {
   username: string;
   displayName: string;
   bio?: string;
+  rootId?: string;
   accountId: string;
   homeId: string;
   type?: string;
@@ -12,6 +13,7 @@ export default class Author {
   created: Date;
   updated: Date;
   deleted?: Date;
+  root?: any; // Embedded root crux (populated via embed query param)
 
   constructor(partial: Partial<Author>) {
     Object.assign(this, partial);
@@ -19,7 +21,12 @@ export default class Author {
 
   toJSON() {
     /* eslint-disable @typescript-eslint/no-unused-vars */
-    const { deleted, ...rest } = this;
-    return rest;
+    const { deleted, rootId, root, ...rest } = this;
+
+    if (root) {
+      return { ...rest, root };
+    } else {
+      return { ...rest, rootId };
+    }
   }
 }

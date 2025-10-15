@@ -5,6 +5,7 @@ export default interface AuthorRaw {
   username: string;
   display_name: string;
   bio?: string;
+  root_id?: string;
   home_id?: string;
   type?: string;
   kind?: string;

@@ -79,6 +79,47 @@ export class CruxService {
     return this.asCrux(data);
   }
 
+  async findBySlug(slug: string): Promise<Crux> {
+    const { data, error } = await this.cruxRepository.findBy('slug', slug);
+
+    if (error || !data) {
+      throw new NotFoundException('Crux not found');
+    }
+
+    return this.asCrux(data);
+  }
+
+  async findByAuthorAndSlug(authorId: string, slug: string): Promise<Crux> {
+    const { data, error } = await this.cruxRepository.findByAuthorAndSlug(
+      authorId,
+      slug,
+    );
+
+    if (error || !data) {
+      throw new NotFoundException('Crux not found');
+    }
+
+    return this.asCrux(data);
+  }
+
+  async findByIdentifier(identifier: string): Promise<Crux> {
+    // If starts with +, it's a slug
+    if (identifier.startsWith('+')) {
+      const slug = identifier.substring(1);
+      return this.findBySlug(slug);
+    }
+
+    // If it looks like a UUID (contains dashes and is 36 chars), search by ID
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidPattern.test(identifier)) {
+      return this.findById(identifier);
+    }
+
+    // Otherwise, treat it as a key
+    return this.findByKey(identifier);
+  }
+
   async create(createCruxDto: CreateCruxDto): Promise<Crux> {
     createCruxDto.id = this.keyMaster.generateId();
     createCruxDto.key = this.keyMaster.generateKey();
@@ -136,10 +177,14 @@ export class CruxService {
   getDimensionsQuery(
     sourceCruxId: string,
     dimensionType?: DimensionType,
+    embedSource = false,
+    embedTarget = true,
   ): Knex.QueryBuilder<DimensionRaw, DimensionRaw[]> {
     return this.dimensionService.findBySourceIdAndTypeQuery(
       sourceCruxId,
       dimensionType,
+      embedSource,
+      embedTarget,
     );
   }
 

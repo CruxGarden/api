@@ -27,6 +27,7 @@ describe('DimensionRepository', () => {
     // Reset query builder before each test
     mockQueryBuilder = {
       from: jest.fn().mockReturnThis(),
+      leftJoin: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       whereNull: jest.fn().mockReturnThis(),
@@ -90,16 +91,33 @@ describe('DimensionRepository', () => {
   });
 
   describe('findBySourceIdAndTypeQuery', () => {
-    it('should build query with source ID only', () => {
+    it('should build query with source ID only (default: embed target)', () => {
       const result = repository.findBySourceIdAndTypeQuery('crux-source-123');
 
       expect(dbService.query).toHaveBeenCalled();
+      expect(mockQueryBuilder.leftJoin).toHaveBeenCalledWith(
+        'cruxes as target_crux',
+        'dimensions.target_id',
+        'target_crux.id',
+      );
+      expect(mockQueryBuilder.select).toHaveBeenCalledWith([
+        'dimensions.*',
+        'target_crux.key as target_key',
+        'target_crux.slug as target_slug',
+        'target_crux.title as target_title',
+        'target_crux.data as target_data',
+      ]);
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'source_id',
+        'dimensions.source_id',
         'crux-source-123',
       );
-      expect(mockQueryBuilder.whereNull).toHaveBeenCalledWith('deleted');
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('created', 'desc');
+      expect(mockQueryBuilder.whereNull).toHaveBeenCalledWith(
+        'dimensions.deleted',
+      );
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        'dimensions.created',
+        'desc',
+      );
       expect(result).toBe(mockQueryBuilder);
     });
 
@@ -109,14 +127,84 @@ describe('DimensionRepository', () => {
         DimensionType.GATE,
       );
 
+      expect(mockQueryBuilder.leftJoin).toHaveBeenCalledWith(
+        'cruxes as target_crux',
+        'dimensions.target_id',
+        'target_crux.id',
+      );
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'source_id',
+        'dimensions.source_id',
         'crux-source-123',
       );
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'type',
+        'dimensions.type',
         DimensionType.GATE,
       );
+      expect(result).toBe(mockQueryBuilder);
+    });
+
+    it('should build query with embedSource=true', () => {
+      const result = repository.findBySourceIdAndTypeQuery(
+        'crux-source-123',
+        undefined,
+        true,
+        false,
+      );
+
+      expect(mockQueryBuilder.leftJoin).toHaveBeenCalledWith(
+        'cruxes as source_crux',
+        'dimensions.source_id',
+        'source_crux.id',
+      );
+      expect(mockQueryBuilder.select).toHaveBeenCalledWith([
+        'dimensions.*',
+        'source_crux.key as source_key',
+        'source_crux.slug as source_slug',
+        'source_crux.title as source_title',
+        'source_crux.data as source_data',
+      ]);
+      expect(result).toBe(mockQueryBuilder);
+    });
+
+    it('should build query with both source and target embedded', () => {
+      const result = repository.findBySourceIdAndTypeQuery(
+        'crux-source-123',
+        undefined,
+        true,
+        true,
+      );
+
+      expect(mockQueryBuilder.leftJoin).toHaveBeenCalledTimes(2);
+      expect(mockQueryBuilder.leftJoin).toHaveBeenCalledWith(
+        'cruxes as target_crux',
+        'dimensions.target_id',
+        'target_crux.id',
+      );
+      expect(mockQueryBuilder.leftJoin).toHaveBeenCalledWith(
+        'cruxes as source_crux',
+        'dimensions.source_id',
+        'source_crux.id',
+      );
+      expect(mockQueryBuilder.select).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          'dimensions.*',
+          'target_crux.key as target_key',
+          'source_crux.key as source_key',
+        ]),
+      );
+      expect(result).toBe(mockQueryBuilder);
+    });
+
+    it('should build query with no embeds', () => {
+      const result = repository.findBySourceIdAndTypeQuery(
+        'crux-source-123',
+        undefined,
+        false,
+        false,
+      );
+
+      expect(mockQueryBuilder.leftJoin).not.toHaveBeenCalled();
+      expect(mockQueryBuilder.select).toHaveBeenCalledWith(['dimensions.*']);
       expect(result).toBe(mockQueryBuilder);
     });
   });

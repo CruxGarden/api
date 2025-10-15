@@ -55,6 +55,16 @@ export enum PathVisibility {
   UNLISTED = 'unlisted',
 }
 
+export enum AuthorEmbed {
+  ROOT = 'root',
+}
+
+export enum DimensionEmbed {
+  NONE = 'none',
+  SOURCE = 'source',
+  TARGET = 'target',
+}
+
 export enum ResourceType {
   AUTHOR = 'author',
   CRUX = 'crux',

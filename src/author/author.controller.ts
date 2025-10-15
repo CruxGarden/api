@@ -13,10 +13,11 @@ import {
   Res,
   UseGuards,
   ForbiddenException,
+  Query,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthRequest } from '../common/types/interfaces';
-import { PathPrefix } from '../common/types/enums';
+import { PathPrefix, AuthorEmbed } from '../common/types/enums';
 import { AuthorService } from './author.service';
 import { CreateAuthorDto } from './dto/create-author.dto';
 import { UpdateAuthorDto } from './dto/update-author.dto';
@@ -27,6 +28,7 @@ import { LoggerService } from '../common/services/logger.service';
 import { stripPathPrefix } from '../common/helpers/path-helpers';
 import Author from './entities/author.entity';
 import AuthorRaw from './entities/author-raw.entity';
+import { CruxService } from '../crux/crux.service';
 
 @Controller('authors')
 @UseGuards(AuthGuard)
@@ -39,6 +41,7 @@ export class AuthorController {
     private readonly authorService: AuthorService,
     private readonly dbService: DbService,
     private readonly loggerService: LoggerService,
+    private readonly cruxService: CruxService,
   ) {
     this.logger = this.loggerService.createChildLogger('AuthorController');
   }
@@ -75,6 +78,7 @@ export class AuthorController {
   @AuthorSwagger.GetByIdentifier()
   async getByIdentifier(
     @Param('identifier') identifier: string,
+    @Query('embed') embed?: AuthorEmbed,
   ): Promise<Author> {
     let author: Author;
     const { hasPrefix, value } = stripPathPrefix(
@@ -85,6 +89,11 @@ export class AuthorController {
       author = await this.authorService.findByUsername(value);
     } else {
       author = await this.authorService.findByKey(value);
+    }
+
+    if (embed === AuthorEmbed.ROOT && author.rootId) {
+      const rootCrux = await this.cruxService.findById(author.rootId);
+      author.root = rootCrux;
     }
 
     return author;
@@ -120,5 +129,23 @@ export class AuthorController {
   ): Promise<null> {
     await this.canManageAuthor(authorKey, req);
     return this.authorService.delete(authorKey);
+  }
+
+  @Get(':identifier/cruxes/:slug')
+  async getCruxBySlug(
+    @Param('identifier') identifier: string,
+    @Param('slug') slug: string,
+  ) {
+    // Get author by username (strip @ prefix if present)
+    const { hasPrefix, value } = stripPathPrefix(
+      identifier,
+      PathPrefix.USERNAME,
+    );
+    const author = hasPrefix
+      ? await this.authorService.findByUsername(value)
+      : await this.authorService.findByKey(value);
+
+    // Get crux by author ID and slug
+    return this.cruxService.findByAuthorAndSlug(author.id, slug);
   }
 }

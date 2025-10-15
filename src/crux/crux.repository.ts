@@ -52,6 +52,26 @@ export class CruxRepository {
     }
   }
 
+  async findByAuthorAndSlug(
+    authorId: string,
+    slug: string,
+  ): Promise<RepositoryResponse<CruxRaw>> {
+    try {
+      const data = await this.dbService
+        .query()
+        .from<CruxRaw>(CruxRepository.TABLE_NAME)
+        .select(CruxRepository.BASE_SELECT)
+        .where('author_id', authorId)
+        .where('slug', slug)
+        .whereNull('deleted')
+        .first();
+
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
   async create(cruxData: CreateCruxDto): Promise<RepositoryResponse<CruxRaw>> {
     try {
       const tableFields = toTableFields(cruxData);
@@ -109,13 +129,43 @@ export class CruxRepository {
 
   async delete(cruxId: string): Promise<RepositoryResponse<void>> {
     try {
+      const now = new Date();
+
+      // First, get the crux to find its author
+      const crux = await this.dbService
+        .query()
+        .from<CruxRaw>(CruxRepository.TABLE_NAME)
+        .where('id', cruxId)
+        .first();
+
+      if (!crux) {
+        return failure(new Error('Crux not found'));
+      }
+
+      // Soft delete the crux
       await this.dbService
         .query()
         .from<CruxRaw>(CruxRepository.TABLE_NAME)
         .where('id', cruxId)
         .update({
-          deleted: new Date(),
-          updated: new Date(),
+          deleted: now,
+          updated: now,
+        });
+
+      // Also soft delete all dimensions where:
+      // 1. This crux is involved (source OR target)
+      // 2. AND the dimension was created by the same author as the crux
+      // This preserves other people's dimensions that reference this crux
+      await this.dbService
+        .query()
+        .from('dimensions')
+        .where(function () {
+          this.where('source_id', cruxId).orWhere('target_id', cruxId);
+        })
+        .andWhere('author_id', crux.author_id)
+        .update({
+          deleted: now,
+          updated: now,
         });
 
       return success(undefined);

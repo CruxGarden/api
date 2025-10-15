@@ -39,8 +39,15 @@ export class DimensionService {
   findBySourceIdAndTypeQuery(
     sourceId: string,
     type?: DimensionType,
+    embedSource = false,
+    embedTarget = true,
   ): Knex.QueryBuilder<DimensionRaw, DimensionRaw[]> {
-    return this.dimensionRepository.findBySourceIdAndTypeQuery(sourceId, type);
+    return this.dimensionRepository.findBySourceIdAndTypeQuery(
+      sourceId,
+      type,
+      embedSource,
+      embedTarget,
+    );
   }
 
   async findById(id: string): Promise<Dimension> {

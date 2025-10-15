@@ -27,6 +27,15 @@ export class UpdateAuthorDto {
   bio?: string;
 
   @ApiPropertyOptional({
+    description: 'Root Crux ID for the author',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+    format: 'uuid',
+  })
+  @IsOptional()
+  @IsString()
+  rootId?: string;
+
+  @ApiPropertyOptional({
     description: 'Website URL of the author',
     example: 'https://johndoe.com',
   })

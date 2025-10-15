@@ -28,23 +28,61 @@ export class DimensionRepository {
   findBySourceIdAndTypeQuery(
     sourceId: string,
     type?: DimensionType,
+    embedSource = false,
+    embedTarget = true,
   ): Knex.QueryBuilder<DimensionRaw, DimensionRaw[]> {
-    let query = this.dbService
-      .query()
-      .from<DimensionRaw>(DimensionRepository.TABLE_NAME)
-      .select<DimensionRaw[]>(DimensionRepository.BASE_SELECT)
-      .where('source_id', sourceId)
-      .whereNull('deleted')
-      .orderBy('created', 'desc') as Knex.QueryBuilder<
-      DimensionRaw,
-      DimensionRaw[]
-    >;
+    const tableName = DimensionRepository.TABLE_NAME;
 
-    if (type) {
-      query = query.where('type', type);
+    let query: any = this.dbService.query().from(tableName);
+
+    // Conditionally add target join
+    if (embedTarget) {
+      query = query.leftJoin(
+        'cruxes as target_crux',
+        `${tableName}.target_id`,
+        'target_crux.id',
+      );
     }
 
-    return query;
+    // Conditionally add source join
+    if (embedSource) {
+      query = query.leftJoin(
+        'cruxes as source_crux',
+        `${tableName}.source_id`,
+        'source_crux.id',
+      );
+    }
+
+    // Build select clause based on what's embedded
+    const selectColumns = [`${tableName}.*`];
+    if (embedTarget) {
+      selectColumns.push(
+        'target_crux.key as target_key',
+        'target_crux.slug as target_slug',
+        'target_crux.title as target_title',
+        'target_crux.data as target_data',
+      );
+    }
+    if (embedSource) {
+      selectColumns.push(
+        'source_crux.key as source_key',
+        'source_crux.slug as source_slug',
+        'source_crux.title as source_title',
+        'source_crux.data as source_data',
+      );
+    }
+
+    query = query
+      .select(selectColumns)
+      .where(`${tableName}.source_id`, sourceId)
+      .whereNull(`${tableName}.deleted`)
+      .orderBy(`${tableName}.created`, 'desc');
+
+    if (type) {
+      query = query.where(`${tableName}.type`, type);
+    }
+
+    return query as Knex.QueryBuilder<DimensionRaw, DimensionRaw[]>;
   }
 
   async findBy(
