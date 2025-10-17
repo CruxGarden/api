@@ -1,0 +1,489 @@
+// sync.service.ts
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
+
+// Entities (you'll need to create these)
+import { Crux } from './entities/crux.entity';
+import { Path } from './entities/path.entity';
+import { Dimension } from './entities/dimension.entity';
+import { SyncMapping } from './entities/sync-mapping.entity';
+import { Author } from './entities/author.entity';
+
+interface SyncResult {
+  success: boolean;
+  entitiesSynced: number;
+  mappingsCreated: number;
+  conflicts: Array<{ entityId: string; resolution: string }>;
+  errors: string[];
+}
+
+interface RemoteGarden {
+  url: string;
+  connection: DataSource; // Or your DB connection type
+}
+
+@Injectable()
+export class SyncService {
+  private readonly logger = new Logger(SyncService.name);
+
+  constructor(
+    @InjectRepository(Crux)
+    private cruxRepository: Repository<Crux>,
+    
+    @InjectRepository(Path)
+    private pathRepository: Repository<Path>,
+    
+    @InjectRepository(Dimension)
+    private dimensionRepository: Repository<Dimension>,
+    
+    @InjectRepository(SyncMapping)
+    private syncMappingRepository: Repository<SyncMapping>,
+    
+    @InjectRepository(Author)
+    private authorRepository: Repository<Author>,
+    
+    private dataSource: DataSource,
+  ) {}
+
+  /**
+   * Sync this garden with a remote garden (bidirectional)
+   */
+  async syncWithGarden(
+    remoteGarden: RemoteGarden,
+    localGardenUrl: string,
+  ): Promise<SyncResult> {
+    const result: SyncResult = {
+      success: true,
+      entitiesSynced: 0,
+      mappingsCreated: 0,
+      conflicts: [],
+      errors: [],
+    };
+
+    try {
+      // Phase 1: Push local changes to remote
+      this.logger.log(`Pushing changes to ${remoteGarden.url}`);
+      const pushResult = await this.syncDirection(
+        this.dataSource,
+        localGardenUrl,
+        remoteGarden.connection,
+        remoteGarden.url,
+      );
+      
+      result.entitiesSynced += pushResult.entitiesSynced;
+      result.mappingsCreated += pushResult.mappingsCreated;
+      result.conflicts.push(...pushResult.conflicts);
+
+      // Phase 2: Pull remote changes to local
+      this.logger.log(`Pulling changes from ${remoteGarden.url}`);
+      const pullResult = await this.syncDirection(
+        remoteGarden.connection,
+        remoteGarden.url,
+        this.dataSource,
+        localGardenUrl,
+      );
+      
+      result.entitiesSynced += pullResult.entitiesSynced;
+      result.mappingsCreated += pullResult.mappingsCreated;
+      result.conflicts.push(...pullResult.conflicts);
+
+      // Update last sync time
+      await this.updateLastSyncTime(remoteGarden.url);
+
+      this.logger.log(`Sync complete: ${result.entitiesSynced} entities synced`);
+    } catch (error) {
+      result.success = false;
+      result.errors.push(error.message);
+      this.logger.error(`Sync failed: ${error.message}`, error.stack);
+    }
+
+    return result;
+  }
+
+  /**
+   * Sync in one direction (source → target)
+   */
+  private async syncDirection(
+    sourceDb: DataSource,
+    sourceUrl: string,
+    targetDb: DataSource,
+    targetUrl: string,
+  ): Promise<SyncResult> {
+    const result: SyncResult = {
+      success: true,
+      entitiesSynced: 0,
+      mappingsCreated: 0,
+      conflicts: [],
+      errors: [],
+    };
+
+    // Get repositories for both databases
+    const sourceCruxRepo = sourceDb.getRepository(Crux);
+    const targetCruxRepo = targetDb.getRepository(Crux);
+    const sourceMappingRepo = sourceDb.getRepository(SyncMapping);
+    const targetMappingRepo = targetDb.getRepository(SyncMapping);
+
+    // 1. Load existing mappings
+    const mappings = await sourceMappingRepo.find({
+      where: { targetGardenUrl: targetUrl },
+    });
+
+    const mappingLookup = new Map<string, string>(
+      mappings.map(m => [m.localId, m.remoteId]),
+    );
+
+    this.logger.debug(`Loaded ${mappings.length} existing mappings for ${targetUrl}`);
+
+    // 2. Get entities modified since last sync
+    const lastSyncTime = await this.getLastSyncTime(sourceDb, targetUrl);
+    const entities = await sourceCruxRepo.find({
+      where: lastSyncTime ? { updatedAt: new Date(lastSyncTime) } : {},
+      relations: ['dimensions', 'gardens'],
+    });
+
+    this.logger.debug(`Found ${entities.length} entities to sync`);
+
+    // 3. Sync each entity
+    for (const entity of entities) {
+      try {
+        const syncResult = await this.syncEntity(
+          entity,
+          sourceDb,
+          sourceUrl,
+          targetDb,
+          targetUrl,
+          mappingLookup,
+          sourceMappingRepo,
+          targetMappingRepo,
+          targetCruxRepo,
+        );
+
+        if (syncResult.synced) {
+          result.entitiesSynced++;
+        }
+        if (syncResult.mappingCreated) {
+          result.mappingsCreated++;
+        }
+        if (syncResult.conflict) {
+          result.conflicts.push(syncResult.conflict);
+        }
+      } catch (error) {
+        this.logger.error(`Failed to sync entity ${entity.id}: ${error.message}`);
+        result.errors.push(`Entity ${entity.id}: ${error.message}`);
+      }
+    }
+
+    // 4. Sync paths (similar logic)
+    await this.syncPaths(
+      sourceDb,
+      targetDb,
+      targetUrl,
+      mappingLookup,
+      result,
+    );
+
+    return result;
+  }
+
+  /**
+   * Sync a single entity
+   */
+  private async syncEntity(
+    entity: Crux,
+    sourceDb: DataSource,
+    sourceUrl: string,
+    targetDb: DataSource,
+    targetUrl: string,
+    mappingLookup: Map<string, string>,
+    sourceMappingRepo: Repository<SyncMapping>,
+    targetMappingRepo: Repository<SyncMapping>,
+    targetCruxRepo: Repository<Crux>,
+  ): Promise<{
+    synced: boolean;
+    mappingCreated: boolean;
+    conflict?: { entityId: string; resolution: string };
+  }> {
+    let remoteId: string;
+    let mappingCreated = false;
+    let conflict: { entityId: string; resolution: string } | undefined;
+
+    // Check if we already have a mapping (from previous collision)
+    if (mappingLookup.has(entity.id)) {
+      // Use existing mapping
+      remoteId = mappingLookup.get(entity.id);
+      this.logger.debug(`Using existing mapping: ${entity.id} → ${remoteId}`);
+    } else {
+      // No mapping exists - check if we need one
+      const collision = await targetCruxRepo.findOne({
+        where: { id: entity.id },
+      });
+
+      if (collision) {
+        // Collision detected!
+        this.logger.debug(`Collision detected for ${entity.id}`);
+
+        // Is it the same crux? (check home_id)
+        if (this.isSameCrux(entity, collision)) {
+          // Same crux - no mapping needed
+          remoteId = entity.id;
+          this.logger.debug(`Same crux detected (home_id match), no remapping needed`);
+
+          // Update if source is newer
+          if (entity.updatedAt > collision.updatedAt) {
+            await targetCruxRepo.save({
+              ...collision,
+              ...entity,
+              id: remoteId,
+            });
+            
+            conflict = {
+              entityId: entity.id,
+              resolution: 'updated (newer version)',
+            };
+          } else {
+            conflict = {
+              entityId: entity.id,
+              resolution: 'skipped (existing is newer)',
+            };
+          }
+
+          return { synced: true, mappingCreated: false, conflict };
+        } else {
+          // Different crux - REAL collision, need to remap
+          remoteId = uuidv4();
+          this.logger.warn(
+            `Real collision for ${entity.id}, remapping to ${remoteId}`,
+          );
+
+          // Create mapping in source DB
+          await sourceMappingRepo.save({
+            targetGardenUrl: targetUrl,
+            entityType: 'crux',
+            localId: entity.id,
+            remoteId: remoteId,
+          });
+
+          // Create reverse mapping in target DB
+          await targetMappingRepo.save({
+            targetGardenUrl: sourceUrl,
+            entityType: 'crux',
+            localId: remoteId,
+            remoteId: entity.id,
+          });
+
+          mappingLookup.set(entity.id, remoteId);
+          mappingCreated = true;
+
+          conflict = {
+            entityId: entity.id,
+            resolution: `remapped to ${remoteId}`,
+          };
+        }
+      } else {
+        // No collision - use same ID
+        remoteId = entity.id;
+        this.logger.debug(`No collision for ${entity.id}, using same ID`);
+      }
+    }
+
+    // Remap all references in dimensions
+    const remappedDimensions = entity.dimensions?.map(dimension => ({
+      ...dimension,
+      fromCruxId: mappingLookup.get(dimension.fromCruxId) || dimension.fromCruxId,
+      toCruxId: mappingLookup.get(dimension.toCruxId) || dimension.toCruxId,
+    }));
+
+    // Remap references in gardens (for group type)
+    const remappedGardens = entity.gardens?.map(garden => ({
+      ...garden,
+      cruxId: mappingLookup.get(garden.cruxId) || garden.cruxId,
+    }));
+
+    // Create the remapped entity
+    const remappedEntity = {
+      ...entity,
+      id: remoteId,
+      dimensions: remappedDimensions,
+      gardens: remappedGardens,
+    };
+
+    // Sync to target
+    await targetCruxRepo.save(remappedEntity);
+
+    return { synced: true, mappingCreated, conflict };
+  }
+
+  /**
+   * Check if two entities are the same crux (based on home_id)
+   */
+  private isSameCrux(entityA: Crux, entityB: Crux): boolean {
+    // Same crux if home_id and id both match
+    return (
+      entityA.homeId === entityB.homeId &&
+      entityA.id === entityB.id
+    );
+  }
+
+  /**
+   * Sync paths (similar to cruxes)
+   */
+  private async syncPaths(
+    sourceDb: DataSource,
+    targetDb: DataSource,
+    targetUrl: string,
+    mappingLookup: Map<string, string>,
+    result: SyncResult,
+  ): Promise<void> {
+    const sourcePathRepo = sourceDb.getRepository(Path);
+    const targetPathRepo = targetDb.getRepository(Path);
+    const sourceMappingRepo = sourceDb.getRepository(SyncMapping);
+
+    const lastSyncTime = await this.getLastSyncTime(sourceDb, targetUrl);
+    const paths = await sourcePathRepo.find({
+      where: lastSyncTime ? { updatedAt: new Date(lastSyncTime) } : {},
+      relations: ['steps'],
+    });
+
+    for (const path of paths) {
+      try {
+        // Check for mapping
+        const mapping = await sourceMappingRepo.findOne({
+          where: {
+            targetGardenUrl: targetUrl,
+            entityType: 'path',
+            localId: path.id,
+          },
+        });
+
+        const remoteId = mapping?.remoteId || path.id;
+
+        // Remap step crux references
+        const remappedSteps = path.steps?.map(step => ({
+          ...step,
+          cruxId: mappingLookup.get(step.cruxId) || step.cruxId,
+        }));
+
+        const remappedPath = {
+          ...path,
+          id: remoteId,
+          steps: remappedSteps,
+        };
+
+        await targetPathRepo.save(remappedPath);
+        result.entitiesSynced++;
+      } catch (error) {
+        this.logger.error(`Failed to sync path ${path.id}: ${error.message}`);
+        result.errors.push(`Path ${path.id}: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Check for author slug collision and prompt for resolution
+   */
+  async checkAuthorSlugCollision(
+    targetDb: DataSource,
+    author: Author,
+  ): Promise<{ hasCollision: boolean; suggestedSlug?: string }> {
+    const targetAuthorRepo = targetDb.getRepository(Author);
+    
+    const collision = await targetAuthorRepo.findOne({
+      where: { slug: author.slug },
+    });
+
+    // No collision if slug is free OR it's the same author (by ID)
+    if (!collision || collision.id === author.id) {
+      return { hasCollision: false };
+    }
+
+    // Collision with different author - suggest alternatives
+    const suggestedSlug = await this.generateAvailableSlug(
+      targetDb,
+      author.slug,
+    );
+
+    return { hasCollision: true, suggestedSlug };
+  }
+
+  /**
+   * Generate an available slug variant
+   */
+  private async generateAvailableSlug(
+    targetDb: DataSource,
+    baseSlug: string,
+  ): Promise<string> {
+    const targetAuthorRepo = targetDb.getRepository(Author);
+    let counter = 2;
+    let candidateSlug = `${baseSlug}${counter}`;
+
+    while (await targetAuthorRepo.findOne({ where: { slug: candidateSlug } })) {
+      counter++;
+      candidateSlug = `${baseSlug}${counter}`;
+    }
+
+    return candidateSlug;
+  }
+
+  /**
+   * Get last sync time for a target
+   */
+  private async getLastSyncTime(
+    db: DataSource,
+    targetUrl: string,
+  ): Promise<Date | null> {
+    // Implement based on your sync_status table
+    // For now, return null to sync everything
+    return null;
+  }
+
+  /**
+   * Update last sync time
+   */
+  private async updateLastSyncTime(targetUrl: string): Promise<void> {
+    // Implement based on your sync_status table
+    this.logger.debug(`Updated last sync time for ${targetUrl}`);
+  }
+
+  /**
+   * Validate that a crux can be synced (has required fields)
+   */
+  private validateCrux(crux: Crux): boolean {
+    return !!(crux.id && crux.homeId && crux.updatedAt);
+  }
+
+  /**
+   * Get statistics about sync mappings
+   */
+  async getSyncStats(targetGardenUrl: string): Promise<{
+    totalMappings: number;
+    mappingsByType: Record<string, number>;
+  }> {
+    const mappings = await this.syncMappingRepository.find({
+      where: { targetGardenUrl },
+    });
+
+    const mappingsByType = mappings.reduce((acc, mapping) => {
+      acc[mapping.entityType] = (acc[mapping.entityType] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      totalMappings: mappings.length,
+      mappingsByType,
+    };
+  }
+
+  /**
+   * Clear all mappings for a target (for resync)
+   */
+  async clearMappings(targetGardenUrl: string): Promise<number> {
+    const result = await this.syncMappingRepository.delete({
+      targetGardenUrl,
+    });
+
+    this.logger.warn(`Cleared ${result.affected} mappings for ${targetGardenUrl}`);
+    return result.affected || 0;
+  }
+}

@@ -69,6 +69,7 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
+      BASE_URL: ${BASE_URL:-http://localhost:3000}
 
       # Bundled Services (use local postgres/redis by default)
       DATABASE_URL: ${DATABASE_URL:-postgresql://cruxgarden:cruxgarden_dev_password@postgres:5432/cruxgarden}

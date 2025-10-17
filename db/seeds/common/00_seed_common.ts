@@ -42,7 +42,47 @@ export async function seed(knex: Knex): Promise<void> {
         primaryHome = newHome;
     }
 
-    // ===== STEP 2: Create Root Crux for Keeper =====
+    // ===== STEP 2: Create Keeper Account =====
+    const keeperAccount = {
+        id: accountId,
+        key: generateKey(),
+        email: 'keeper@crux.garden',
+        role: 'keeper',
+        home_id: primaryHome.id
+    };
+
+    // Check if keeper account already exists
+    const existingAccount = await knex("accounts")
+        .where({ email: keeperAccount.email })
+        .first();
+
+    if (!existingAccount) {
+        await knex("accounts").insert(keeperAccount);
+    }
+
+    // ===== STEP 3: Create Keeper Author (without root_id initially) =====
+    const existingAuthor = await knex("authors")
+        .where({ id: authorId })
+        .first();
+
+    if (!existingAuthor) {
+        const keeperAuthor = {
+            id: authorId,
+            key: generateKey(),
+            username: 'keeper',
+            display_name: 'The Keeper',
+            bio: 'The Keeper of the Crux Garden',
+            root_id: null, // Set to null initially to break circular dependency
+            account_id: accountId,
+            home_id: primaryHome.id,
+            created: new Date(),
+            updated: new Date(),
+        };
+
+        await knex("authors").insert(keeperAuthor);
+    }
+
+    // ===== STEP 4: Create Root Crux for Keeper =====
     const existingRootCrux = await knex("cruxes")
         .where({ id: rootCruxId })
         .first();
@@ -50,7 +90,7 @@ export async function seed(knex: Knex): Promise<void> {
     if (!existingRootCrux) {
         const keeperRootCrux = {
             id: rootCruxId,
-            key: generateKey(),
+            key: 'aZ7sNeIrmEO2QG_Z',
             slug: 'keeper-root',
             title: 'Welcome to Crux Garden!',
             data: '## What are you thinking today?',
@@ -66,47 +106,15 @@ export async function seed(knex: Knex): Promise<void> {
         await knex("cruxes").insert(keeperRootCrux);
     }
 
-    // ===== STEP 3: Create Keeper Account & Author =====
-    const keeperAccount = {
-        id: accountId,
-        key: generateKey(),
-        email: 'keeper@crux.garden',
-        role: 'keeper',
-        home_id: primaryHome.id
-    };
-
-    const keeperAuthor = {
-        id: authorId,
-        key: generateKey(),
-        username: 'keeper',
-        display_name: 'The Keeper',
-        bio: 'The Keeper of the Crux Garden',
-        root_id: rootCruxId,
-        account_id: accountId,
-        home_id: primaryHome.id,
-        created: new Date(),
-        updated: new Date(),
-    };
-
-    // Check if keeper account already exists
-    const existingAccount = await knex("accounts")
-        .where({ email: keeperAccount.email })
-        .first();
-
-    if (!existingAccount) {
-        await knex("accounts").insert(keeperAccount);
-    }
-
-    // Check if keeper author already exists
-    const existingAuthor = await knex("authors")
-        .where({ id: authorId })
-        .first();
-
+    // ===== STEP 5: Update Author with root_id =====
+    // Now that the root crux exists, update the author to reference it
     if (!existingAuthor) {
-        await knex("authors").insert(keeperAuthor);
+        await knex("authors")
+            .where({ id: authorId })
+            .update({ root_id: rootCruxId });
     }
 
-    // ===== STEP 3: Create Themes =====
+    // ===== STEP 6: Create Themes =====
     const themes = [
         {
             id: generateId(),
