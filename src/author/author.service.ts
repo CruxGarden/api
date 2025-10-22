@@ -8,6 +8,7 @@ import { Knex } from 'knex';
 import { toEntityFields } from '../common/helpers/case-helpers';
 import { CreateAuthorDto } from './dto/create-author.dto';
 import { UpdateAuthorDto } from './dto/update-author.dto';
+import { GraphResponseDto } from './dto/graph-response.dto';
 import { AuthorRepository } from './author.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
@@ -216,5 +217,31 @@ export class AuthorService {
     }
 
     return null;
+  }
+
+  async getGraph(authorId: string): Promise<GraphResponseDto> {
+    const { data, error } = await this.authorRepository.getGraphData(authorId);
+
+    if (error || !data) {
+      throw new InternalServerErrorException(
+        `Failed to fetch graph data: ${error}`,
+      );
+    }
+
+    // Format response
+    return {
+      nodes: data.nodes.map((node) => ({
+        id: node.id,
+        name: node.title || 'Untitled',
+        slug: node.slug,
+        type: node.type,
+        status: node.status,
+      })),
+      links: data.links.map((link) => ({
+        source: link.source_id,
+        target: link.target_id,
+        type: link.type as any, // Type from DB is string, will be validated by enum
+      })),
+    };
   }
 }

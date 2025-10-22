@@ -125,4 +125,41 @@ export class AuthorRepository {
       return failure(error);
     }
   }
+
+  async getGraphData(authorId: string): Promise<
+    RepositoryResponse<{
+      nodes: Array<{
+        id: string;
+        title: string;
+        slug: string;
+        type: string;
+        status: string;
+      }>;
+      links: Array<{ source_id: string; target_id: string; type: string }>;
+    }>
+  > {
+    try {
+      const db = this.dbService.query();
+
+      // Get all cruxes for this author
+      const nodes = await db('cruxes')
+        .select('id', 'title', 'slug', 'type', 'status')
+        .where('author_id', authorId)
+        .whereNull('deleted');
+
+      // Get all crux IDs
+      const cruxIds = nodes.map((c) => c.id);
+
+      // Get all dimensions between these cruxes
+      const links = await db('dimensions')
+        .select('source_id', 'target_id', 'type')
+        .whereIn('source_id', cruxIds)
+        .whereIn('target_id', cruxIds)
+        .whereNull('deleted');
+
+      return success({ nodes, links });
+    } catch (error) {
+      return failure(error);
+    }
+  }
 }

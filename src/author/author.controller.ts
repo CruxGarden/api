@@ -148,4 +148,19 @@ export class AuthorController {
     // Get crux by author ID and slug
     return this.cruxService.findByAuthorAndSlug(author.id, slug);
   }
+
+  @Get(':identifier/graph')
+  async getGraph(@Param('identifier') identifier: string) {
+    // Get author by username or key
+    const { hasPrefix, value } = stripPathPrefix(
+      identifier,
+      PathPrefix.USERNAME,
+    );
+    const author = hasPrefix
+      ? await this.authorService.findByUsername(value)
+      : await this.authorService.findByKey(value);
+
+    // Get graph data for this author
+    return this.authorService.getGraph(author.id);
+  }
 }
