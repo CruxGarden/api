@@ -192,15 +192,17 @@ describe('AuthorService', () => {
         data: mockAuthorRaw,
         error: null,
       });
+      repository.update.mockResolvedValue({
+        data: { ...mockAuthorRaw, root_id: 'root-crux-id' },
+        error: null,
+      });
 
       const result = await service.create(createDto);
 
       expect(result.id).toBe('author-id-123');
       expect(cruxService.create).toHaveBeenCalled();
-      expect(repository.create).toHaveBeenCalledWith({
-        ...createDto,
-        id: 'generated-id',
-        key: 'generated-key',
+      expect(repository.create).toHaveBeenCalled();
+      expect(repository.update).toHaveBeenCalledWith('author-id-123', {
         rootId: 'root-crux-id',
       });
     });

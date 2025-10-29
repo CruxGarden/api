@@ -210,6 +210,9 @@ describe('Author Integration Tests', () => {
 
       mockAuthorRepository.findBy.mockResolvedValue(success(null)); // No existing username
       mockAuthorRepository.create.mockResolvedValue(success(newAuthorRaw));
+      mockAuthorRepository.update.mockResolvedValue(
+        success({ ...newAuthorRaw, root_id: 'root-crux-id' }),
+      );
 
       const response = await request(app.getHttpServer())
         .post('/authors')

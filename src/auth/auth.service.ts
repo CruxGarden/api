@@ -260,10 +260,32 @@ export class AuthService {
     return this.genAuthCredentials(accessToken, refreshToken);
   }
 
-  async profile(email: string): Promise<Account | null> {
+  async profile(email: string): Promise<any | null> {
     try {
       const account = await this.accountService.findByEmail(email);
-      return account;
+      if (!account) return null;
+
+      // Fetch associated author
+      let author = null;
+      try {
+        author = await this.authorService.findByAccountId(account.id);
+      } catch {
+        // Author might not exist yet (shouldn't happen after login, but handle gracefully)
+        this.logger.warn('Author not found for account', {
+          accountId: account.id,
+        });
+      }
+
+      return {
+        ...account,
+        author: author
+          ? {
+              id: author.id,
+              username: author.username,
+              displayName: author.displayName,
+            }
+          : null,
+      };
     } catch (error) {
       this.logger.error('Failed to verify account during refresh', error, {
         email,

@@ -49,6 +49,7 @@ describe('AuthService', () => {
 
     const mockAuthorService = {
       create: jest.fn(),
+      findByAccountId: jest.fn(),
     };
 
     const mockEmailService = {
@@ -480,12 +481,40 @@ describe('AuthService', () => {
   });
 
   describe('profile', () => {
-    it('should return account profile', async () => {
+    it('should return account profile with author', async () => {
       accountService.findByEmail.mockResolvedValue(mockAccount as any);
+      authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
       const result = await service.profile('test@example.com');
 
-      expect(result).toEqual(mockAccount);
+      expect(result).toEqual({
+        ...mockAccount,
+        author: {
+          id: mockAuthor.id,
+          username: mockAuthor.username,
+          displayName: mockAuthor.displayName,
+        },
+      });
+      expect(accountService.findByEmail).toHaveBeenCalledWith(
+        'test@example.com',
+      );
+      expect(authorService.findByAccountId).toHaveBeenCalledWith(
+        mockAccount.id,
+      );
+    });
+
+    it('should return account profile without author if not found', async () => {
+      accountService.findByEmail.mockResolvedValue(mockAccount as any);
+      authorService.findByAccountId.mockRejectedValue(
+        new Error('Author not found'),
+      );
+
+      const result = await service.profile('test@example.com');
+
+      expect(result).toEqual({
+        ...mockAccount,
+        author: null,
+      });
       expect(accountService.findByEmail).toHaveBeenCalledWith(
         'test@example.com',
       );

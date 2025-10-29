@@ -129,7 +129,6 @@ export class AuthorService {
     username: string,
     authorId: string,
     homeId: string,
-    accountId: string,
   ): Promise<string> {
     const rootCruxDto: CreateCruxDto = {
       slug: `${username}-root`,
@@ -138,7 +137,6 @@ export class AuthorService {
       type: 'markdown',
       authorId,
       homeId,
-      accountId,
       status: CruxStatus.LIVING,
       visibility: CruxVisibility.UNLISTED,
     };
@@ -165,23 +163,30 @@ export class AuthorService {
     if (existingByAccount)
       throw new ConflictException('Account already has an author profile');
 
-    // 4) create root crux for the author
-    const rootCruxId = await this.createRootCrux(
-      createAuthorDto.username,
-      createAuthorDto.id,
-      createAuthorDto.homeId,
-      createAuthorDto.accountId,
-    );
-    createAuthorDto.rootId = rootCruxId;
-
-    // 5) create author with root_id
+    // 4) create author first (without root_id)
     const created = await this.authorRepository.create(createAuthorDto);
     if (created.error)
       throw new InternalServerErrorException(
         `Author creation error: ${created.error}`,
       );
 
-    return this.asAuthor(created.data);
+    // 5) create root crux for the author (now author exists, FK is satisfied)
+    const rootCruxId = await this.createRootCrux(
+      createAuthorDto.username,
+      createAuthorDto.id,
+      createAuthorDto.homeId,
+    );
+
+    // 6) update author with root_id
+    const updated = await this.authorRepository.update(created.data.id, {
+      rootId: rootCruxId,
+    });
+    if (updated.error)
+      throw new InternalServerErrorException(
+        `Author update error: ${updated.error}`,
+      );
+
+    return this.asAuthor(updated.data);
   }
 
   async update(

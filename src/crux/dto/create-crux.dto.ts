@@ -132,13 +132,4 @@ export class CreateCruxDto {
   @IsOptional()
   @IsString()
   homeId?: string;
-
-  @ApiPropertyOptional({
-    description: 'Account ID (set internally from auth)',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-    format: 'uuid',
-  })
-  @IsOptional()
-  @IsString()
-  accountId?: string;
 }

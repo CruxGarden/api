@@ -38,6 +38,7 @@ describe('Auth Integration Tests', () => {
 
     mockAuthorRepository = {
       create: jest.fn(),
+      update: jest.fn(),
       findBy: jest.fn().mockResolvedValue({ data: null, error: null }), // No existing username conflicts
     };
 
@@ -275,6 +276,22 @@ describe('Auth Integration Tests', () => {
           account_id: accountId,
           username: testEmail.split('@')[0],
           display_name: testEmail.split('@')[0],
+          created: new Date().toISOString(),
+          updated: new Date().toISOString(),
+          deleted: null,
+        },
+        error: null,
+      });
+
+      // Mock: Author update succeeds (sets rootId)
+      mockAuthorRepository.update.mockResolvedValue({
+        data: {
+          id: authorId,
+          key: 'author-key',
+          account_id: accountId,
+          username: testEmail.split('@')[0],
+          display_name: testEmail.split('@')[0],
+          root_id: 'root-crux-id',
           created: new Date().toISOString(),
           updated: new Date().toISOString(),
           deleted: null,
