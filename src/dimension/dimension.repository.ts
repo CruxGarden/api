@@ -177,4 +177,27 @@ export class DimensionRepository {
       return failure(error);
     }
   }
+
+  async deleteByAuthorId(
+    authorId: string,
+    trx?: Knex.Transaction,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      const now = new Date();
+      const query = trx || this.dbService.query();
+
+      await query
+        .from<DimensionRaw>(DimensionRepository.TABLE_NAME)
+        .where('author_id', authorId)
+        .whereNull('deleted')
+        .update({
+          deleted: now,
+          updated: now,
+        });
+
+      return success(undefined);
+    } catch (error) {
+      return failure(error);
+    }
+  }
 }

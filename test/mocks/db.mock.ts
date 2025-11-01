@@ -22,6 +22,15 @@ export class MockDbService {
   }
 
   private createMockQueryBuilder() {
+    const mockTrx = {
+      from: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      whereNull: jest.fn().mockReturnThis(),
+      update: jest.fn().mockReturnThis(),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+    };
+
     const builder: any = {
       select: jest.fn().mockReturnThis(),
       from: jest.fn().mockReturnThis(),
@@ -39,10 +48,10 @@ export class MockDbService {
       limit: jest.fn().mockReturnThis(),
       offset: jest.fn().mockReturnThis(),
       raw: jest.fn().mockResolvedValue(undefined),
+      transaction: jest.fn().mockResolvedValue(mockTrx),
     };
     return builder;
   }
-  i;
 
   async paginate(): Promise<any[]> {
     return [];

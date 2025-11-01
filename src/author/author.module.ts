@@ -8,6 +8,6 @@ import { CruxModule } from '../crux/crux.module';
   imports: [forwardRef(() => CruxModule)],
   controllers: [AuthorController],
   providers: [AuthorService, AuthorRepository],
-  exports: [AuthorService],
+  exports: [AuthorService, AuthorRepository],
 })
 export class AuthorModule {}

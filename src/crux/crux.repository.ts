@@ -127,13 +127,16 @@ export class CruxRepository {
     }
   }
 
-  async delete(cruxId: string): Promise<RepositoryResponse<void>> {
+  async delete(
+    cruxId: string,
+    trx?: Knex.Transaction,
+  ): Promise<RepositoryResponse<void>> {
     try {
       const now = new Date();
+      const query = trx || this.dbService.query();
 
       // First, get the crux to find its author
-      const crux = await this.dbService
-        .query()
+      const crux = await query
         .from<CruxRaw>(CruxRepository.TABLE_NAME)
         .where('id', cruxId)
         .first();
@@ -143,8 +146,7 @@ export class CruxRepository {
       }
 
       // Soft delete the crux
-      await this.dbService
-        .query()
+      await query
         .from<CruxRaw>(CruxRepository.TABLE_NAME)
         .where('id', cruxId)
         .update({
@@ -156,8 +158,7 @@ export class CruxRepository {
       // 1. This crux is involved (source OR target)
       // 2. AND the dimension was created by the same author as the crux
       // This preserves other people's dimensions that reference this crux
-      await this.dbService
-        .query()
+      await query
         .from('dimensions')
         .where(function () {
           this.where('source_id', cruxId).orWhere('target_id', cruxId);
@@ -169,6 +170,23 @@ export class CruxRepository {
         });
 
       return success(undefined);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  async findAllByAuthorId(
+    authorId: string,
+  ): Promise<RepositoryResponse<CruxRaw[]>> {
+    try {
+      const data = await this.dbService
+        .query()
+        .from<CruxRaw>(CruxRepository.TABLE_NAME)
+        .select(CruxRepository.BASE_SELECT)
+        .where('author_id', authorId)
+        .whereNull('deleted');
+
+      return success(data);
     } catch (error) {
       return failure(error);
     }

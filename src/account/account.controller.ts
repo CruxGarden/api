@@ -8,6 +8,7 @@ import {
   HttpStatus,
   UseGuards,
   Req,
+  Query,
 } from '@nestjs/common';
 import { AuthRequest } from '../common/types/interfaces';
 import { AccountService } from './account.service';
@@ -30,6 +31,18 @@ export class AccountController {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('AccountController');
+  }
+
+  @Get('check-email')
+  @AccountSwagger.CheckEmail()
+  async checkEmail(
+    @Query('email') email: string,
+    @Req() req: AuthRequest,
+  ): Promise<{ available: boolean }> {
+    const existingAccount = await this.accountService.findByEmail(email);
+    // Email is available if not found, or if it belongs to the current user
+    const available = !existingAccount || existingAccount.id === req.account.id;
+    return { available };
   }
 
   @Get()

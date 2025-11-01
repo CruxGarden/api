@@ -1,7 +1,28 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString, IsUrl } from 'class-validator';
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Matches,
+  MinLength,
+} from 'class-validator';
 
 export class UpdateAuthorDto {
+  @ApiPropertyOptional({
+    description:
+      'Username for the author (alphanumeric, hyphens, underscores only)',
+    example: 'johndoe',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1, { message: 'Username cannot be empty' })
+  @Matches(/^[a-zA-Z0-9_-]+$/, {
+    message:
+      'Username can only contain letters, numbers, hyphens, and underscores',
+  })
+  username?: string;
+
   @ApiPropertyOptional({
     description: 'Display name for the author',
     example: 'John Doe',

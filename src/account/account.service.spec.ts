@@ -7,6 +7,11 @@ import {
 } from '@nestjs/common';
 import { AccountService } from './account.service';
 import { AccountRepository } from './account.repository';
+import { AuthorRepository } from '../author/author.repository';
+import { CruxRepository } from '../crux/crux.repository';
+import { ThemeRepository } from '../theme/theme.repository';
+import { RedisService } from '../common/services/redis.service';
+import { DbService } from '../common/services/db.service';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { AccountRole } from '../common/types/enums';
@@ -14,6 +19,11 @@ import { AccountRole } from '../common/types/enums';
 describe('AccountService', () => {
   let service: AccountService;
   let repository: jest.Mocked<AccountRepository>;
+  let authorRepository: jest.Mocked<AuthorRepository>;
+  let cruxRepository: jest.Mocked<CruxRepository>;
+  let themeRepository: jest.Mocked<ThemeRepository>;
+  let redisService: jest.Mocked<RedisService>;
+  let dbService: jest.Mocked<DbService>;
 
   const mockAccountRaw = {
     id: 'account-id-123',
@@ -35,6 +45,34 @@ describe('AccountService', () => {
       delete: jest.fn(),
     };
 
+    const mockAuthorRepository = {
+      findBy: jest.fn(),
+      deleteByAccountId: jest.fn(),
+    };
+
+    const mockCruxRepository = {
+      findAllByAuthorId: jest.fn(),
+      delete: jest.fn(),
+    };
+
+    const mockThemeRepository = {
+      deleteByAuthorId: jest.fn(),
+    };
+
+    const mockRedisService = {
+      get: jest.fn(),
+      del: jest.fn(),
+    };
+
+    const mockDbService = {
+      query: jest.fn().mockReturnValue({
+        transaction: jest.fn().mockResolvedValue({
+          commit: jest.fn().mockResolvedValue(undefined),
+          rollback: jest.fn().mockResolvedValue(undefined),
+        }),
+      }),
+    };
+
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
       generateKey: jest.fn().mockReturnValue('generated-key'),
@@ -53,6 +91,11 @@ describe('AccountService', () => {
       providers: [
         AccountService,
         { provide: AccountRepository, useValue: mockRepository },
+        { provide: AuthorRepository, useValue: mockAuthorRepository },
+        { provide: CruxRepository, useValue: mockCruxRepository },
+        { provide: ThemeRepository, useValue: mockThemeRepository },
+        { provide: RedisService, useValue: mockRedisService },
+        { provide: DbService, useValue: mockDbService },
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
       ],
@@ -60,6 +103,11 @@ describe('AccountService', () => {
 
     service = module.get<AccountService>(AccountService);
     repository = module.get(AccountRepository);
+    authorRepository = module.get(AuthorRepository);
+    cruxRepository = module.get(CruxRepository);
+    themeRepository = module.get(ThemeRepository);
+    redisService = module.get(RedisService);
+    dbService = module.get(DbService);
   });
 
   describe('findById', () => {
@@ -314,14 +362,79 @@ describe('AccountService', () => {
         InternalServerErrorException,
       );
     });
+
+    it('should invalidate tokens when email is changed', async () => {
+      const updatedAccount = {
+        ...mockAccountRaw,
+        email: 'updated@example.com',
+      };
+      repository.findById.mockResolvedValue({
+        data: mockAccountRaw,
+        error: null,
+      });
+      repository.findByEmail.mockResolvedValue({ data: null, error: null });
+      repository.update.mockResolvedValue({
+        data: updatedAccount,
+        error: null,
+      });
+      redisService.get.mockResolvedValue('grant-id-123');
+
+      await service.update('account-id-123', updateDto);
+
+      expect(redisService.get).toHaveBeenCalledWith(
+        'crux:auth:grant:email:test@example.com',
+      );
+      expect(redisService.del).toHaveBeenCalledWith(
+        'crux:auth:grant:email:test@example.com',
+      );
+      expect(redisService.del).toHaveBeenCalledWith(
+        'crux:auth:grant:id:grant-id-123',
+      );
+    });
+
+    it('should not invalidate tokens when email is unchanged', async () => {
+      repository.findById.mockResolvedValue({
+        data: mockAccountRaw,
+        error: null,
+      });
+      repository.update.mockResolvedValue({
+        data: mockAccountRaw,
+        error: null,
+      });
+
+      await service.update('account-id-123', {
+        email: 'test@example.com',
+      });
+
+      expect(redisService.get).not.toHaveBeenCalled();
+      expect(redisService.del).not.toHaveBeenCalled();
+    });
   });
 
   describe('delete', () => {
     const deleteDto = { confirmationText: 'DELETE MY ACCOUNT' };
 
-    it('should delete an account successfully', async () => {
+    let mockTrx: any;
+
+    beforeEach(() => {
+      mockTrx = {
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+      };
+
+      (dbService.query as jest.Mock).mockReturnValue({
+        transaction: jest.fn().mockResolvedValue(mockTrx),
+      });
+    });
+
+    it('should delete an account successfully with no author', async () => {
       repository.findById.mockResolvedValue({
         data: mockAccountRaw,
+        error: null,
+      });
+      authorRepository.findBy.mockResolvedValue({ data: null, error: null });
+      authorRepository.deleteByAccountId.mockResolvedValue({
+        data: null,
         error: null,
       });
       repository.delete.mockResolvedValue({ data: null, error: null });
@@ -329,7 +442,115 @@ describe('AccountService', () => {
       const result = await service.delete('account-id-123', deleteDto);
 
       expect(result).toBeNull();
-      expect(repository.delete).toHaveBeenCalledWith('account-id-123');
+      expect(authorRepository.deleteByAccountId).toHaveBeenCalledWith(
+        'account-id-123',
+        mockTrx,
+      );
+      expect(repository.delete).toHaveBeenCalledWith('account-id-123', mockTrx);
+      expect(mockTrx.commit).toHaveBeenCalled();
+    });
+
+    it('should delete an account with author and cascade delete content', async () => {
+      const mockAuthor = {
+        id: 'author-id-123',
+        key: 'author-key-abc',
+        account_id: 'account-id-123',
+        username: 'testuser',
+        display_name: 'Test User',
+        bio: null,
+        root_id: null,
+        home_id: 'home-id-123',
+        type: null,
+        kind: null,
+        meta: null,
+        created: new Date(),
+        updated: new Date(),
+        deleted: null,
+      };
+
+      const mockCruxes = [
+        {
+          id: 'crux-1',
+          key: 'crux-key-1',
+          slug: 'crux-1',
+          title: null,
+          description: null,
+          data: 'content',
+          type: null,
+          status: null,
+          visibility: null,
+          author_id: 'author-id-123',
+          account_id: 'account-id-123',
+          home_id: 'home-id-123',
+          theme_id: null,
+          meta: null,
+          created: new Date(),
+          updated: new Date(),
+          deleted: null,
+        },
+        {
+          id: 'crux-2',
+          key: 'crux-key-2',
+          slug: 'crux-2',
+          title: null,
+          description: null,
+          data: 'content',
+          type: null,
+          status: null,
+          visibility: null,
+          author_id: 'author-id-123',
+          account_id: 'account-id-123',
+          home_id: 'home-id-123',
+          theme_id: null,
+          meta: null,
+          created: new Date(),
+          updated: new Date(),
+          deleted: null,
+        },
+      ];
+
+      repository.findById.mockResolvedValue({
+        data: mockAccountRaw,
+        error: null,
+      });
+      authorRepository.findBy.mockResolvedValue({
+        data: mockAuthor,
+        error: null,
+      });
+      cruxRepository.findAllByAuthorId.mockResolvedValue({
+        data: mockCruxes,
+        error: null,
+      });
+      cruxRepository.delete.mockResolvedValue({ data: null, error: null });
+      themeRepository.deleteByAuthorId.mockResolvedValue({
+        data: null,
+        error: null,
+      });
+      authorRepository.deleteByAccountId.mockResolvedValue({
+        data: null,
+        error: null,
+      });
+      repository.delete.mockResolvedValue({ data: null, error: null });
+
+      const result = await service.delete('account-id-123', deleteDto);
+
+      expect(result).toBeNull();
+      expect(cruxRepository.findAllByAuthorId).toHaveBeenCalledWith(
+        'author-id-123',
+      );
+      expect(cruxRepository.delete).toHaveBeenCalledTimes(2);
+      expect(cruxRepository.delete).toHaveBeenCalledWith('crux-1', mockTrx);
+      expect(cruxRepository.delete).toHaveBeenCalledWith('crux-2', mockTrx);
+      expect(themeRepository.deleteByAuthorId).toHaveBeenCalledWith(
+        'author-id-123',
+        mockTrx,
+      );
+      expect(authorRepository.deleteByAccountId).toHaveBeenCalledWith(
+        'account-id-123',
+        mockTrx,
+      );
+      expect(repository.delete).toHaveBeenCalledWith('account-id-123', mockTrx);
+      expect(mockTrx.commit).toHaveBeenCalled();
     });
 
     it('should throw BadRequestException when confirmation text is incorrect', async () => {
@@ -343,9 +564,14 @@ describe('AccountService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw InternalServerErrorException on delete error', async () => {
+    it('should rollback transaction on delete error', async () => {
       repository.findById.mockResolvedValue({
         data: mockAccountRaw,
+        error: null,
+      });
+      authorRepository.findBy.mockResolvedValue({ data: null, error: null });
+      authorRepository.deleteByAccountId.mockResolvedValue({
+        data: null,
         error: null,
       });
       repository.delete.mockResolvedValue({
@@ -356,6 +582,8 @@ describe('AccountService', () => {
       await expect(service.delete('account-id-123', deleteDto)).rejects.toThrow(
         InternalServerErrorException,
       );
+
+      expect(mockTrx.rollback).toHaveBeenCalled();
     });
   });
 

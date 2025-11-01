@@ -52,6 +52,24 @@ export class AuthorRepository {
     }
   }
 
+  async findByUsername(
+    username: string,
+  ): Promise<RepositoryResponse<AuthorRaw>> {
+    try {
+      const data = await this.dbService
+        .query()
+        .from<AuthorRaw>(AuthorRepository.TABLE_NAME)
+        .select(AuthorRepository.BASE_SELECT)
+        .whereRaw('LOWER(username) = LOWER(?)', [username])
+        .whereNull('deleted')
+        .first();
+
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
   async create(
     createData: CreateAuthorDto,
   ): Promise<RepositoryResponse<AuthorRaw>> {
@@ -118,6 +136,29 @@ export class AuthorRepository {
         .update({
           deleted: new Date(),
           updated: new Date(),
+        });
+
+      return success(undefined);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  async deleteByAccountId(
+    accountId: string,
+    trx?: Knex.Transaction,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      const now = new Date();
+      const query = trx || this.dbService.query();
+
+      await query
+        .from<AuthorRaw>(AuthorRepository.TABLE_NAME)
+        .where('account_id', accountId)
+        .whereNull('deleted')
+        .update({
+          deleted: now,
+          updated: now,
         });
 
       return success(undefined);

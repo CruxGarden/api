@@ -59,6 +59,30 @@ export class AuthorController {
     return true;
   }
 
+  @Get('check-username')
+  @AuthorSwagger.CheckUsername()
+  async checkUsername(
+    @Query('username') username: string,
+    @Req() req: AuthRequest,
+  ): Promise<{ available: boolean }> {
+    const existingAuthor =
+      await this.authorService.checkUsernameExists(username);
+
+    // Username is available if not found, or if it belongs to the current user's author
+    // Get the current user's author to compare
+    let currentAuthor = null;
+    try {
+      currentAuthor = await this.authorService.findByAccountId(req.account.id);
+    } catch {
+      // No author for this account yet
+    }
+
+    const available =
+      !existingAuthor ||
+      (currentAuthor && existingAuthor.id === currentAuthor.id);
+    return { available };
+  }
+
   @Get()
   @AuthorSwagger.FindAll()
   async getAll(

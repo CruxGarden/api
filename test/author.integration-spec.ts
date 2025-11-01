@@ -48,6 +48,7 @@ describe('Author Integration Tests', () => {
     mockAuthorRepository = {
       findAllQuery: jest.fn(),
       findBy: jest.fn(),
+      findByUsername: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -153,7 +154,7 @@ describe('Author Integration Tests', () => {
 
     it('should return 200 and author data by username with @prefix', async () => {
       const token = generateToken(testAccountId);
-      mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
+      mockAuthorRepository.findByUsername.mockResolvedValue(success(testAuthorRaw));
 
       const response = await request(app.getHttpServer())
         .get(`/authors/@${testUsername}`)
@@ -163,10 +164,7 @@ describe('Author Integration Tests', () => {
       expect(response.body).toMatchObject({
         username: testUsername,
       });
-      expect(mockAuthorRepository.findBy).toHaveBeenCalledWith(
-        'username',
-        testUsername,
-      );
+      expect(mockAuthorRepository.findByUsername).toHaveBeenCalledWith(testUsername);
     });
 
     it('should return 404 when author not found', async () => {
@@ -208,7 +206,8 @@ describe('Author Integration Tests', () => {
         deleted: null,
       };
 
-      mockAuthorRepository.findBy.mockResolvedValue(success(null)); // No existing username
+      mockAuthorRepository.findByUsername.mockResolvedValue(success(null)); // No existing username
+      mockAuthorRepository.findBy.mockResolvedValue(success(null)); // No existing author for account
       mockAuthorRepository.create.mockResolvedValue(success(newAuthorRaw));
       mockAuthorRepository.update.mockResolvedValue(
         success({ ...newAuthorRaw, root_id: 'root-crux-id' }),
@@ -260,7 +259,7 @@ describe('Author Integration Tests', () => {
 
     it('should return 409 when username already exists', async () => {
       const token = generateToken(testAccountId);
-      mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw)); // Username exists
+      mockAuthorRepository.findByUsername.mockResolvedValue(success(testAuthorRaw)); // Username exists
 
       await request(app.getHttpServer())
         .post('/authors')

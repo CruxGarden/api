@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
 
 export class CreateAuthorDto {
   @ApiPropertyOptional({
@@ -21,12 +21,17 @@ export class CreateAuthorDto {
   key?: string;
 
   @ApiProperty({
-    description: 'Username for the author',
+    description:
+      'Username for the author (alphanumeric, hyphens, underscores only)',
     example: 'johndoe',
     minLength: 1,
   })
   @IsNotEmpty()
   @IsString()
+  @Matches(/^[a-zA-Z0-9_-]+$/, {
+    message:
+      'Username can only contain letters, numbers, hyphens, and underscores',
+  })
   username: string;
 
   @ApiProperty({

@@ -31,6 +31,7 @@ describe('AuthorService', () => {
   beforeEach(async () => {
     const mockRepository = {
       findBy: jest.fn(),
+      findByUsername: jest.fn(),
       findAllQuery: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -133,7 +134,7 @@ describe('AuthorService', () => {
 
   describe('findByUsername', () => {
     it('should return an author when found', async () => {
-      repository.findBy.mockResolvedValue({
+      repository.findByUsername.mockResolvedValue({
         data: mockAuthorRaw,
         error: null,
       });
@@ -141,11 +142,11 @@ describe('AuthorService', () => {
       const result = await service.findByUsername('testuser');
 
       expect(result.username).toBe('testuser');
-      expect(repository.findBy).toHaveBeenCalledWith('username', 'testuser');
+      expect(repository.findByUsername).toHaveBeenCalledWith('testuser');
     });
 
     it('should throw NotFoundException when author not found', async () => {
-      repository.findBy.mockResolvedValue({ data: null, error: null });
+      repository.findByUsername.mockResolvedValue({ data: null, error: null });
 
       await expect(service.findByUsername('invalid')).rejects.toThrow(
         NotFoundException,
@@ -187,6 +188,7 @@ describe('AuthorService', () => {
     };
 
     it('should create an author successfully', async () => {
+      repository.findByUsername.mockResolvedValue({ data: null, error: null });
       repository.findBy.mockResolvedValue({ data: null, error: null });
       repository.create.mockResolvedValue({
         data: mockAuthorRaw,
@@ -208,7 +210,7 @@ describe('AuthorService', () => {
     });
 
     it('should throw ConflictException when username already exists', async () => {
-      repository.findBy.mockResolvedValue({
+      repository.findByUsername.mockResolvedValue({
         data: mockAuthorRaw,
         error: null,
       });
@@ -219,9 +221,11 @@ describe('AuthorService', () => {
     });
 
     it('should throw ConflictException when account already has author', async () => {
-      repository.findBy
-        .mockResolvedValueOnce({ data: null, error: null })
-        .mockResolvedValueOnce({ data: mockAuthorRaw, error: null });
+      repository.findByUsername.mockResolvedValue({ data: null, error: null });
+      repository.findBy.mockResolvedValue({
+        data: mockAuthorRaw,
+        error: null,
+      });
 
       await expect(service.create(createDto)).rejects.toThrow(
         ConflictException,
@@ -229,6 +233,7 @@ describe('AuthorService', () => {
     });
 
     it('should throw InternalServerErrorException on create error', async () => {
+      repository.findByUsername.mockResolvedValue({ data: null, error: null });
       repository.findBy.mockResolvedValue({ data: null, error: null });
       repository.create.mockResolvedValue({
         data: null,

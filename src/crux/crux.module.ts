@@ -18,6 +18,6 @@ import { AttachmentModule } from '../attachment/attachment.module';
   ],
   controllers: [CruxController],
   providers: [CruxService, CruxRepository],
-  exports: [CruxService],
+  exports: [CruxService, CruxRepository],
 })
 export class CruxModule {}

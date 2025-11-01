@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Knex } from 'knex';
 import { toTableFields } from '../common/helpers/case-helpers';
 import { success, failure } from '../common/helpers/repository-helpers';
 import { DbService } from '../common/services/db.service';
@@ -112,10 +113,14 @@ export class AccountRepository {
     }
   }
 
-  async delete(accountId: string): Promise<RepositoryResponse<void>> {
+  async delete(
+    accountId: string,
+    trx?: Knex.Transaction,
+  ): Promise<RepositoryResponse<void>> {
     try {
-      await this.dbService
-        .query()
+      const query = trx || this.dbService.query();
+
+      await query
         .from<AccountRaw>(AccountRepository.TABLE_NAME)
         .where('id', accountId)
         .update({

@@ -85,10 +85,8 @@ export class AuthorService {
   }
 
   async findByUsername(username: string): Promise<Author> {
-    const { data: author, error } = await this.authorRepository.findBy(
-      'username',
-      username,
-    );
+    const { data: author, error } =
+      await this.authorRepository.findByUsername(username);
 
     if (error || !author) {
       throw new NotFoundException('Author not found');
@@ -97,11 +95,9 @@ export class AuthorService {
     return this.asAuthor(author);
   }
 
-  private async checkUsernameExists(username: string): Promise<Author | null> {
-    const { data: author, error } = await this.authorRepository.findBy(
-      'username',
-      username,
-    );
+  async checkUsernameExists(username: string): Promise<Author | null> {
+    const { data: author, error } =
+      await this.authorRepository.findByUsername(username);
 
     if (error || !author) {
       return null;
@@ -196,7 +192,21 @@ export class AuthorService {
     // 1) fetch author
     const authorToUpdate = await this.findByKey(authorKey);
 
-    // 2) update author
+    // 2) if updating username, check if already in use by another author (case-insensitive)
+    if (
+      updateAuthorDto.username &&
+      updateAuthorDto.username.toLowerCase() !==
+        authorToUpdate.username.toLowerCase()
+    ) {
+      const existingAuthor = await this.checkUsernameExists(
+        updateAuthorDto.username,
+      );
+      if (existingAuthor) {
+        throw new ConflictException('Username already in use');
+      }
+    }
+
+    // 3) update author
     const updated = await this.authorRepository.update(
       authorToUpdate.id,
       updateAuthorDto,

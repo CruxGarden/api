@@ -9,6 +9,7 @@ import {
   ApiNotFoundResponse,
   ApiBadRequestResponse,
   ApiConflictResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
@@ -26,6 +27,34 @@ const combineDecorators = (...decorators: any[]) => {
 
 export const AccountSwagger = {
   Controller: () => ApiTags('Account Management'),
+
+  CheckEmail: () =>
+    combineDecorators(
+      ApiOperation({
+        summary: 'Check email availability',
+        description:
+          'Checks if an email address is available for use. Returns true if available or if it belongs to the current user.',
+      }),
+      ApiQuery({
+        name: 'email',
+        type: String,
+        description: 'Email address to check',
+        example: 'user@example.com',
+      }),
+      ApiBearerAuth(),
+      ApiResponse({
+        status: 200,
+        description: 'Email availability status',
+        schema: {
+          type: 'object',
+          properties: {
+            available: { type: 'boolean', example: true },
+          },
+        },
+      }),
+      ApiUnauthorizedResponse({ description: 'Authentication required' }),
+      ApiBadRequestResponse({ description: 'Invalid email format' }),
+    ),
 
   GetAccount: () =>
     combineDecorators(

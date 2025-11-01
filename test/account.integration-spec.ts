@@ -4,6 +4,9 @@ import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
 import { AccountRepository } from '../src/account/account.repository';
+import { AuthorRepository } from '../src/author/author.repository';
+import { CruxRepository } from '../src/crux/crux.repository';
+import { ThemeRepository } from '../src/theme/theme.repository';
 import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
 import { MockDbService } from './mocks/db.mock';
@@ -13,6 +16,9 @@ import AccountRaw from '../src/account/entities/account-raw.entity';
 describe('Account Integration Tests', () => {
   let app: INestApplication;
   let mockAccountRepository: jest.Mocked<AccountRepository>;
+  let mockAuthorRepository: jest.Mocked<AuthorRepository>;
+  let mockCruxRepository: jest.Mocked<CruxRepository>;
+  let mockThemeRepository: jest.Mocked<ThemeRepository>;
 
   const testAccountId = 'account-123';
   const testEmail = 'test@example.com';
@@ -39,12 +45,26 @@ describe('Account Integration Tests', () => {
   const authHeader = (token: string) => ({ Authorization: `Bearer ${token}` });
 
   beforeAll(async () => {
-    // Create mock repository
+    // Create mock repositories
     mockAccountRepository = {
       findById: jest.fn(),
       findByEmail: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+    } as any;
+
+    mockAuthorRepository = {
+      findBy: jest.fn(),
+      deleteByAccountId: jest.fn(),
+    } as any;
+
+    mockCruxRepository = {
+      findAllByAuthorId: jest.fn(),
+      delete: jest.fn(),
+    } as any;
+
+    mockThemeRepository = {
+      deleteByAuthorId: jest.fn(),
     } as any;
 
     const mockHomeService = {
@@ -63,6 +83,12 @@ describe('Account Integration Tests', () => {
       .useValue(new MockDbService())
       .overrideProvider(AccountRepository)
       .useValue(mockAccountRepository)
+      .overrideProvider(AuthorRepository)
+      .useValue(mockAuthorRepository)
+      .overrideProvider(CruxRepository)
+      .useValue(mockCruxRepository)
+      .overrideProvider(ThemeRepository)
+      .useValue(mockThemeRepository)
       .overrideProvider(HomeService)
       .useValue(mockHomeService)
       .compile();
@@ -83,7 +109,9 @@ describe('Account Integration Tests', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 
   beforeEach(() => {
@@ -215,6 +243,8 @@ describe('Account Integration Tests', () => {
       const token = generateToken(testAccountId, testEmail);
 
       mockAccountRepository.findById.mockResolvedValue(success(testAccountRaw));
+      mockAuthorRepository.findBy.mockResolvedValue(success(null)); // No author
+      mockAuthorRepository.deleteByAccountId.mockResolvedValue(success(null));
       mockAccountRepository.delete.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
@@ -223,7 +253,7 @@ describe('Account Integration Tests', () => {
         .send(deleteAccountDto)
         .expect(204);
 
-      expect(mockAccountRepository.delete).toHaveBeenCalledWith(testAccountId);
+      expect(mockAccountRepository.delete).toHaveBeenCalled();
     });
 
     it('should return 400 when confirmation text missing', async () => {

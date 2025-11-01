@@ -14,6 +14,6 @@ import { HomeModule } from '../home/home.module';
   ],
   controllers: [ThemeController],
   providers: [ThemeService, ThemeRepository],
-  exports: [ThemeService],
+  exports: [ThemeService, ThemeRepository],
 })
 export class ThemeModule {}

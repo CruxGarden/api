@@ -27,6 +27,33 @@ const combineDecorators = (...decorators: any[]) => {
 export const AuthorSwagger = {
   Controller: () => ApiTags('Authors'),
 
+  CheckUsername: () =>
+    combineDecorators(
+      ApiOperation({
+        summary: 'Check username availability',
+        description:
+          'Checks if a username is available for use. Returns true if available or if it belongs to the current user.',
+      }),
+      ApiQuery({
+        name: 'username',
+        type: String,
+        description: 'Username to check',
+        example: 'johndoe',
+      }),
+      ApiBearerAuth(),
+      ApiResponse({
+        status: 200,
+        description: 'Username availability status',
+        schema: {
+          type: 'object',
+          properties: {
+            available: { type: 'boolean', example: true },
+          },
+        },
+      }),
+      ApiUnauthorizedResponse({ description: 'Authentication required' }),
+    ),
+
   FindAll: () =>
     combineDecorators(
       ApiOperation({

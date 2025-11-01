@@ -39,7 +39,8 @@ describe('Auth Integration Tests', () => {
     mockAuthorRepository = {
       create: jest.fn(),
       update: jest.fn(),
-      findBy: jest.fn().mockResolvedValue({ data: null, error: null }), // No existing username conflicts
+      findBy: jest.fn().mockResolvedValue({ data: null, error: null }), // No existing account author
+      findByUsername: jest.fn().mockResolvedValue({ data: null, error: null }), // No existing username conflicts
     };
 
     const mockHomeService = {
