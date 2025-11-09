@@ -50,4 +50,20 @@ export class UpdateThemeDto extends PartialType(CreateThemeDto) {
   @IsOptional()
   @IsHexColor()
   quaternaryColor?: string;
+
+  @ApiPropertyOptional({
+    description: 'Border color',
+    example: '#cccccc',
+  })
+  @IsOptional()
+  @IsString()
+  borderColor?: string;
+
+  @ApiPropertyOptional({
+    description: 'Border width',
+    example: '1px',
+  })
+  @IsOptional()
+  @IsString()
+  borderWidth?: string;
 }

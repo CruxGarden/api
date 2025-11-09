@@ -96,6 +96,22 @@ export class CreateThemeDto {
   borderRadius?: string;
 
   @ApiPropertyOptional({
+    description: 'Border color',
+    example: '#cccccc',
+  })
+  @IsOptional()
+  @IsString()
+  borderColor?: string;
+
+  @ApiPropertyOptional({
+    description: 'Border width',
+    example: '1px',
+  })
+  @IsOptional()
+  @IsString()
+  borderWidth?: string;
+
+  @ApiPropertyOptional({
     description: 'Background color',
     example: '#ffffff',
   })

@@ -121,13 +121,25 @@ export class AuthorService {
     return this.asAuthor(author);
   }
 
+  private createRootCruxSlug(username: string): string {
+    const now = new Date();
+
+    // YYYYMMDDHHMMSS
+    const timestamp = now
+      .toISOString()
+      .replace(/[-:T]/g, '')
+      .slice(0, 14);
+      
+    return `${username}-root-${timestamp}`;
+  }
+
   private async createRootCrux(
     username: string,
     authorId: string,
     homeId: string,
   ): Promise<string> {
     const rootCruxDto: CreateCruxDto = {
-      slug: `${username}-root`,
+      slug: this.createRootCruxSlug(username),
       title: 'Welcome to Crux Garden!',
       data: '## What are you thinking today?',
       type: 'markdown',

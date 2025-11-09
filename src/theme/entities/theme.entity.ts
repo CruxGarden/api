@@ -12,6 +12,8 @@ export default class Theme {
   tertiaryColor: string;
   quaternaryColor: string;
   borderRadius?: string;
+  borderColor?: string;
+  borderWidth?: string;
   backgroundColor?: string;
   panelColor?: string;
   textColor?: string;

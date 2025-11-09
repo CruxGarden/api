@@ -31,7 +31,6 @@ import AuthorRaw from './entities/author-raw.entity';
 import { CruxService } from '../crux/crux.service';
 
 @Controller('authors')
-@UseGuards(AuthGuard)
 @AuthorSwagger.Controller()
 export class AuthorController {
   // @ts-expect-error - logger
@@ -60,6 +59,7 @@ export class AuthorController {
   }
 
   @Get('check-username')
+  @UseGuards(AuthGuard)
   @AuthorSwagger.CheckUsername()
   async checkUsername(
     @Query('username') username: string,
@@ -84,6 +84,7 @@ export class AuthorController {
   }
 
   @Get()
+  @UseGuards(AuthGuard)
   @AuthorSwagger.FindAll()
   async getAll(
     @Req() req: AuthRequest,
@@ -124,6 +125,7 @@ export class AuthorController {
   }
 
   @Post()
+  @UseGuards(AuthGuard)
   @AuthorSwagger.Create()
   async create(
     @Body() createAuthorDto: CreateAuthorDto,
@@ -134,6 +136,7 @@ export class AuthorController {
   }
 
   @Patch(':authorKey')
+  @UseGuards(AuthGuard)
   @AuthorSwagger.Update()
   async update(
     @Param('authorKey') authorKey: string,
@@ -145,6 +148,7 @@ export class AuthorController {
   }
 
   @Delete(':authorKey')
+  @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   @AuthorSwagger.Delete()
   async delete(
