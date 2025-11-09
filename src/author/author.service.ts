@@ -125,11 +125,8 @@ export class AuthorService {
     const now = new Date();
 
     // YYYYMMDDHHMMSS
-    const timestamp = now
-      .toISOString()
-      .replace(/[-:T]/g, '')
-      .slice(0, 14);
-      
+    const timestamp = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+
     return `${username}-root-${timestamp}`;
   }
 

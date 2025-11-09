@@ -132,12 +132,10 @@ describe('Author Integration Tests', () => {
 
   describe('GET /authors/:identifier', () => {
     it('should return 200 and author data by key (happy path)', async () => {
-      const token = generateToken(testAccountId);
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
 
       const response = await request(app.getHttpServer())
         .get(`/authors/${testAuthorKey}`)
-        .set(authHeader(token))
         .expect(200);
 
       expect(response.body).toMatchObject({
@@ -153,34 +151,28 @@ describe('Author Integration Tests', () => {
     });
 
     it('should return 200 and author data by username with @prefix', async () => {
-      const token = generateToken(testAccountId);
-      mockAuthorRepository.findByUsername.mockResolvedValue(success(testAuthorRaw));
+      mockAuthorRepository.findByUsername.mockResolvedValue(
+        success(testAuthorRaw),
+      );
 
       const response = await request(app.getHttpServer())
         .get(`/authors/@${testUsername}`)
-        .set(authHeader(token))
         .expect(200);
 
       expect(response.body).toMatchObject({
         username: testUsername,
       });
-      expect(mockAuthorRepository.findByUsername).toHaveBeenCalledWith(testUsername);
+      expect(mockAuthorRepository.findByUsername).toHaveBeenCalledWith(
+        testUsername,
+      );
     });
 
     it('should return 404 when author not found', async () => {
-      const token = generateToken(testAccountId);
       mockAuthorRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
         .get('/authors/nonexistent')
-        .set(authHeader(token))
         .expect(404);
-    });
-
-    it('should return 401 when no token provided', async () => {
-      await request(app.getHttpServer())
-        .get(`/authors/${testAuthorKey}`)
-        .expect(401);
     });
   });
 
@@ -259,7 +251,9 @@ describe('Author Integration Tests', () => {
 
     it('should return 409 when username already exists', async () => {
       const token = generateToken(testAccountId);
-      mockAuthorRepository.findByUsername.mockResolvedValue(success(testAuthorRaw)); // Username exists
+      mockAuthorRepository.findByUsername.mockResolvedValue(
+        success(testAuthorRaw),
+      ); // Username exists
 
       await request(app.getHttpServer())
         .post('/authors')
