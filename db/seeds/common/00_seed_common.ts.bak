@@ -192,9 +192,9 @@ export async function seed(knex: Knex): Promise<void> {
                         shadowOpacity: '0.3'
                     },
                     dark: {
-                        primary: { gradient: { angle: 135, stops: [{ color: '#0c4a6e', offset: "0%" }, { color: '#075985', offset: "100%" }] } },
-                        secondary: { gradient: { angle: 135, stops: [{ color: '#075985', offset: "0%" }, { color: '#0369a1', offset: "100%" }] } },
-                        tertiary: { gradient: { angle: 135, stops: [{ color: '#0369a1', offset: "0%" }, { color: '#0ea5e9', offset: "100%" }] } },
+                        primary: { gradient: { angle: 135, stops: [{ color: '#0c4a6e', position: 0 }, { color: '#075985', position: 100 }] } },
+                        secondary: { gradient: { angle: 135, stops: [{ color: '#075985', position: 0 }, { color: '#0369a1', position: 100 }] } },
+                        tertiary: { gradient: { angle: 135, stops: [{ color: '#0369a1', position: 0 }, { color: '#0ea5e9', position: 100 }] } },
                         quaternary: { solid: '#0ea5e9' },
                         borderWidth: '2',
                         borderColor: '#0284c7',
@@ -212,7 +212,7 @@ export async function seed(knex: Knex): Promise<void> {
                 },
                 controls: {
                     light: { buttonBackground: { solid: '#0ea5e9' }, buttonTextColor: '#ffffff', buttonBorderColor: '#0284c7', buttonBorderWidth: '2', buttonBorderRadius: '8', linkColor: '#0369a1', linkUnderlineStyle: 'underline' },
-                    dark: { buttonBackground: { gradient: { angle: 135, stops: [{ color: '#0369a1', offset: "0%" }, { color: '#0ea5e9', offset: "100%" }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#0284c7', buttonBorderWidth: '0', buttonBorderRadius: '8', linkColor: '#38bdf8', linkUnderlineStyle: 'underline' }
+                    dark: { buttonBackground: { gradient: { angle: 135, stops: [{ color: '#0369a1', position: 0 }, { color: '#0ea5e9', position: 100 }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#0284c7', buttonBorderWidth: '0', buttonBorderRadius: '8', linkColor: '#38bdf8', linkUnderlineStyle: 'underline' }
                 }
             },
             created: new Date(),
@@ -235,9 +235,9 @@ export async function seed(knex: Knex): Promise<void> {
                 },
                 bloom: {
                     light: {
-                        primary: { gradient: { angle: 45, stops: [{ color: '#f97316', offset: "0%" }, { color: '#fb923c', offset: "50%" }, { color: '#fbbf24', offset: "100%" }] } },
-                        secondary: { gradient: { angle: 135, stops: [{ color: '#fb923c', offset: "0%" }, { color: '#fbbf24', offset: "100%" }] } },
-                        tertiary: { gradient: { angle: 225, stops: [{ color: '#fbbf24', offset: "0%" }, { color: '#fcd34d', offset: "100%" }] } },
+                        primary: { gradient: { angle: 45, stops: [{ color: '#f97316', position: 0 }, { color: '#fb923c', position: 50 }, { color: '#fbbf24', position: 100 }] } },
+                        secondary: { gradient: { angle: 135, stops: [{ color: '#fb923c', position: 0 }, { color: '#fbbf24', position: 100 }] } },
+                        tertiary: { gradient: { angle: 225, stops: [{ color: '#fbbf24', position: 0 }, { color: '#fcd34d', position: 100 }] } },
                         quaternary: { solid: '#fcd34d' },
                         borderWidth: '0',
                         shadowEnabled: true,
@@ -248,7 +248,7 @@ export async function seed(knex: Knex): Promise<void> {
                         shadowOpacity: '0.2'
                     },
                     dark: {
-                        primary: { gradient: { angle: 45, stops: [{ color: '#c2410c', offset: "0%" }, { color: '#ea580c', offset: "100%" }] } },
+                        primary: { gradient: { angle: 45, stops: [{ color: '#c2410c', position: 0 }, { color: '#ea580c', position: 100 }] } },
                         secondary: { solid: '#ea580c' },
                         tertiary: { solid: '#f97316' },
                         quaternary: { solid: '#fb923c' },
@@ -261,7 +261,7 @@ export async function seed(knex: Knex): Promise<void> {
                     dark: { backgroundColor: '#1c0f05', panelColor: '#2d1a0a', textColor: '#fef3c7', borderColor: '#78350f', borderWidth: '1', borderRadius: '16', borderStyle: 'solid', font: 'serif' }
                 },
                 controls: {
-                    light: { buttonBackground: { gradient: { angle: 135, stops: [{ color: '#f97316', offset: "0%" }, { color: '#fbbf24', offset: "100%" }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#ea580c', buttonBorderWidth: '0', buttonBorderRadius: '24', linkColor: '#c2410c', linkUnderlineStyle: 'none' },
+                    light: { buttonBackground: { gradient: { angle: 135, stops: [{ color: '#f97316', position: 0 }, { color: '#fbbf24', position: 100 }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#ea580c', buttonBorderWidth: '0', buttonBorderRadius: '24', linkColor: '#c2410c', linkUnderlineStyle: 'none' },
                     dark: { buttonBackground: { solid: '#ea580c' }, buttonTextColor: '#ffffff', buttonBorderColor: '#c2410c', buttonBorderWidth: '2', buttonBorderRadius: '24', linkColor: '#fb923c', linkUnderlineStyle: 'none' }
                 }
             },

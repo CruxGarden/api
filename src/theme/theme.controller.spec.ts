@@ -22,10 +22,12 @@ describe('ThemeController', () => {
     homeId: 'home-id-123',
     title: 'Test Theme',
     description: 'A test theme',
-    primaryColor: '#000000',
-    secondaryColor: '#111111',
-    tertiaryColor: '#222222',
-    quaternaryColor: '#333333',
+    type: 'nature',
+    kind: 'light',
+    system: false,
+    meta: {
+      palette: { light: { primary: '#4dd9b8' } },
+    },
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -132,10 +134,13 @@ describe('ThemeController', () => {
   describe('create', () => {
     const createDto = {
       title: 'Test Theme',
-      primaryColor: '#000000',
-      secondaryColor: '#111111',
-      tertiaryColor: '#222222',
-      quaternaryColor: '#333333',
+      type: 'nature',
+      kind: 'light',
+      meta: {
+        palette: {
+          light: { primary: '#4dd9b8' },
+        },
+      },
     };
 
     it('should create a theme successfully', async () => {

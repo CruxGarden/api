@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
   InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ThemeService } from './theme.service';
 import { ThemeRepository } from './theme.repository';
@@ -22,16 +23,29 @@ describe('ThemeService', () => {
     home_id: 'home-id-123',
     title: 'Test Theme',
     description: 'A test theme',
-    primary_color: '#000000',
-    secondary_color: '#111111',
-    tertiary_color: '#222222',
-    quaternary_color: '#333333',
-    border_radius: '4px',
-    background_color: '#ffffff',
-    panel_color: '#f5f5f5',
-    text_color: '#000000',
-    font: 'Arial',
-    mode: 'light',
+    type: 'nature',
+    kind: 'light',
+    system: false,
+    meta: {
+      palette: {
+        light: {
+          primary: '#4dd9b8',
+          secondary: '#6de8ca',
+          tertiary: '#3dbfa0',
+          quaternary: '#357d6a',
+        },
+      },
+      bloom: {
+        light: { primary: { solid: '#4dd9b8' } },
+      },
+      content: {
+        light: {
+          backgroundColor: '#ffffff',
+          textColor: '#000000',
+          font: 'sans-serif',
+        },
+      },
+    },
     created: new Date(),
     updated: new Date(),
     deleted: null,
@@ -150,11 +164,14 @@ describe('ThemeService', () => {
     const createDto = {
       title: 'Test Theme',
       description: 'A test theme',
-      primaryColor: '#000000',
-      secondaryColor: '#111111',
-      tertiaryColor: '#222222',
-      quaternaryColor: '#333333',
+      type: 'nature',
+      kind: 'light',
       authorId: 'author-123',
+      meta: {
+        palette: {
+          light: { primary: '#4dd9b8' },
+        },
+      },
     };
 
     it('should create a theme successfully', async () => {
@@ -170,6 +187,7 @@ describe('ThemeService', () => {
         ...createDto,
         id: 'generated-id',
         key: 'generated-key',
+        system: false,
       });
     });
 
@@ -305,7 +323,8 @@ describe('ThemeService', () => {
 
       expect(result.id).toBe(mockThemeRaw.id);
       expect(result.authorId).toBe(mockThemeRaw.author_id);
-      expect(result.primaryColor).toBe(mockThemeRaw.primary_color);
+      expect(result.system).toBe(mockThemeRaw.system);
+      expect(result.meta).toEqual(mockThemeRaw.meta);
     });
   });
 
@@ -315,6 +334,194 @@ describe('ThemeService', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe(mockThemeRaw.id);
+    });
+  });
+
+  describe('meta validation', () => {
+    it('should reject theme without meta', async () => {
+      const invalidDto = {
+        title: 'No Meta Theme',
+        authorId: 'author-123',
+      };
+
+      await expect(service.create(invalidDto as any)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should reject empty meta object', async () => {
+      const invalidDto = {
+        title: 'Empty Meta',
+        meta: {},
+        authorId: 'author-123',
+      };
+
+      await expect(service.create(invalidDto as any)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should accept valid meta with gradients', async () => {
+      const createDtoWithGradient = {
+        title: 'Gradient Theme',
+        meta: {
+          bloom: {
+            light: {
+              primary: {
+                gradient: {
+                  angle: 135,
+                  stops: [
+                    { color: '#4dd9b8', offset: '0%' },
+                    { color: '#3dbfa0', offset: '100%' },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        authorId: 'author-123',
+      };
+
+      repository.create.mockResolvedValue({
+        data: mockThemeRaw,
+        error: null,
+      });
+
+      const result = await service.create(createDtoWithGradient);
+      expect(result.id).toBe('theme-id-123');
+    });
+
+    it('should reject meta with invalid hex color', async () => {
+      const invalidDto = {
+        title: 'Invalid Theme',
+        meta: {
+          palette: {
+            light: { primary: 'not-a-hex' },
+          },
+        },
+        authorId: 'author-123',
+      };
+
+      await expect(service.create(invalidDto)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should reject meta with gradient containing id field', async () => {
+      const invalidDto = {
+        title: 'Invalid Gradient',
+        meta: {
+          bloom: {
+            light: {
+              primary: {
+                gradient: {
+                  id: 'should-not-be-here',
+                  angle: 135,
+                  stops: [
+                    { color: '#4dd9b8', offset: '0%' },
+                    { color: '#3dbfa0', offset: '100%' },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        authorId: 'author-123',
+      };
+
+      await expect(service.create(invalidDto)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should reject meta with invalid gradient stop offset format', async () => {
+      const invalidDto = {
+        title: 'Invalid Offset',
+        meta: {
+          bloom: {
+            light: {
+              primary: {
+                gradient: {
+                  angle: 135,
+                  stops: [
+                    { color: '#4dd9b8', offset: '0' }, // Missing %
+                    { color: '#3dbfa0', offset: '100%' },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        authorId: 'author-123',
+      };
+
+      await expect(service.create(invalidDto)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should reject meta with invalid font type', async () => {
+      const invalidDto = {
+        title: 'Invalid Font',
+        meta: {
+          content: {
+            light: { font: 'comic-sans' }, // Not in enum
+          },
+        },
+        authorId: 'author-123',
+      };
+
+      await expect(service.create(invalidDto)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should accept meta with all valid enum values', async () => {
+      const validDto = {
+        title: 'Valid Enums',
+        meta: {
+          content: {
+            light: {
+              font: 'serif' as const,
+              borderStyle: 'dashed' as const,
+            },
+          },
+          controls: {
+            light: {
+              linkUnderlineStyle: 'always' as const,
+              buttonBorderStyle: 'dotted' as const,
+            },
+          },
+        },
+        authorId: 'author-123',
+      };
+
+      repository.create.mockResolvedValue({
+        data: mockThemeRaw,
+        error: null,
+      });
+
+      const result = await service.create(validDto);
+      expect(result.id).toBe('theme-id-123');
+    });
+
+    it('should validate meta on update', async () => {
+      const invalidUpdateDto = {
+        meta: {
+          palette: {
+            light: { primary: 'invalid-color' },
+          },
+        },
+      };
+
+      repository.findBy.mockResolvedValue({
+        data: mockThemeRaw,
+        error: null,
+      });
+
+      await expect(
+        service.update('theme-key', invalidUpdateDto),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

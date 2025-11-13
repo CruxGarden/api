@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { toEntityFields } from '../common/helpers/case-helpers';
@@ -15,6 +16,7 @@ import { ResourceType } from '../common/types/enums';
 import ThemeRaw from './entities/theme-raw.entity';
 import Theme from './entities/theme.entity';
 import Tag from '../tag/entities/tag.entity';
+import { validateThemeMetaSafe } from './schemas/theme-meta.schema';
 
 @Injectable()
 export class ThemeService {
@@ -69,6 +71,15 @@ export class ThemeService {
   async create(createThemeDto: CreateThemeDto): Promise<Theme> {
     createThemeDto.id = this.keyMaster.generateId();
     createThemeDto.key = this.keyMaster.generateKey();
+    createThemeDto.system = false;
+
+    const validation = validateThemeMetaSafe(createThemeDto.meta);
+    if (!validation.success) {
+      throw new BadRequestException({
+        message: 'Invalid theme metadata',
+        errors: validation.error.format(),
+      });
+    }
 
     const created = await this.themeRepository.create(createThemeDto);
     if (created.error)
@@ -80,10 +91,18 @@ export class ThemeService {
   }
 
   async update(themeKey: string, updateDto: UpdateThemeDto): Promise<Theme> {
-    // 1) fetch theme
     const themeToUpdate = await this.findByKey(themeKey);
 
-    // 2) update theme
+    if (updateDto.meta) {
+      const validation = validateThemeMetaSafe(updateDto.meta);
+      if (!validation.success) {
+        throw new BadRequestException({
+          message: 'Invalid theme metadata',
+          errors: validation.error.format(),
+        });
+      }
+    }
+
     const updated = await this.themeRepository.update(
       themeToUpdate.id,
       updateDto,

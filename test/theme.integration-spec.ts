@@ -43,10 +43,19 @@ describe('Theme Integration Tests', () => {
     key: testThemeKey,
     title: 'Ocean Blue',
     description: 'A blue theme',
-    primary_color: '#2563eb',
-    secondary_color: '#3b82f6',
-    tertiary_color: '#60a5fa',
-    quaternary_color: '#93c5fd',
+    type: 'nature',
+    kind: 'light',
+    system: false,
+    meta: {
+      palette: {
+        light: {
+          primary: '#2563eb',
+          secondary: '#3b82f6',
+          tertiary: '#60a5fa',
+          quaternary: '#93c5fd',
+        },
+      },
+    },
     author_id: testAuthorId,
     home_id: 'home-123',
     created: new Date(),
@@ -204,10 +213,18 @@ describe('Theme Integration Tests', () => {
   describe('POST /themes', () => {
     const createThemeDto = {
       title: 'Sunset Orange',
-      primaryColor: '#ff6b35',
-      secondaryColor: '#f7931e',
-      tertiaryColor: '#ffb700',
-      quaternaryColor: '#ffc857',
+      type: 'creative',
+      kind: 'light',
+      meta: {
+        palette: {
+          light: {
+            primary: '#ff6b35',
+            secondary: '#f7931e',
+            tertiary: '#ffb700',
+            quaternary: '#ffc857',
+          },
+        },
+      },
     };
 
     it('should return 201 and create theme (happy path)', async () => {
@@ -216,10 +233,10 @@ describe('Theme Integration Tests', () => {
         id: 'new-theme-id',
         key: 'new-theme-key',
         title: createThemeDto.title,
-        primary_color: createThemeDto.primaryColor,
-        secondary_color: createThemeDto.secondaryColor,
-        tertiary_color: createThemeDto.tertiaryColor,
-        quaternary_color: createThemeDto.quaternaryColor,
+        type: createThemeDto.type,
+        kind: createThemeDto.kind,
+        system: false,
+        meta: createThemeDto.meta,
         author_id: testAuthorId,
         home_id: 'home-123',
         created: new Date(),
@@ -248,19 +265,23 @@ describe('Theme Integration Tests', () => {
       await request(app.getHttpServer())
         .post('/themes')
         .set(authHeader(token))
-        .send({ title: 'Missing colors' })
+        .send({ type: 'nature' }) // Missing required 'title' field
         .expect(400);
     });
 
-    it('should return 400 when invalid hex color', async () => {
+    it('should return 400 when invalid hex color in meta', async () => {
       const token = generateToken(testAccountId);
 
       await request(app.getHttpServer())
         .post('/themes')
         .set(authHeader(token))
         .send({
-          ...createThemeDto,
-          primaryColor: 'not-a-hex-color',
+          title: 'Invalid Theme',
+          meta: {
+            palette: {
+              light: { primary: 'not-a-hex-color' },
+            },
+          },
         })
         .expect(400);
     });
@@ -287,7 +308,11 @@ describe('Theme Integration Tests', () => {
   describe('PATCH /themes/:themeKey', () => {
     const updateThemeDto = {
       title: 'Updated Ocean Blue',
-      primaryColor: '#1e40af',
+      meta: {
+        palette: {
+          light: { primary: '#1e40af' },
+        },
+      },
     };
 
     it('should return 200 and update theme (happy path)', async () => {
@@ -295,7 +320,7 @@ describe('Theme Integration Tests', () => {
       const updatedThemeRaw: ThemeRaw = {
         ...testThemeRaw,
         title: updateThemeDto.title,
-        primary_color: updateThemeDto.primaryColor,
+        meta: { ...testThemeRaw.meta, ...updateThemeDto.meta },
         updated: new Date(),
       };
 

@@ -7,19 +7,8 @@ export default class Theme {
   description?: string;
   type?: string;
   kind?: string;
-  primaryColor: string;
-  secondaryColor: string;
-  tertiaryColor: string;
-  quaternaryColor: string;
-  borderRadius?: string;
-  borderColor?: string;
-  borderWidth?: string;
-  backgroundColor?: string;
-  panelColor?: string;
-  textColor?: string;
-  font?: string;
-  mode?: string;
-  meta?: any;
+  system: boolean; // True for system-provided themes
+  meta?: any; // JSONB field containing all styling data
   created: Date;
   updated: Date;
   deleted?: Date;
@@ -30,7 +19,7 @@ export default class Theme {
 
   toJSON() {
     /* eslint-disable @typescript-eslint/no-unused-vars */
-    const { deleted, ...rest } = this;
+    const { deleted, system, ...rest } = this;
     return rest;
   }
 }

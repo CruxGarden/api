@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsHexColor, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { ThemeMetaDto } from './theme-meta.dto';
 
 export class CreateThemeDto {
   @ApiPropertyOptional({
@@ -55,99 +62,35 @@ export class CreateThemeDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({
-    description: 'Primary color in hex format',
-    example: '#2563eb',
-  })
-  @IsNotEmpty()
-  @IsHexColor()
-  primaryColor: string;
-
-  @ApiProperty({
-    description: 'Secondary color in hex format',
-    example: '#3b82f6',
-  })
-  @IsNotEmpty()
-  @IsHexColor()
-  secondaryColor: string;
-
-  @ApiProperty({
-    description: 'Tertiary color in hex format',
-    example: '#60a5fa',
-  })
-  @IsNotEmpty()
-  @IsHexColor()
-  tertiaryColor: string;
-
-  @ApiProperty({
-    description: 'Quaternary color in hex format',
-    example: '#93c5fd',
-  })
-  @IsNotEmpty()
-  @IsHexColor()
-  quaternaryColor: string;
-
   @ApiPropertyOptional({
-    description: 'Border radius value',
-    example: '8px',
+    description: 'Theme type/category',
+    example: 'nature',
   })
   @IsOptional()
   @IsString()
-  borderRadius?: string;
+  type?: string;
 
   @ApiPropertyOptional({
-    description: 'Border color',
-    example: '#cccccc',
-  })
-  @IsOptional()
-  @IsString()
-  borderColor?: string;
-
-  @ApiPropertyOptional({
-    description: 'Border width',
-    example: '1px',
-  })
-  @IsOptional()
-  @IsString()
-  borderWidth?: string;
-
-  @ApiPropertyOptional({
-    description: 'Background color',
-    example: '#ffffff',
-  })
-  @IsOptional()
-  @IsString()
-  backgroundColor?: string;
-
-  @ApiPropertyOptional({
-    description: 'Panel color',
-    example: '#f5f5f5',
-  })
-  @IsOptional()
-  @IsString()
-  panelColor?: string;
-
-  @ApiPropertyOptional({
-    description: 'Text color',
-    example: '#000000',
-  })
-  @IsOptional()
-  @IsString()
-  textColor?: string;
-
-  @ApiPropertyOptional({
-    description: 'Font family',
-    example: 'Inter',
-  })
-  @IsOptional()
-  @IsString()
-  font?: string;
-
-  @ApiPropertyOptional({
-    description: 'Theme mode',
+    description: 'Theme kind (light, dark, auto)',
     example: 'light',
   })
   @IsOptional()
   @IsString()
-  mode?: string;
+  kind?: string;
+
+  @ApiPropertyOptional({
+    description: 'System-provided theme (read-only, set internally)',
+    example: false,
+  })
+  @IsOptional()
+  system?: boolean;
+
+  @ApiProperty({
+    description: 'Theme metadata containing all styling configuration',
+    type: ThemeMetaDto,
+  })
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => ThemeMetaDto)
+  meta: ThemeMetaDto;
 }

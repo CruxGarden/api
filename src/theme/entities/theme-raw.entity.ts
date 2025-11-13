@@ -7,17 +7,8 @@ export default interface ThemeRaw {
   description?: string;
   type?: string;
   kind?: string;
-  primary_color: string;
-  secondary_color: string;
-  tertiary_color: string;
-  quaternary_color: string;
-  border_radius?: string;
-  background_color?: string;
-  panel_color?: string;
-  text_color?: string;
-  font?: string;
-  mode?: string;
-  meta?: any;
+  system: boolean; // True for system-provided themes
+  meta?: any; // JSONB field containing all styling data
   created: Date;
   updated: Date;
   deleted: Date | null;
