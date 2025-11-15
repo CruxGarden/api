@@ -192,9 +192,9 @@ export async function seed(knex: Knex): Promise<void> {
                         shadowOpacity: '0.3'
                     },
                     dark: {
-                        primary: { gradient: { angle: 135, stops: [{ color: '#0c4a6e', offset: "0%" }, { color: '#075985', offset: "100%" }] } },
-                        secondary: { gradient: { angle: 135, stops: [{ color: '#075985', offset: "0%" }, { color: '#0369a1', offset: "100%" }] } },
-                        tertiary: { gradient: { angle: 135, stops: [{ color: '#0369a1', offset: "0%" }, { color: '#0ea5e9', offset: "100%" }] } },
+                        primary: { gradient: { id: 'ocean-depths-primary', angle: 135, stops: [{ color: '#0c4a6e', offset: "0%" }, { color: '#075985', offset: "100%" }] } },
+                        secondary: { gradient: { id: 'ocean-depths-secondary', angle: 135, stops: [{ color: '#075985', offset: "0%" }, { color: '#0369a1', offset: "100%" }] } },
+                        tertiary: { gradient: { id: 'ocean-depths-tertiary', angle: 135, stops: [{ color: '#0369a1', offset: "0%" }, { color: '#0ea5e9', offset: "100%" }] } },
                         quaternary: { solid: '#0ea5e9' },
                         borderWidth: '2',
                         borderColor: '#0284c7',
@@ -212,7 +212,7 @@ export async function seed(knex: Knex): Promise<void> {
                 },
                 controls: {
                     light: { buttonBackground: { solid: '#0ea5e9' }, buttonTextColor: '#ffffff', buttonBorderColor: '#0284c7', buttonBorderWidth: '2', buttonBorderRadius: '8', linkColor: '#0369a1', linkUnderlineStyle: 'underline' },
-                    dark: { buttonBackground: { gradient: { angle: 135, stops: [{ color: '#0369a1', offset: "0%" }, { color: '#0ea5e9', offset: "100%" }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#0284c7', buttonBorderWidth: '0', buttonBorderRadius: '8', linkColor: '#38bdf8', linkUnderlineStyle: 'underline' }
+                    dark: { buttonBackground: { gradient: { id: 'ocean-depths-button', angle: 135, stops: [{ color: '#0369a1', offset: "0%" }, { color: '#0ea5e9', offset: "100%" }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#0284c7', buttonBorderWidth: '0', buttonBorderRadius: '8', linkColor: '#38bdf8', linkUnderlineStyle: 'underline' }
                 }
             },
             created: new Date(),
@@ -235,9 +235,9 @@ export async function seed(knex: Knex): Promise<void> {
                 },
                 bloom: {
                     light: {
-                        primary: { gradient: { angle: 45, stops: [{ color: '#f97316', offset: "0%" }, { color: '#fb923c', offset: "50%" }, { color: '#fbbf24', offset: "100%" }] } },
-                        secondary: { gradient: { angle: 135, stops: [{ color: '#fb923c', offset: "0%" }, { color: '#fbbf24', offset: "100%" }] } },
-                        tertiary: { gradient: { angle: 225, stops: [{ color: '#fbbf24', offset: "0%" }, { color: '#fcd34d', offset: "100%" }] } },
+                        primary: { gradient: { id: 'sunset-canvas-primary-light', angle: 45, stops: [{ color: '#f97316', offset: "0%" }, { color: '#fb923c', offset: "50%" }, { color: '#fbbf24', offset: "100%" }] } },
+                        secondary: { gradient: { id: 'sunset-canvas-secondary-light', angle: 135, stops: [{ color: '#fb923c', offset: "0%" }, { color: '#fbbf24', offset: "100%" }] } },
+                        tertiary: { gradient: { id: 'sunset-canvas-tertiary-light', angle: 225, stops: [{ color: '#fbbf24', offset: "0%" }, { color: '#fcd34d', offset: "100%" }] } },
                         quaternary: { solid: '#fcd34d' },
                         borderWidth: '0',
                         shadowEnabled: true,
@@ -248,7 +248,7 @@ export async function seed(knex: Knex): Promise<void> {
                         shadowOpacity: '0.2'
                     },
                     dark: {
-                        primary: { gradient: { angle: 45, stops: [{ color: '#c2410c', offset: "0%" }, { color: '#ea580c', offset: "100%" }] } },
+                        primary: { gradient: { id: 'sunset-canvas-primary-dark', angle: 45, stops: [{ color: '#c2410c', offset: "0%" }, { color: '#ea580c', offset: "100%" }] } },
                         secondary: { solid: '#ea580c' },
                         tertiary: { solid: '#f97316' },
                         quaternary: { solid: '#fb923c' },
@@ -261,7 +261,7 @@ export async function seed(knex: Knex): Promise<void> {
                     dark: { backgroundColor: '#1c0f05', panelColor: '#2d1a0a', textColor: '#fef3c7', borderColor: '#78350f', borderWidth: '1', borderRadius: '16', borderStyle: 'solid', font: 'serif' }
                 },
                 controls: {
-                    light: { buttonBackground: { gradient: { angle: 135, stops: [{ color: '#f97316', offset: "0%" }, { color: '#fbbf24', offset: "100%" }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#ea580c', buttonBorderWidth: '0', buttonBorderRadius: '24', linkColor: '#c2410c', linkUnderlineStyle: 'none' },
+                    light: { buttonBackground: { gradient: { id: 'sunset-canvas-button-light', angle: 135, stops: [{ color: '#f97316', offset: "0%" }, { color: '#fbbf24', offset: "100%" }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#ea580c', buttonBorderWidth: '0', buttonBorderRadius: '24', linkColor: '#c2410c', linkUnderlineStyle: 'none' },
                     dark: { buttonBackground: { solid: '#ea580c' }, buttonTextColor: '#ffffff', buttonBorderColor: '#c2410c', buttonBorderWidth: '2', buttonBorderRadius: '24', linkColor: '#fb923c', linkUnderlineStyle: 'none' }
                 }
             },
@@ -367,6 +367,53 @@ export async function seed(knex: Knex): Promise<void> {
                 controls: {
                     light: { buttonBackground: { solid: '#000000' }, buttonTextColor: '#00ff00', buttonBorderColor: '#000000', buttonBorderWidth: '1', buttonBorderRadius: '0', linkColor: '#0000ff', linkUnderlineStyle: 'always' },
                     dark: { buttonBackground: { solid: '#00ff00' }, buttonTextColor: '#000000', buttonBorderColor: '#00ff00', buttonBorderWidth: '1', buttonBorderRadius: '0', linkColor: '#00ff00', linkUnderlineStyle: 'always' }
+                }
+            },
+            created: new Date(),
+            updated: new Date(),
+        },
+        {
+            id: generateId(),
+            key: generateKey(),
+            author_id: authorId,
+            home_id: primaryHome.id,
+            title: 'Nascent Web',
+            description: 'An unadorned, web 1.0 style',
+            type: 'custom',
+            kind: 'auto',
+            system: true,
+            meta: {
+                palette: {
+                    light: { primary: '#ffffff', secondary: '#ffffff', tertiary: '#ffffff', quaternary: '#ffffff' },
+                    dark: { primary: '#000000', secondary: '#000000', tertiary: '#000000', quaternary: '#000000' }
+                },
+                bloom: {
+                    light: {
+                        primary: { solid: '#ffffff' },
+                        secondary: { solid: '#ffffff' },
+                        tertiary: { solid: '#ffffff' },
+                        quaternary: { solid: '#ffffff' },
+                        borderColor: '#000000',
+                        borderWidth: '20',
+                        shadowEnabled: false
+                    },
+                    dark: {
+                        primary: { solid: '#000000' },
+                        secondary: { solid: '#000000' },
+                        tertiary: { solid: '#000000' },
+                        quaternary: { solid: '#000000' },
+                        borderColor: '#ffffff',
+                        borderWidth: '20',
+                        shadowEnabled: false
+                    }
+                },
+                content: {
+                    light: { backgroundColor: '#ffffff', panelColor: '#ffffff', textColor: '#000000', borderColor: '#000000', borderWidth: '0', borderRadius: '0', borderStyle: 'solid', font: 'sans-serif', selectionColor: '#b3d9ff' },
+                    dark: { backgroundColor: '#000000', panelColor: '#000000', textColor: '#ffffff', borderColor: '#ffffff', borderWidth: '0', borderRadius: '0', borderStyle: 'solid', font: 'sans-serif', selectionColor: '#4a9eff' }
+                },
+                controls: {
+                    light: { buttonBackground: { solid: '#ebeaea' }, buttonTextColor: '#000000', buttonBorderColor: '#8a8a8a', buttonBorderWidth: '2', buttonBorderStyle: 'solid', buttonBorderRadius: '6', linkColor: '#0000ee', linkUnderlineStyle: 'always' },
+                    dark: { buttonBackground: { solid: '#ebeaea' }, buttonTextColor: '#000000', buttonBorderColor: '#8a8a8a', buttonBorderWidth: '2', buttonBorderStyle: 'solid', buttonBorderRadius: '6', linkColor: '#00ffff', linkUnderlineStyle: 'always' }
                 }
             },
             created: new Date(),

@@ -369,6 +369,7 @@ describe('ThemeService', () => {
             light: {
               primary: {
                 gradient: {
+                  id: 'test-gradient-primary',
                   angle: 135,
                   stops: [
                     { color: '#4dd9b8', offset: '0%' },
@@ -407,7 +408,7 @@ describe('ThemeService', () => {
       );
     });
 
-    it('should reject meta with gradient containing id field', async () => {
+    it('should reject meta with gradient missing required id field', async () => {
       const invalidDto = {
         title: 'Invalid Gradient',
         meta: {
@@ -415,7 +416,7 @@ describe('ThemeService', () => {
             light: {
               primary: {
                 gradient: {
-                  id: 'should-not-be-here',
+                  // Missing required 'id' field
                   angle: 135,
                   stops: [
                     { color: '#4dd9b8', offset: '0%' },
@@ -427,7 +428,7 @@ describe('ThemeService', () => {
           },
         },
         authorId: 'author-123',
-      };
+      } as any; // Use 'as any' to bypass TypeScript checking for this intentionally invalid test
 
       await expect(service.create(invalidDto)).rejects.toThrow(
         BadRequestException,
@@ -442,6 +443,7 @@ describe('ThemeService', () => {
             light: {
               primary: {
                 gradient: {
+                  id: 'test-gradient-invalid',
                   angle: 135,
                   stops: [
                     { color: '#4dd9b8', offset: '0' }, // Missing %

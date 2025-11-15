@@ -28,6 +28,13 @@ export class GradientStopDto {
 
 export class GradientDefinitionDto {
   @ApiPropertyOptional({
+    description: 'Unique identifier for the gradient (required for SVG rendering)',
+    example: 'ocean-depths-primary',
+  })
+  @IsString()
+  id: string;
+
+  @ApiPropertyOptional({
     description: 'Gradient angle in degrees',
     example: 135,
   })

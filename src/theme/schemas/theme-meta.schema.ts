@@ -9,6 +9,7 @@ const GradientStopSchema = z.object({
 
 const GradientDefinitionSchema = z
   .object({
+    id: z.string().min(1, 'Gradient ID is required for SVG rendering'),
     angle: z.number().min(0).max(360).optional(),
     stops: z.array(GradientStopSchema).min(2),
   })
