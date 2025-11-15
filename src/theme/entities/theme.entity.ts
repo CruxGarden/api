@@ -19,7 +19,7 @@ export default class Theme {
 
   toJSON() {
     /* eslint-disable @typescript-eslint/no-unused-vars */
-    const { deleted, system, ...rest } = this;
+    const { deleted, ...rest } = this;
     return rest;
   }
 }

@@ -118,6 +118,63 @@ export async function seed(knex: Knex): Promise<void> {
     const themes = [
         {
             id: generateId(),
+            key: 'default', // Fixed key for default theme
+            author_id: authorId,
+            home_id: primaryHome.id,
+            title: 'Default Theme',
+            description: 'Built-in default theme for Crux Garden',
+            type: 'default',
+            kind: 'auto',
+            system: true,
+            meta: {
+                palette: {
+                    light: { primary: '#2a3d2c', secondary: '#426046', tertiary: '#58825e', quaternary: '#73a079' },
+                    dark: { primary: '#2a3d2c', secondary: '#426046', tertiary: '#58825e', quaternary: '#73a079' }
+                },
+                bloom: {
+                    light: {
+                        primary: { solid: '#0a594d' },
+                        secondary: { solid: '#127566' },
+                        tertiary: { solid: '#1a9179' },
+                        quaternary: { solid: '#2eb09a' },
+                        borderColor: '#4dd9b8',
+                        borderWidth: '9',
+                        shadowEnabled: false,
+                        shadowColor: '#000000',
+                        shadowOffsetX: '0',
+                        shadowOffsetY: '0',
+                        shadowBlurRadius: '0',
+                        shadowOpacity: '0'
+                    },
+                    dark: {
+                        primary: { solid: '#02241c' },
+                        secondary: { solid: '#02382b' },
+                        tertiary: { solid: '#044e3d' },
+                        quaternary: { solid: '#047057' },
+                        borderColor: '#4dd9b8',
+                        borderWidth: '9',
+                        shadowEnabled: false,
+                        shadowColor: '#000000',
+                        shadowOffsetX: '0',
+                        shadowOffsetY: '0',
+                        shadowBlurRadius: '0',
+                        shadowOpacity: '0'
+                    }
+                },
+                content: {
+                    light: { backgroundColor: '#f5f7f8', panelColor: '#ffffff', textColor: '#000000', borderColor: '#cccccc', borderWidth: '1', borderRadius: '12', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#b3d9ff' },
+                    dark: { backgroundColor: '#0f1214', panelColor: '#1a1f24', textColor: '#e8eef2', borderColor: '#333333', borderWidth: '1', borderRadius: '12', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#4a9eff' }
+                },
+                controls: {
+                    light: { buttonBackground: { solid: '#4dd9b8' }, buttonTextColor: '#0f1214', buttonBorderColor: '#4dd9b8', buttonBorderWidth: '1', buttonBorderStyle: 'solid', buttonBorderRadius: '6', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#2563eb', linkUnderlineStyle: 'underline' },
+                    dark: { buttonBackground: { solid: '#4dd9b8' }, buttonTextColor: '#0f1214', buttonBorderColor: '#4dd9b8', buttonBorderWidth: '1', buttonBorderStyle: 'solid', buttonBorderRadius: '6', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#60a5fa', linkUnderlineStyle: 'underline' }
+                }
+            },
+            created: new Date(),
+            updated: new Date(),
+        },
+        {
+            id: generateId(),
             key: generateKey(),
             author_id: authorId,
             home_id: primaryHome.id,
@@ -138,7 +195,12 @@ export async function seed(knex: Knex): Promise<void> {
                         tertiary: { solid: '#3dbfa0' },
                         quaternary: { solid: '#357d6a' },
                         borderWidth: '0',
-                        shadowEnabled: false
+                        shadowEnabled: false,
+                        shadowColor: '#000000',
+                        shadowOffsetX: '0',
+                        shadowOffsetY: '0',
+                        shadowBlurRadius: '0',
+                        shadowOpacity: '0'
                     },
                     dark: {
                         primary: { solid: '#4dd9b8' },
@@ -146,16 +208,21 @@ export async function seed(knex: Knex): Promise<void> {
                         tertiary: { solid: '#3dbfa0' },
                         quaternary: { solid: '#357d6a' },
                         borderWidth: '0',
-                        shadowEnabled: false
+                        shadowEnabled: false,
+                        shadowColor: '#000000',
+                        shadowOffsetX: '0',
+                        shadowOffsetY: '0',
+                        shadowBlurRadius: '0',
+                        shadowOpacity: '0'
                     }
                 },
                 content: {
-                    light: { backgroundColor: '#ffffff', panelColor: '#f8f9fa', textColor: '#1a1d21', borderColor: '#e9ecef', borderWidth: '1', borderRadius: '8', borderStyle: 'solid', font: 'sans-serif' },
-                    dark: { backgroundColor: '#0f1214', panelColor: '#1a1d21', textColor: '#e8eef2', borderColor: '#2f3338', borderWidth: '1', borderRadius: '8', borderStyle: 'solid', font: 'sans-serif' }
+                    light: { backgroundColor: '#ffffff', panelColor: '#f8f9fa', textColor: '#1a1d21', borderColor: '#e9ecef', borderWidth: '1', borderRadius: '8', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#b3d9ff' },
+                    dark: { backgroundColor: '#0f1214', panelColor: '#1a1d21', textColor: '#e8eef2', borderColor: '#2f3338', borderWidth: '1', borderRadius: '8', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#4a9eff' }
                 },
                 controls: {
-                    light: { buttonBackground: { solid: '#4dd9b8' }, buttonTextColor: '#0f1214', buttonBorderColor: '#4dd9b8', buttonBorderWidth: '0', buttonBorderRadius: '6', linkColor: '#2563eb', linkUnderlineStyle: 'underline' },
-                    dark: { buttonBackground: { solid: '#4dd9b8' }, buttonTextColor: '#0f1214', buttonBorderColor: '#4dd9b8', buttonBorderWidth: '0', buttonBorderRadius: '6', linkColor: '#60a5fa', linkUnderlineStyle: 'underline' }
+                    light: { buttonBackground: { solid: '#4dd9b8' }, buttonTextColor: '#0f1214', buttonBorderColor: '#4dd9b8', buttonBorderWidth: '0', buttonBorderStyle: 'solid', buttonBorderRadius: '6', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#2563eb', linkUnderlineStyle: 'underline' },
+                    dark: { buttonBackground: { solid: '#4dd9b8' }, buttonTextColor: '#0f1214', buttonBorderColor: '#4dd9b8', buttonBorderWidth: '0', buttonBorderStyle: 'solid', buttonBorderRadius: '6', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#60a5fa', linkUnderlineStyle: 'underline' }
                 }
             },
             created: new Date(),
@@ -207,12 +274,12 @@ export async function seed(knex: Knex): Promise<void> {
                     }
                 },
                 content: {
-                    light: { backgroundColor: '#f0f9ff', panelColor: '#e0f2fe', textColor: '#0c4a6e', borderColor: '#bae6fd', borderWidth: '1', borderRadius: '12', borderStyle: 'solid', font: 'sans-serif' },
-                    dark: { backgroundColor: '#020617', panelColor: '#0c1929', textColor: '#e0f2fe', borderColor: '#1e3a5f', borderWidth: '1', borderRadius: '12', borderStyle: 'solid', font: 'sans-serif' }
+                    light: { backgroundColor: '#f0f9ff', panelColor: '#e0f2fe', textColor: '#0c4a6e', borderColor: '#bae6fd', borderWidth: '1', borderRadius: '12', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#bae6fd' },
+                    dark: { backgroundColor: '#020617', panelColor: '#0c1929', textColor: '#e0f2fe', borderColor: '#1e3a5f', borderWidth: '1', borderRadius: '12', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#38bdf8' }
                 },
                 controls: {
-                    light: { buttonBackground: { solid: '#0ea5e9' }, buttonTextColor: '#ffffff', buttonBorderColor: '#0284c7', buttonBorderWidth: '2', buttonBorderRadius: '8', linkColor: '#0369a1', linkUnderlineStyle: 'underline' },
-                    dark: { buttonBackground: { gradient: { id: 'ocean-depths-button', angle: 135, stops: [{ color: '#0369a1', offset: "0%" }, { color: '#0ea5e9', offset: "100%" }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#0284c7', buttonBorderWidth: '0', buttonBorderRadius: '8', linkColor: '#38bdf8', linkUnderlineStyle: 'underline' }
+                    light: { buttonBackground: { solid: '#0ea5e9' }, buttonTextColor: '#ffffff', buttonBorderColor: '#0284c7', buttonBorderWidth: '2', buttonBorderStyle: 'solid', buttonBorderRadius: '8', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#0369a1', linkUnderlineStyle: 'underline' },
+                    dark: { buttonBackground: { gradient: { id: 'ocean-depths-button', angle: 135, stops: [{ color: '#0369a1', offset: "0%" }, { color: '#0ea5e9', offset: "100%" }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#0284c7', buttonBorderWidth: '0', buttonBorderStyle: 'solid', buttonBorderRadius: '8', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#38bdf8', linkUnderlineStyle: 'underline' }
                 }
             },
             created: new Date(),
@@ -257,12 +324,12 @@ export async function seed(knex: Knex): Promise<void> {
                     }
                 },
                 content: {
-                    light: { backgroundColor: '#fffbeb', panelColor: '#fef3c7', textColor: '#78350f', borderColor: '#fde68a', borderWidth: '1', borderRadius: '16', borderStyle: 'solid', font: 'serif' },
-                    dark: { backgroundColor: '#1c0f05', panelColor: '#2d1a0a', textColor: '#fef3c7', borderColor: '#78350f', borderWidth: '1', borderRadius: '16', borderStyle: 'solid', font: 'serif' }
+                    light: { backgroundColor: '#fffbeb', panelColor: '#fef3c7', textColor: '#78350f', borderColor: '#fde68a', borderWidth: '1', borderRadius: '16', borderStyle: 'solid', font: 'serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#fde68a' },
+                    dark: { backgroundColor: '#1c0f05', panelColor: '#2d1a0a', textColor: '#fef3c7', borderColor: '#78350f', borderWidth: '1', borderRadius: '16', borderStyle: 'solid', font: 'serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#fb923c' }
                 },
                 controls: {
-                    light: { buttonBackground: { gradient: { id: 'sunset-canvas-button-light', angle: 135, stops: [{ color: '#f97316', offset: "0%" }, { color: '#fbbf24', offset: "100%" }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#ea580c', buttonBorderWidth: '0', buttonBorderRadius: '24', linkColor: '#c2410c', linkUnderlineStyle: 'none' },
-                    dark: { buttonBackground: { solid: '#ea580c' }, buttonTextColor: '#ffffff', buttonBorderColor: '#c2410c', buttonBorderWidth: '2', buttonBorderRadius: '24', linkColor: '#fb923c', linkUnderlineStyle: 'none' }
+                    light: { buttonBackground: { gradient: { id: 'sunset-canvas-button-light', angle: 135, stops: [{ color: '#f97316', offset: "0%" }, { color: '#fbbf24', offset: "100%" }] } }, buttonTextColor: '#ffffff', buttonBorderColor: '#ea580c', buttonBorderWidth: '0', buttonBorderStyle: 'solid', buttonBorderRadius: '24', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#c2410c', linkUnderlineStyle: 'none' },
+                    dark: { buttonBackground: { solid: '#ea580c' }, buttonTextColor: '#ffffff', buttonBorderColor: '#c2410c', buttonBorderWidth: '2', buttonBorderStyle: 'solid', buttonBorderRadius: '24', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#fb923c', linkUnderlineStyle: 'none' }
                 }
             },
             created: new Date(),
@@ -309,12 +376,12 @@ export async function seed(knex: Knex): Promise<void> {
                     }
                 },
                 content: {
-                    light: { backgroundColor: '#f7fee7', panelColor: '#ecfccb', textColor: '#14532d', borderColor: '#d9f99d', borderWidth: '1', borderRadius: '8', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: true, panelShadowColor: '#22c55e', panelShadowOffsetX: '0', panelShadowOffsetY: '2', panelShadowBlurRadius: '4', panelShadowOpacity: '0.05' },
-                    dark: { backgroundColor: '#0a1f12', panelColor: '#14291a', textColor: '#dcfce7', borderColor: '#166534', borderWidth: '1', borderRadius: '8', borderStyle: 'solid', font: 'sans-serif' }
+                    light: { backgroundColor: '#f7fee7', panelColor: '#ecfccb', textColor: '#14532d', borderColor: '#d9f99d', borderWidth: '1', borderRadius: '8', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: true, panelShadowColor: '#22c55e', panelShadowOffsetX: '0', panelShadowOffsetY: '2', panelShadowBlurRadius: '4', panelShadowOpacity: '0.05', selectionColor: '#d9f99d' },
+                    dark: { backgroundColor: '#0a1f12', panelColor: '#14291a', textColor: '#dcfce7', borderColor: '#166534', borderWidth: '1', borderRadius: '8', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#4ade80' }
                 },
                 controls: {
-                    light: { buttonBackground: { solid: '#22c55e' }, buttonTextColor: '#ffffff', buttonBorderColor: '#16a34a', buttonBorderWidth: '0', buttonBorderRadius: '6', linkColor: '#15803d', linkUnderlineStyle: 'underline' },
-                    dark: { buttonBackground: { solid: '#22c55e' }, buttonTextColor: '#052e16', buttonBorderColor: '#16a34a', buttonBorderWidth: '0', buttonBorderRadius: '6', linkColor: '#86efac', linkUnderlineStyle: 'underline' }
+                    light: { buttonBackground: { solid: '#22c55e' }, buttonTextColor: '#ffffff', buttonBorderColor: '#16a34a', buttonBorderWidth: '0', buttonBorderStyle: 'solid', buttonBorderRadius: '6', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#15803d', linkUnderlineStyle: 'underline' },
+                    dark: { buttonBackground: { solid: '#22c55e' }, buttonTextColor: '#052e16', buttonBorderColor: '#16a34a', buttonBorderWidth: '0', buttonBorderStyle: 'solid', buttonBorderRadius: '6', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#86efac', linkUnderlineStyle: 'underline' }
                 }
             },
             created: new Date(),
@@ -361,12 +428,12 @@ export async function seed(knex: Knex): Promise<void> {
                     }
                 },
                 content: {
-                    light: { backgroundColor: '#f5f5f5', panelColor: '#ffffff', textColor: '#000000', borderColor: '#333333', borderWidth: '1', borderRadius: '0', borderStyle: 'solid', font: 'monospace' },
-                    dark: { backgroundColor: '#000000', panelColor: '#0d0d0d', textColor: '#00ff00', borderColor: '#00ff00', borderWidth: '1', borderRadius: '0', borderStyle: 'solid', font: 'monospace' }
+                    light: { backgroundColor: '#f5f5f5', panelColor: '#ffffff', textColor: '#000000', borderColor: '#333333', borderWidth: '1', borderRadius: '0', borderStyle: 'solid', font: 'monospace', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#cccccc' },
+                    dark: { backgroundColor: '#000000', panelColor: '#0d0d0d', textColor: '#00ff00', borderColor: '#00ff00', borderWidth: '1', borderRadius: '0', borderStyle: 'solid', font: 'monospace', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#006600' }
                 },
                 controls: {
-                    light: { buttonBackground: { solid: '#000000' }, buttonTextColor: '#00ff00', buttonBorderColor: '#000000', buttonBorderWidth: '1', buttonBorderRadius: '0', linkColor: '#0000ff', linkUnderlineStyle: 'always' },
-                    dark: { buttonBackground: { solid: '#00ff00' }, buttonTextColor: '#000000', buttonBorderColor: '#00ff00', buttonBorderWidth: '1', buttonBorderRadius: '0', linkColor: '#00ff00', linkUnderlineStyle: 'always' }
+                    light: { buttonBackground: { solid: '#000000' }, buttonTextColor: '#00ff00', buttonBorderColor: '#000000', buttonBorderWidth: '1', buttonBorderStyle: 'solid', buttonBorderRadius: '0', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#0000ff', linkUnderlineStyle: 'always' },
+                    dark: { buttonBackground: { solid: '#00ff00' }, buttonTextColor: '#000000', buttonBorderColor: '#00ff00', buttonBorderWidth: '1', buttonBorderStyle: 'solid', buttonBorderRadius: '0', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#00ff00', linkUnderlineStyle: 'always' }
                 }
             },
             created: new Date(),
@@ -395,7 +462,12 @@ export async function seed(knex: Knex): Promise<void> {
                         quaternary: { solid: '#ffffff' },
                         borderColor: '#000000',
                         borderWidth: '20',
-                        shadowEnabled: false
+                        shadowEnabled: false,
+                        shadowColor: '#000000',
+                        shadowOffsetX: '0',
+                        shadowOffsetY: '0',
+                        shadowBlurRadius: '0',
+                        shadowOpacity: '0'
                     },
                     dark: {
                         primary: { solid: '#000000' },
@@ -404,16 +476,21 @@ export async function seed(knex: Knex): Promise<void> {
                         quaternary: { solid: '#000000' },
                         borderColor: '#ffffff',
                         borderWidth: '20',
-                        shadowEnabled: false
+                        shadowEnabled: false,
+                        shadowColor: '#000000',
+                        shadowOffsetX: '0',
+                        shadowOffsetY: '0',
+                        shadowBlurRadius: '0',
+                        shadowOpacity: '0'
                     }
                 },
                 content: {
-                    light: { backgroundColor: '#ffffff', panelColor: '#ffffff', textColor: '#000000', borderColor: '#000000', borderWidth: '0', borderRadius: '0', borderStyle: 'solid', font: 'sans-serif', selectionColor: '#b3d9ff' },
-                    dark: { backgroundColor: '#000000', panelColor: '#000000', textColor: '#ffffff', borderColor: '#ffffff', borderWidth: '0', borderRadius: '0', borderStyle: 'solid', font: 'sans-serif', selectionColor: '#4a9eff' }
+                    light: { backgroundColor: '#ffffff', panelColor: '#ffffff', textColor: '#000000', borderColor: '#000000', borderWidth: '0', borderRadius: '0', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#b3d9ff' },
+                    dark: { backgroundColor: '#000000', panelColor: '#000000', textColor: '#ffffff', borderColor: '#ffffff', borderWidth: '0', borderRadius: '0', borderStyle: 'solid', font: 'sans-serif', panelShadowEnabled: false, panelShadowColor: '#000000', panelShadowOffsetX: '0', panelShadowOffsetY: '0', panelShadowBlurRadius: '0', panelShadowOpacity: '0', selectionColor: '#4a9eff' }
                 },
                 controls: {
-                    light: { buttonBackground: { solid: '#ebeaea' }, buttonTextColor: '#000000', buttonBorderColor: '#8a8a8a', buttonBorderWidth: '2', buttonBorderStyle: 'solid', buttonBorderRadius: '6', linkColor: '#0000ee', linkUnderlineStyle: 'always' },
-                    dark: { buttonBackground: { solid: '#ebeaea' }, buttonTextColor: '#000000', buttonBorderColor: '#8a8a8a', buttonBorderWidth: '2', buttonBorderStyle: 'solid', buttonBorderRadius: '6', linkColor: '#00ffff', linkUnderlineStyle: 'always' }
+                    light: { buttonBackground: { solid: '#ebeaea' }, buttonTextColor: '#000000', buttonBorderColor: '#8a8a8a', buttonBorderWidth: '2', buttonBorderStyle: 'solid', buttonBorderRadius: '6', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#0000ee', linkUnderlineStyle: 'always' },
+                    dark: { buttonBackground: { solid: '#ebeaea' }, buttonTextColor: '#000000', buttonBorderColor: '#8a8a8a', buttonBorderWidth: '2', buttonBorderStyle: 'solid', buttonBorderRadius: '6', buttonShadowEnabled: false, buttonShadowColor: '#000000', buttonShadowOffsetX: '0', buttonShadowOffsetY: '0', buttonShadowBlurRadius: '0', buttonShadowOpacity: '0', linkColor: '#00ffff', linkUnderlineStyle: 'always' }
                 }
             },
             created: new Date(),
