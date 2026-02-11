@@ -9,7 +9,9 @@ import { DimensionRepository } from '../src/dimension/dimension.repository';
 import { TagRepository } from '../src/tag/tag.repository';
 import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
+import { RedisService } from '../src/common/services/redis.service';
 import { MockDbService } from './mocks/db.mock';
+import { MockRedisService } from './mocks/redis.mock';
 import { success } from '../src/common/helpers/repository-helpers';
 import CruxRaw from '../src/crux/entities/crux-raw.entity';
 import AuthorRaw from '../src/author/entities/author-raw.entity';
@@ -112,6 +114,8 @@ describe('Crux Integration Tests', () => {
     })
       .overrideProvider(DbService)
       .useValue(new MockDbService())
+      .overrideProvider(RedisService)
+      .useValue(new MockRedisService())
       .overrideProvider(CruxRepository)
       .useValue(mockCruxRepository)
       .overrideProvider(AuthorRepository)

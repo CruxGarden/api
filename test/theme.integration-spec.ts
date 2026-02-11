@@ -8,7 +8,9 @@ import { AuthorRepository } from '../src/author/author.repository';
 import { TagService } from '../src/tag/tag.service';
 import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
+import { RedisService } from '../src/common/services/redis.service';
 import { MockDbService } from './mocks/db.mock';
+import { MockRedisService } from './mocks/redis.mock';
 import { success } from '../src/common/helpers/repository-helpers';
 import ThemeRaw from '../src/theme/entities/theme-raw.entity';
 import AuthorRaw from '../src/author/entities/author-raw.entity';
@@ -106,6 +108,8 @@ describe('Theme Integration Tests', () => {
     })
       .overrideProvider(DbService)
       .useValue(new MockDbService())
+      .overrideProvider(RedisService)
+      .useValue(new MockRedisService())
       .overrideProvider(ThemeRepository)
       .useValue(mockThemeRepository)
       .overrideProvider(AuthorRepository)

@@ -9,7 +9,9 @@ import { TagService } from '../src/tag/tag.service';
 import { CruxService } from '../src/crux/crux.service';
 import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
+import { RedisService } from '../src/common/services/redis.service';
 import { MockDbService } from './mocks/db.mock';
+import { MockRedisService } from './mocks/redis.mock';
 import { success } from '../src/common/helpers/repository-helpers';
 import PathRaw from '../src/path/entities/path-raw.entity';
 import MarkerRaw from '../src/path/entities/marker-raw.entity';
@@ -109,6 +111,8 @@ describe('Path Integration Tests', () => {
     })
       .overrideProvider(DbService)
       .useValue(new MockDbService())
+      .overrideProvider(RedisService)
+      .useValue(new MockRedisService())
       .overrideProvider(PathRepository)
       .useValue(mockPathRepository)
       .overrideProvider(AuthorRepository)

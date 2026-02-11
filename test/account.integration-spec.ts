@@ -9,7 +9,9 @@ import { CruxRepository } from '../src/crux/crux.repository';
 import { ThemeRepository } from '../src/theme/theme.repository';
 import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
+import { RedisService } from '../src/common/services/redis.service';
 import { MockDbService } from './mocks/db.mock';
+import { MockRedisService } from './mocks/redis.mock';
 import { success } from '../src/common/helpers/repository-helpers';
 import AccountRaw from '../src/account/entities/account-raw.entity';
 
@@ -81,6 +83,8 @@ describe('Account Integration Tests', () => {
     })
       .overrideProvider(DbService)
       .useValue(new MockDbService())
+      .overrideProvider(RedisService)
+      .useValue(new MockRedisService())
       .overrideProvider(AccountRepository)
       .useValue(mockAccountRepository)
       .overrideProvider(AuthorRepository)

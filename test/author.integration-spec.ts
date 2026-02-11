@@ -6,7 +6,9 @@ import { AppModule } from '../src/app.module';
 import { AuthorRepository } from '../src/author/author.repository';
 import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
+import { RedisService } from '../src/common/services/redis.service';
 import { MockDbService } from './mocks/db.mock';
+import { MockRedisService } from './mocks/redis.mock';
 import { success } from '../src/common/helpers/repository-helpers';
 import AuthorRaw from '../src/author/entities/author-raw.entity';
 
@@ -68,6 +70,8 @@ describe('Author Integration Tests', () => {
     })
       .overrideProvider(DbService)
       .useValue(new MockDbService())
+      .overrideProvider(RedisService)
+      .useValue(new MockRedisService())
       .overrideProvider(AuthorRepository)
       .useValue(mockAuthorRepository)
       .overrideProvider(HomeService)

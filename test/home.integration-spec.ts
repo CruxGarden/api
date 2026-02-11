@@ -5,7 +5,9 @@ import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
 import { HomeRepository } from '../src/home/home.repository';
 import { DbService } from '../src/common/services/db.service';
+import { RedisService } from '../src/common/services/redis.service';
 import { MockDbService } from './mocks/db.mock';
+import { MockRedisService } from './mocks/redis.mock';
 import { success } from '../src/common/helpers/repository-helpers';
 import HomeRaw from '../src/home/entities/home-raw.entity';
 
@@ -60,6 +62,8 @@ describe('Home Integration Tests', () => {
     })
       .overrideProvider(DbService)
       .useValue(new MockDbService())
+      .overrideProvider(RedisService)
+      .useValue(new MockRedisService())
       .overrideProvider(HomeRepository)
       .useValue(mockHomeRepository)
       .compile();
