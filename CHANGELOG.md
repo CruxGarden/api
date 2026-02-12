@@ -9,7 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Comprehensive test suite with 84%+ coverage (375 tests)
-- MIT License
 - Contributing guidelines (CONTRIBUTING.md)
 - Code of Conduct (CODE_OF_CONDUCT.md)
 - Security policy (SECURITY.md) with security contact
