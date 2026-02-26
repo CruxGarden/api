@@ -39,10 +39,10 @@ export class AttachmentController {
   }
 
   async canManageAttachment(
-    attachmentKey: string,
+    id: string,
     req: AuthRequest,
   ): Promise<void> {
-    const attachment = await this.attachmentService.findByKey(attachmentKey);
+    const attachment = await this.attachmentService.findById(id);
     const author = await this.authorService.findByAccountId(req.account.id);
     if (!attachment || !author) {
       throw new NotFoundException('Attachment or Author not found');
@@ -54,31 +54,31 @@ export class AttachmentController {
     }
   }
 
-  @Put(':attachmentKey')
+  @Put(':id')
   @AttachmentSwagger.Update()
   @UseInterceptors(FileInterceptor('file'))
   async update(
-    @Param('attachmentKey') attachmentKey: string,
+    @Param('id') id: string,
     @Body() updateDto: UpdateAttachmentDto,
     @UploadedFile() file: Express.Multer.File,
     @Req() req: AuthRequest,
   ): Promise<Attachment> {
-    await this.canManageAttachment(attachmentKey, req);
+    await this.canManageAttachment(id, req);
     return this.attachmentService.updateWithFile(
-      attachmentKey,
+      id,
       updateDto,
       file,
     );
   }
 
-  @Delete(':attachmentKey')
+  @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @AttachmentSwagger.Delete()
   async delete(
-    @Param('attachmentKey') attachmentKey: string,
+    @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<null> {
-    await this.canManageAttachment(attachmentKey, req);
-    return this.attachmentService.deleteWithFile(attachmentKey);
+    await this.canManageAttachment(id, req);
+    return this.attachmentService.deleteWithFile(id);
   }
 }

@@ -52,8 +52,8 @@ export class PathController {
     this.logger = this.loggerService.createChildLogger('PathController');
   }
 
-  async canManagePath(pathKey: string, author: Author): Promise<boolean> {
-    const path = await this.pathService.findByKey(pathKey);
+  async canManagePath(id: string, author: Author): Promise<boolean> {
+    const path = await this.pathService.findById(id);
     if (path.authorId !== author.id) {
       throw new ForbiddenException(
         'You do not have permission to manage this path',
@@ -68,14 +68,6 @@ export class PathController {
       throw new NotFoundException('Author not found for this account');
     }
     return author;
-  }
-
-  async getPathByKey(pathKey: string): Promise<Path> {
-    const path = await this.pathService.findByKey(pathKey);
-    if (!path) {
-      throw new NotFoundException('Path not found');
-    }
-    return path;
   }
 
   @Get()
@@ -93,10 +85,12 @@ export class PathController {
     }) as Promise<Path[]>;
   }
 
-  @Get(':pathKey')
+  @Get(':identifier')
   @PathSwagger.GetByKey()
-  async getByKey(@Param('pathKey') pathKey: string): Promise<Path> {
-    return this.pathService.findByKey(pathKey);
+  async getByIdentifier(
+    @Param('identifier') identifier: string,
+  ): Promise<Path> {
+    return this.pathService.findByIdentifier(identifier);
   }
 
   @Post()
@@ -112,49 +106,49 @@ export class PathController {
     return this.pathService.create(createPathDto);
   }
 
-  @Patch(':pathKey')
+  @Patch(':id')
   @PathSwagger.Update()
   async update(
-    @Param('pathKey') pathKey: string,
+    @Param('id') id: string,
     @Body() updatePathDto: UpdatePathDto,
     @Req() req: AuthRequest,
   ): Promise<Path> {
     const author = await this.getAuthor(req);
-    await this.canManagePath(pathKey, author);
-    return this.pathService.update(pathKey, updatePathDto);
+    await this.canManagePath(id, author);
+    return this.pathService.update(id, updatePathDto);
   }
 
-  @Delete(':pathKey')
+  @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @PathSwagger.Delete()
   async delete(
-    @Param('pathKey') pathKey: string,
+    @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<null> {
     const author = await this.getAuthor(req);
-    await this.canManagePath(pathKey, author);
-    return this.pathService.delete(pathKey);
+    await this.canManagePath(id, author);
+    return this.pathService.delete(id);
   }
 
   /* path markers */
 
-  @Get(':pathKey/markers')
+  @Get(':id/markers')
   @PathSwagger.GetMarkers()
-  async getMarkers(@Param('pathKey') pathKey: string): Promise<Marker[]> {
-    return this.pathService.getMarkers(pathKey);
+  async getMarkers(@Param('id') id: string): Promise<Marker[]> {
+    return this.pathService.getMarkers(id);
   }
 
-  @Put(':pathKey/markers')
+  @Put(':id/markers')
   @PathSwagger.SyncMarkers()
   async syncMarkers(
-    @Param('pathKey') pathKey: string,
+    @Param('id') id: string,
     @Body() syncMarkersDto: SyncMarkersDto,
     @Req() req: AuthRequest,
   ): Promise<Marker[]> {
     const author = await this.getAuthor(req);
-    await this.canManagePath(pathKey, author);
+    await this.canManagePath(id, author);
     return this.pathService.syncMarkers(
-      pathKey,
+      id,
       syncMarkersDto.markers,
       author.id,
     );
@@ -164,25 +158,25 @@ export class PathController {
 
   /* path tags */
 
-  @Get(':pathKey/tags')
+  @Get(':id/tags')
   @PathSwagger.GetTags()
   async getTags(
-    @Param('pathKey') pathKey: string,
+    @Param('id') id: string,
     @Query('filter') filter?: string,
   ): Promise<Tag[]> {
-    return this.pathService.getTags(pathKey, filter);
+    return this.pathService.getTags(id, filter);
   }
 
-  @Put(':pathKey/tags')
+  @Put(':id/tags')
   @PathSwagger.SyncTags()
   async syncTags(
-    @Param('pathKey') pathKey: string,
+    @Param('id') id: string,
     @Body() syncTagsDto: SyncTagsDto,
     @Req() req: AuthRequest,
   ): Promise<Tag[]> {
     const author = await this.getAuthor(req);
-    await this.canManagePath(pathKey, author);
-    return this.pathService.syncTags(pathKey, syncTagsDto.labels, author.id);
+    await this.canManagePath(id, author);
+    return this.pathService.syncTags(id, syncTagsDto.labels, author.id);
   }
 
   /* ~path tags */

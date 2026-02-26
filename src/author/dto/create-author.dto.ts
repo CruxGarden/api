@@ -11,15 +11,6 @@ export class CreateAuthorDto {
   @IsString()
   id?: string;
 
-  @ApiPropertyOptional({
-    description: 'Short key for the author',
-    example: 'gHtdgqnJiE',
-    format: 'string',
-  })
-  @IsOptional()
-  @IsString()
-  key?: string;
-
   @ApiProperty({
     description:
       'Username for the author (alphanumeric, hyphens, underscores only)',

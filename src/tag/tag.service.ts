@@ -60,12 +60,8 @@ export class TagService {
     return this.findBy('id', id);
   }
 
-  async findByKey(key: string): Promise<Tag> {
-    return this.findBy('key', key);
-  }
-
-  async update(tagKey: string, updateDto: UpdateTagDto): Promise<Tag> {
-    const tagToUpdate = await this.findByKey(tagKey);
+  async update(tagId: string, updateDto: UpdateTagDto): Promise<Tag> {
+    const tagToUpdate = await this.findById(tagId);
     const updated = await this.tagRepository.update(tagToUpdate.id, updateDto);
     if (updated.error)
       throw new InternalServerErrorException(
@@ -75,8 +71,8 @@ export class TagService {
     return this.asTag(updated.data);
   }
 
-  async delete(tagKey: string): Promise<null> {
-    const tagToDelete = await this.findByKey(tagKey);
+  async delete(tagId: string): Promise<null> {
+    const tagToDelete = await this.findById(tagId);
     const deleted = await this.tagRepository.delete(tagToDelete.id);
     if (deleted.error) {
       throw new InternalServerErrorException(
@@ -157,7 +153,6 @@ export class TagService {
     if (labelsToAdd.length > 0) {
       const tagsToCreate: Partial<Tag>[] = labelsToAdd.map((label) => ({
         id: this.keyMaster.generateId(),
-        key: this.keyMaster.generateKey(),
         resourceType: resourceType,
         resourceId: resourceId,
         label: label,

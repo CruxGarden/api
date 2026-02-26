@@ -1,15 +1,7 @@
 import { Knex } from "knex";
 import { randomUUID } from 'crypto';
-import ShortUniqueId from 'short-unique-id';
-
-// Inline key generation utilities
-const keyGenerator = new ShortUniqueId({
-    length: 16,
-    dictionary: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'.split(''),
-});
 
 const generateId = () => randomUUID();
-const generateKey = () => keyGenerator.rnd();
 
 export async function seed(knex: Knex): Promise<void> {
     const authorId = 'e7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
@@ -27,7 +19,7 @@ export async function seed(knex: Knex): Promise<void> {
     const systemCruxes = [
         {
             id: generateId(),
-            key: generateKey(),
+
             slug: 'welcome-to-crux-garden',
             title: 'Welcome to Crux Garden',
             description: 'Your journey into interconnected thinking begins here.',
@@ -42,7 +34,7 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: generateId(),
-            key: generateKey(),
+
             slug: 'terms-of-service',
             title: 'Terms of Service',
             description: 'Terms and conditions for using Crux Garden.',

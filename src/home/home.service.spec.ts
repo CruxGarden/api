@@ -14,7 +14,6 @@ describe('HomeService', () => {
 
   const mockHomeRaw = {
     id: 'home-id-123',
-    key: 'home-key-abc',
     name: 'Test Home',
     description: 'A test home',
     primary: true,
@@ -37,7 +36,6 @@ describe('HomeService', () => {
 
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
-      generateKey: jest.fn().mockReturnValue('generated-key'),
     };
 
     const mockLoggerService = {
@@ -95,39 +93,6 @@ describe('HomeService', () => {
     });
   });
 
-  describe('findByKey', () => {
-    it('should return a home when found', async () => {
-      repository.findBy.mockResolvedValue({
-        data: mockHomeRaw,
-        error: null,
-      });
-
-      const result = await service.findByKey('home-key-abc');
-
-      expect(result.key).toBe('home-key-abc');
-      expect(repository.findBy).toHaveBeenCalledWith('key', 'home-key-abc');
-    });
-
-    it('should throw NotFoundException when home not found', async () => {
-      repository.findBy.mockResolvedValue({ data: null, error: null });
-
-      await expect(service.findByKey('invalid-key')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findBy.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(service.findByKey('home-key')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
   describe('create', () => {
     const createDto = {
       name: 'Test Home',
@@ -149,7 +114,6 @@ describe('HomeService', () => {
       expect(repository.create).toHaveBeenCalledWith({
         ...createDto,
         id: 'generated-id',
-        key: 'generated-key',
       });
     });
 
@@ -179,7 +143,7 @@ describe('HomeService', () => {
         error: null,
       });
 
-      const result = await service.update('home-key-abc', updateDto);
+      const result = await service.update('home-id-123', updateDto);
 
       expect(result.name).toBe('Updated Home');
       expect(repository.update).toHaveBeenCalledWith(mockHomeRaw.id, updateDto);
@@ -195,7 +159,7 @@ describe('HomeService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('home-key', updateDto)).rejects.toThrow(
+      await expect(service.update('home-id-123', updateDto)).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -209,7 +173,7 @@ describe('HomeService', () => {
       });
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.delete('home-key-abc');
+      const result = await service.delete('home-id-123');
 
       expect(result).toBeNull();
       expect(repository.delete).toHaveBeenCalledWith(mockHomeRaw.id);
@@ -218,7 +182,7 @@ describe('HomeService', () => {
     it('should throw NotFoundException when home not found', async () => {
       repository.findBy.mockResolvedValue({ data: null, error: null });
 
-      await expect(service.delete('home-key')).rejects.toThrow(
+      await expect(service.delete('home-id-123')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -233,7 +197,7 @@ describe('HomeService', () => {
         error: new Error('Delete failed'),
       });
 
-      await expect(service.delete('home-key')).rejects.toThrow(
+      await expect(service.delete('home-id-123')).rejects.toThrow(
         InternalServerErrorException,
       );
     });

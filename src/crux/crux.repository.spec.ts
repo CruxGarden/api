@@ -9,7 +9,6 @@ describe('CruxRepository', () => {
 
   const mockCrux = {
     id: 'crux-id',
-    key: 'crux-key',
     slug: 'test-crux',
     title: 'Test Crux',
     description: 'A test crux',
@@ -72,17 +71,17 @@ describe('CruxRepository', () => {
     it('should return crux when found', async () => {
       mockQueryBuilder.first.mockResolvedValue(mockCrux);
 
-      const result = await repository.findBy('key', 'crux-key');
+      const result = await repository.findBy('id', 'crux-id');
 
       expect(result.data).toEqual(mockCrux);
       expect(result.error).toBeNull();
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('key', 'crux-key');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 'crux-id');
     });
 
     it('should return error on exception', async () => {
       mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
 
-      const result = await repository.findBy('key', 'crux-key');
+      const result = await repository.findBy('id', 'crux-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
@@ -134,7 +133,6 @@ describe('CruxRepository', () => {
     it('should create crux successfully', async () => {
       const createData = {
         id: 'crux-id',
-        key: 'crux-key',
         slug: 'test-crux',
         title: 'Test Crux',
         data: '{}',
@@ -162,7 +160,6 @@ describe('CruxRepository', () => {
 
       const result = await repository.create({
         id: 'id',
-        key: 'key',
         slug: 'slug',
         data: '{}',
         type: 'note',

@@ -45,8 +45,8 @@ export class AuthorController {
     this.logger = this.loggerService.createChildLogger('AuthorController');
   }
 
-  async canManageAuthor(authorKey: string, req: AuthRequest): Promise<boolean> {
-    const author = await this.authorService.findByKey(authorKey);
+  async canManageAuthor(id: string, req: AuthRequest): Promise<boolean> {
+    const author = await this.authorService.findById(id);
     if (!author) {
       throw new NotFoundException('Author not found');
     }
@@ -113,7 +113,7 @@ export class AuthorController {
     if (hasPrefix) {
       author = await this.authorService.findByUsername(value);
     } else {
-      author = await this.authorService.findByKey(value);
+      author = await this.authorService.findById(value);
     }
 
     if (embed === AuthorEmbed.ROOT && author.rootId) {
@@ -135,28 +135,28 @@ export class AuthorController {
     return this.authorService.create(createAuthorDto);
   }
 
-  @Patch(':authorKey')
+  @Patch(':id')
   @UseGuards(AuthGuard)
   @AuthorSwagger.Update()
   async update(
-    @Param('authorKey') authorKey: string,
+    @Param('id') id: string,
     @Body() updateAuthorDto: UpdateAuthorDto,
     @Req() req: AuthRequest,
   ): Promise<Author> {
-    await this.canManageAuthor(authorKey, req);
-    return this.authorService.update(authorKey, updateAuthorDto);
+    await this.canManageAuthor(id, req);
+    return this.authorService.update(id, updateAuthorDto);
   }
 
-  @Delete(':authorKey')
+  @Delete(':id')
   @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   @AuthorSwagger.Delete()
   async delete(
-    @Param('authorKey') authorKey: string,
+    @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<null> {
-    await this.canManageAuthor(authorKey, req);
-    return this.authorService.delete(authorKey);
+    await this.canManageAuthor(id, req);
+    return this.authorService.delete(id);
   }
 
   @Get(':identifier/cruxes/:slug')
@@ -171,7 +171,7 @@ export class AuthorController {
     );
     const author = hasPrefix
       ? await this.authorService.findByUsername(value)
-      : await this.authorService.findByKey(value);
+      : await this.authorService.findById(value);
 
     // Get crux by author ID and slug
     return this.cruxService.findByAuthorAndSlug(author.id, slug);
@@ -179,14 +179,14 @@ export class AuthorController {
 
   @Get(':identifier/graph')
   async getGraph(@Param('identifier') identifier: string) {
-    // Get author by username or key
+    // Get author by username or id
     const { hasPrefix, value } = stripPathPrefix(
       identifier,
       PathPrefix.USERNAME,
     );
     const author = hasPrefix
       ? await this.authorService.findByUsername(value)
-      : await this.authorService.findByKey(value);
+      : await this.authorService.findById(value);
 
     // Get graph data for this author
     return this.authorService.getGraph(author.id);

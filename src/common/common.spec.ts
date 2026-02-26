@@ -38,54 +38,6 @@ describe('Common Module', () => {
       });
     });
 
-    describe('generateKey', () => {
-      it('should generate key with default length', () => {
-        const key = keyMaster.generateKey();
-
-        expect(key).toBeTruthy();
-        expect(typeof key).toBe('string');
-        expect(key.length).toBe(16); // DEFAULT_KEY_LENGTH
-      });
-
-      it('should generate key with custom length', () => {
-        const key = keyMaster.generateKey(24);
-
-        expect(key).toBeTruthy();
-        expect(key.length).toBe(24);
-      });
-
-      it('should generate short keys', () => {
-        const key = keyMaster.generateKey(5);
-
-        expect(key.length).toBe(5);
-      });
-
-      it('should generate long keys', () => {
-        const key = keyMaster.generateKey(32);
-
-        expect(key.length).toBe(32);
-      });
-
-      it('should generate unique keys', () => {
-        const key1 = keyMaster.generateKey();
-        const key2 = keyMaster.generateKey();
-
-        expect(key1).not.toBe(key2);
-      });
-
-      it('should use URL-safe characters', () => {
-        const key = keyMaster.generateKey(100);
-
-        // Should only contain A-Z, a-z, 0-9, -, _
-        expect(key).toMatch(/^[A-Za-z0-9_-]+$/);
-      });
-
-      it('should handle length of 1', () => {
-        const key = keyMaster.generateKey(1);
-
-        expect(key.length).toBe(1);
-      });
-    });
   });
 
   describe('DbService', () => {

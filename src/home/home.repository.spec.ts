@@ -10,7 +10,6 @@ describe('HomeRepository', () => {
 
   const mockHome = {
     id: 'home-id',
-    key: 'home-key',
     name: 'Test Home',
     description: 'A test home',
     primary: true,
@@ -68,17 +67,17 @@ describe('HomeRepository', () => {
     it('should return home when found', async () => {
       mockQueryBuilder.first.mockResolvedValue(mockHome);
 
-      const result = await repository.findBy('key', 'home-key');
+      const result = await repository.findBy('id', 'home-id');
 
       expect(result.data).toEqual(mockHome);
       expect(result.error).toBeNull();
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('key', 'home-key');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 'home-id');
     });
 
     it('should return error on exception', async () => {
       mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
 
-      const result = await repository.findBy('key', 'home-key');
+      const result = await repository.findBy('id', 'home-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
@@ -100,7 +99,6 @@ describe('HomeRepository', () => {
     it('should create home successfully', async () => {
       const createData = {
         id: 'home-id',
-        key: 'home-key',
         name: 'Test Home',
         description: 'A test home',
         primary: true,
@@ -128,7 +126,6 @@ describe('HomeRepository', () => {
 
       const result = await repository.create({
         id: 'id',
-        key: 'key',
         name: 'Home',
         type: 'personal',
         kind: 'garden',

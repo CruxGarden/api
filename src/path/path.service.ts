@@ -61,8 +61,8 @@ export class PathService {
     return this.asPath(data);
   }
 
-  async findByKey(key: string): Promise<Path> {
-    const { data, error } = await this.pathRepository.findBy('key', key);
+  async findBySlug(slug: string): Promise<Path> {
+    const { data, error } = await this.pathRepository.findBy('slug', slug);
 
     if (error || !data) {
       throw new NotFoundException('Path not found');
@@ -71,9 +71,18 @@ export class PathService {
     return this.asPath(data);
   }
 
+  async findByIdentifier(identifier: string): Promise<Path> {
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidPattern.test(identifier)) {
+      return this.findById(identifier);
+    }
+
+    return this.findBySlug(identifier);
+  }
+
   async create(createPathDto: CreatePathDto): Promise<Path> {
     createPathDto.id = this.keyMaster.generateId();
-    createPathDto.key = this.keyMaster.generateKey();
 
     this.applyDefaults(createPathDto);
 
@@ -86,9 +95,9 @@ export class PathService {
     return this.asPath(created.data);
   }
 
-  async update(pathKey: string, updatePathDto: UpdatePathDto): Promise<Path> {
+  async update(pathId: string, updatePathDto: UpdatePathDto): Promise<Path> {
     // 1) fetch path
-    const pathToUpdate = await this.findByKey(pathKey);
+    const pathToUpdate = await this.findById(pathId);
 
     // 2) update path
     const updated = await this.pathRepository.update(
@@ -104,9 +113,9 @@ export class PathService {
     return this.asPath(updated.data);
   }
 
-  async delete(pathKey: string): Promise<null> {
+  async delete(pathId: string): Promise<null> {
     // 1) fetch path
-    const pathToDelete = await this.findByKey(pathKey);
+    const pathToDelete = await this.findById(pathId);
     if (!pathToDelete) throw new NotFoundException('Path not found');
 
     // 2) delete path
@@ -134,8 +143,8 @@ export class PathService {
     return rows.map((data) => this.asMarker(data));
   }
 
-  async getMarkers(pathKey: string): Promise<Marker[]> {
-    const path = await this.findByKey(pathKey);
+  async getMarkers(pathId: string): Promise<Marker[]> {
+    const path = await this.findById(pathId);
     const { data, error } = await this.pathRepository.findMarkersByPathId(
       path.id,
     );
@@ -150,11 +159,11 @@ export class PathService {
   }
 
   async syncMarkers(
-    pathKey: string,
+    pathId: string,
     markers: MarkerInput[],
     authorId: string,
   ): Promise<Marker[]> {
-    const path = await this.findByKey(pathKey);
+    const path = await this.findById(pathId);
     const home = await this.homeService.primary();
 
     // 1) Delete all existing markers for this path
@@ -170,14 +179,13 @@ export class PathService {
     const createdMarkers: Marker[] = [];
     for (const markerInput of markers) {
       // Verify crux exists
-      const crux = await this.cruxService.findByKey(markerInput.cruxKey);
+      const crux = await this.cruxService.findById(markerInput.cruxId);
       if (!crux) {
-        throw new NotFoundException(`Crux not found: ${markerInput.cruxKey}`);
+        throw new NotFoundException(`Crux not found: ${markerInput.cruxId}`);
       }
 
       const markerDto: CreateMarkerDto = {
         id: this.keyMaster.generateId(),
-        key: this.keyMaster.generateKey(),
         pathId: path.id,
         cruxId: crux.id,
         order: markerInput.order,
@@ -203,18 +211,18 @@ export class PathService {
 
   /* path tags */
 
-  async getTags(pathKey: string, filter?: string): Promise<Tag[]> {
-    return this.tagService.getTags(ResourceType.PATH, pathKey, filter);
+  async getTags(pathId: string, filter?: string): Promise<Tag[]> {
+    return this.tagService.getTags(ResourceType.PATH, pathId, filter);
   }
 
   async syncTags(
-    pathKey: string,
+    pathId: string,
     labels: string[],
     authorId: string,
   ): Promise<Tag[]> {
     return this.tagService.syncTags(
       ResourceType.PATH,
-      pathKey,
+      pathId,
       labels,
       authorId,
     );

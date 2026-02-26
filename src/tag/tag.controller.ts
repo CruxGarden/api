@@ -71,31 +71,31 @@ export class TagController {
     }) as Promise<Tag[]>;
   }
 
-  @Get(':tagKey')
+  @Get(':id')
   @TagSwagger.GetByKey()
-  async getByKey(@Param('tagKey') tagKey: string): Promise<Tag> {
-    return this.tagService.findByKey(tagKey);
+  async getById(@Param('id') id: string): Promise<Tag> {
+    return this.tagService.findById(id);
   }
 
-  @Patch(':tagKey')
+  @Patch(':id')
   @TagSwagger.UpdateTag()
   async update(
-    @Param('tagKey') tagKey: string,
+    @Param('id') id: string,
     @Body() updateTagDto: UpdateTagDto,
     @Req() req: AuthRequest,
   ): Promise<Tag> {
     await this.canManageTag(req);
-    return this.tagService.update(tagKey, updateTagDto);
+    return this.tagService.update(id, updateTagDto);
   }
 
-  @Delete(':tagKey')
+  @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @TagSwagger.DeleteTag()
   async delete(
-    @Param('tagKey') tagKey: string,
+    @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<null> {
     await this.canManageTag(req);
-    return this.tagService.delete(tagKey);
+    return this.tagService.delete(id);
   }
 }

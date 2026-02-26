@@ -2,7 +2,6 @@ import { ResourceType } from '../../common/types/enums';
 
 export default class Tag {
   id: string;
-  key: string;
   resourceType: ResourceType;
   resourceId: string;
   label: string;

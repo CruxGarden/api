@@ -1,15 +1,7 @@
 import { Knex } from "knex";
 import { randomUUID } from 'crypto';
-import ShortUniqueId from 'short-unique-id';
-
-// Inline key generation utilities
-const keyGenerator = new ShortUniqueId({
-    length: 16,
-    dictionary: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'.split(''),
-});
 
 const generateId = () => randomUUID();
-const generateKey = () => keyGenerator.rnd();
 
 export async function seed(knex: Knex): Promise<void> {
     const accountId = 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
@@ -27,7 +19,6 @@ export async function seed(knex: Knex): Promise<void> {
     if (!existingPrimaryHome) {
         const newHome = {
             id: generateId(),
-            key: generateKey(),
             name: 'Home',
             description: 'The home of this Crux Garden',
             primary: true,
@@ -45,7 +36,6 @@ export async function seed(knex: Knex): Promise<void> {
     // ===== STEP 2: Create Keeper Account =====
     const keeperAccount = {
         id: accountId,
-        key: generateKey(),
         email: 'keeper@crux.garden',
         role: 'keeper',
         home_id: primaryHome.id
@@ -68,7 +58,6 @@ export async function seed(knex: Knex): Promise<void> {
     if (!existingAuthor) {
         const keeperAuthor = {
             id: authorId,
-            key: generateKey(),
             username: 'keeper',
             display_name: 'The Keeper',
             bio: 'The Keeper of the Crux Garden',
@@ -90,7 +79,6 @@ export async function seed(knex: Knex): Promise<void> {
     if (!existingRootCrux) {
         const keeperRootCrux = {
             id: rootCruxId,
-            key: 'aZ7sNeIrmEO2QG_Z',
             slug: 'keeper-root',
             title: 'Welcome to Crux Garden!',
             data: '## What are you thinking today?',
@@ -118,7 +106,6 @@ export async function seed(knex: Knex): Promise<void> {
     const themes = [
         {
             id: generateId(),
-            key: 'default', // Fixed key for default theme
             author_id: authorId,
             home_id: primaryHome.id,
             title: 'Default Theme',
@@ -175,7 +162,7 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: generateId(),
-            key: generateKey(),
+
             author_id: authorId,
             home_id: primaryHome.id,
             title: 'Twilight Garden',
@@ -230,7 +217,7 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: generateId(),
-            key: generateKey(),
+
             author_id: authorId,
             home_id: primaryHome.id,
             title: 'Ocean Depths',
@@ -287,7 +274,7 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: generateId(),
-            key: generateKey(),
+
             author_id: authorId,
             home_id: primaryHome.id,
             title: 'Sunset Canvas',
@@ -337,7 +324,7 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: generateId(),
-            key: generateKey(),
+
             author_id: authorId,
             home_id: primaryHome.id,
             title: 'Forest Whisper',
@@ -389,7 +376,7 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: generateId(),
-            key: generateKey(),
+
             author_id: authorId,
             home_id: primaryHome.id,
             title: 'Monochrome Terminal',
@@ -441,7 +428,7 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: generateId(),
-            key: generateKey(),
+
             author_id: authorId,
             home_id: primaryHome.id,
             title: 'Nascent Web',

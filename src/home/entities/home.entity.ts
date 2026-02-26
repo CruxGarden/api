@@ -1,6 +1,5 @@
 export default class Home {
   id: string;
-  key: string;
   name: string;
   description?: string;
   primary: boolean;

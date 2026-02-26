@@ -1,6 +1,5 @@
 export default class Path {
   id: string;
-  key: string;
   slug: string;
   title?: string;
   description?: string;

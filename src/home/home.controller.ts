@@ -62,10 +62,10 @@ export class HomeController {
     }) as Promise<Home[]>;
   }
 
-  @Get(':homeKey')
+  @Get(':id')
   @HomeSwagger.GetByKey()
-  async getByKey(@Param('homeKey') homeKey: string): Promise<Home> {
-    return this.homeService.findByKey(homeKey);
+  async getById(@Param('id') id: string): Promise<Home> {
+    return this.homeService.findById(id);
   }
 
   @Post()
@@ -78,25 +78,25 @@ export class HomeController {
     return this.homeService.create(createHomeDto);
   }
 
-  @Patch(':homeKey')
+  @Patch(':id')
   @HomeSwagger.Update()
   async update(
-    @Param('homeKey') homeKey: string,
+    @Param('id') id: string,
     @Body() updateHomeDto: UpdateHomeDto,
     @Req() req: AuthRequest,
   ): Promise<Home> {
     this.ensureAdmin(req);
-    return this.homeService.update(homeKey, updateHomeDto);
+    return this.homeService.update(id, updateHomeDto);
   }
 
-  @Delete(':homeKey')
+  @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @HomeSwagger.Delete()
   async delete(
-    @Param('homeKey') homeKey: string,
+    @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<null> {
     this.ensureAdmin(req);
-    return this.homeService.delete(homeKey);
+    return this.homeService.delete(id);
   }
 }

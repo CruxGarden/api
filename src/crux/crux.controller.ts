@@ -54,8 +54,8 @@ export class CruxController {
     private readonly homeService: HomeService,
   ) {}
 
-  async canManageCrux(cruxKey: string, author: Author): Promise<boolean> {
-    const crux = await this.cruxService.findByKey(cruxKey);
+  async canManageCrux(id: string, author: Author): Promise<boolean> {
+    const crux = await this.cruxService.findById(id);
     if (crux.authorId !== author.id) {
       throw new ForbiddenException(
         'You do not have permission to manage this crux',
@@ -72,8 +72,8 @@ export class CruxController {
     return author;
   }
 
-  async getCruxByKey(cruxKey: string): Promise<Crux> {
-    const crux = await this.cruxService.findByKey(cruxKey);
+  async getCruxById(id: string): Promise<Crux> {
+    const crux = await this.cruxService.findById(id);
     if (!crux) {
       throw new NotFoundException('Crux not found');
     }
@@ -116,42 +116,42 @@ export class CruxController {
     return this.cruxService.create(createCruxDto);
   }
 
-  @Patch(':cruxKey')
+  @Patch(':id')
   @CruxSwagger.Update()
   async update(
-    @Param('cruxKey') cruxKey: string,
+    @Param('id') id: string,
     @Body() updateCruxDto: UpdateCruxDto,
     @Req() req: AuthRequest,
   ): Promise<Crux> {
     const author = await this.getAuthor(req);
-    await this.canManageCrux(cruxKey, author);
-    return this.cruxService.update(cruxKey, updateCruxDto);
+    await this.canManageCrux(id, author);
+    return this.cruxService.update(id, updateCruxDto);
   }
 
-  @Delete(':cruxKey')
+  @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @CruxSwagger.Delete()
   async delete(
-    @Param('cruxKey') cruxKey: string,
+    @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<null> {
     const author = await this.getAuthor(req);
-    await this.canManageCrux(cruxKey, author);
-    return this.cruxService.delete(cruxKey);
+    await this.canManageCrux(id, author);
+    return this.cruxService.delete(id);
   }
 
   /* crux dimensions */
 
-  @Get(':cruxKey/dimensions')
+  @Get(':id/dimensions')
   @CruxSwagger.GetDimensions()
   async getDimensions(
     @Req() req: AuthRequest,
     @Res({ passthrough: true }) res: Response,
-    @Param('cruxKey') cruxKey: string,
+    @Param('id') id: string,
     @Query('type') type?: DimensionType,
     @Query('embed') embed?: string,
   ): Promise<Dimension[]> {
-    const sourceCrux = await this.getCruxByKey(cruxKey);
+    const sourceCrux = await this.getCruxById(id);
 
     // Parse embed parameter (default: target only)
     let embedSource = false;
@@ -184,90 +184,90 @@ export class CruxController {
     }) as Promise<Dimension[]>;
   }
 
-  @Post(':cruxKey/dimensions')
+  @Post(':id/dimensions')
   @CruxSwagger.CreateDimension()
   async createDimension(
-    @Param('cruxKey') cruxKey: string,
+    @Param('id') id: string,
     @Body() createDimensionDto: CreateDimensionDto,
     @Req() req: AuthRequest,
   ): Promise<Dimension> {
     const author = await this.getAuthor(req);
     const home = await this.homeService.primary();
-    await this.canManageCrux(cruxKey, author);
+    await this.canManageCrux(id, author);
     createDimensionDto.authorId = author.id;
     createDimensionDto.homeId = home.id;
-    return this.cruxService.createDimension(cruxKey, createDimensionDto);
+    return this.cruxService.createDimension(id, createDimensionDto);
   }
 
   /* ~crux dimensions */
 
   /* crux tags */
 
-  @Get(':cruxKey/tags')
+  @Get(':id/tags')
   @CruxSwagger.GetTags()
   async getTags(
-    @Param('cruxKey') cruxKey: string,
+    @Param('id') id: string,
     @Query('filter') filter?: string,
   ): Promise<Tag[]> {
-    return this.cruxService.getTags(cruxKey, filter);
+    return this.cruxService.getTags(id, filter);
   }
 
-  @Put(':cruxKey/tags')
+  @Put(':id/tags')
   @CruxSwagger.SyncTags()
   async syncTags(
-    @Param('cruxKey') cruxKey: string,
+    @Param('id') id: string,
     @Body() syncTagsDto: SyncTagsDto,
     @Req() req: AuthRequest,
   ): Promise<Tag[]> {
     const author = await this.getAuthor(req);
-    await this.canManageCrux(cruxKey, author);
-    return this.cruxService.syncTags(cruxKey, syncTagsDto.labels, author.id);
+    await this.canManageCrux(id, author);
+    return this.cruxService.syncTags(id, syncTagsDto.labels, author.id);
   }
 
   /* ~crux tags */
 
   /* crux attachments */
 
-  @Get(':cruxKey/attachments')
+  @Get(':id/attachments')
   @CruxSwagger.GetAttachments()
   async getAttachments(
-    @Param('cruxKey') cruxKey: string,
+    @Param('id') id: string,
   ): Promise<Attachment[]> {
-    return this.cruxService.getAttachments(cruxKey);
+    return this.cruxService.getAttachments(id);
   }
 
-  @Post(':cruxKey/attachments')
+  @Post(':id/attachments')
   @CruxSwagger.CreateAttachment()
   @UseInterceptors(FileInterceptor('file'))
   async createAttachment(
-    @Param('cruxKey') cruxKey: string,
+    @Param('id') id: string,
     @Body() uploadDto: UploadAttachmentDto,
     @UploadedFile() file: Express.Multer.File,
     @Req() req: AuthRequest,
   ): Promise<Attachment> {
     const author = await this.getAuthor(req);
-    await this.canManageCrux(cruxKey, author);
+    await this.canManageCrux(id, author);
 
     return this.cruxService.createAttachment(
-      cruxKey,
+      id,
       uploadDto,
       file,
       author.id,
     );
   }
 
-  @Get(':cruxKey/attachments/:attachmentKey/download')
+  @Get(':id/attachments/:attachmentId/download')
   @CruxSwagger.DownloadAttachment()
   @Header('Cache-Control', 'max-age=31536000')
   async downloadAttachment(
-    @Param('cruxKey') cruxKey: string,
-    @Param('attachmentKey') attachmentKey: string,
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    await this.getCruxByKey(cruxKey); // Verify crux exists and apply access control
+    await this.getCruxById(id); // Verify crux exists and apply access control
     const file = await this.cruxService.downloadAttachment(
-      cruxKey,
-      attachmentKey,
+      id,
+      attachmentId,
     );
 
     if (!file) {

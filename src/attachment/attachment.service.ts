@@ -66,19 +66,6 @@ export class AttachmentService {
     return this.asAttachment(attachment);
   }
 
-  async findByKey(key: string): Promise<Attachment> {
-    const { data: attachment, error } = await this.attachmentRepository.findBy(
-      'key',
-      key,
-    );
-
-    if (error || !attachment) {
-      throw new NotFoundException('Attachment not found');
-    }
-
-    return this.asAttachment(attachment);
-  }
-
   async findByResource(
     resourceType: string,
     resourceId: string,
@@ -99,7 +86,6 @@ export class AttachmentService {
 
   async create(createAttachmentDto: CreateAttachmentDto): Promise<Attachment> {
     createAttachmentDto.id = this.keyMaster.generateId();
-    createAttachmentDto.key = this.keyMaster.generateKey();
 
     const created = await this.attachmentRepository.create(createAttachmentDto);
     if (created.error)
@@ -111,11 +97,11 @@ export class AttachmentService {
   }
 
   async update(
-    attachmentKey: string,
+    attachmentId: string,
     updateDto: UpdateAttachmentDto,
   ): Promise<Attachment> {
     // 1) fetch attachment
-    const attachmentToUpdate = await this.findByKey(attachmentKey);
+    const attachmentToUpdate = await this.findById(attachmentId);
 
     // 2) update attachment
     const updated = await this.attachmentRepository.update(
@@ -130,8 +116,8 @@ export class AttachmentService {
     return this.asAttachment(updated.data);
   }
 
-  async delete(attachmentKey: string): Promise<null> {
-    const attachmentToDelete = await this.findByKey(attachmentKey);
+  async delete(attachmentId: string): Promise<null> {
+    const attachmentToDelete = await this.findById(attachmentId);
     if (!attachmentToDelete)
       throw new NotFoundException('Attachment not found');
 
@@ -196,11 +182,9 @@ export class AttachmentService {
 
     // Create attachment DTO
     const id = this.keyMaster.generateId();
-    const key = this.keyMaster.generateKey();
 
     const createDto: CreateAttachmentDto = {
       id,
-      key,
       type: uploadDto.type,
       kind: uploadDto.kind,
       meta,
@@ -251,11 +235,11 @@ export class AttachmentService {
   }
 
   async updateWithFile(
-    attachmentKey: string,
+    attachmentId: string,
     updateDto: UpdateAttachmentDto,
     file?: UploadedFile,
   ): Promise<Attachment> {
-    const attachmentToUpdate = await this.findByKey(attachmentKey);
+    const attachmentToUpdate = await this.findById(attachmentId);
     const oldStoragePath = this.getStoragePath(attachmentToUpdate);
 
     // If file provided, validate and upload
@@ -309,8 +293,8 @@ export class AttachmentService {
     return this.asAttachment(updated.data);
   }
 
-  async deleteWithFile(attachmentKey: string): Promise<null> {
-    const attachmentToDelete = await this.findByKey(attachmentKey);
+  async deleteWithFile(attachmentId: string): Promise<null> {
+    const attachmentToDelete = await this.findById(attachmentId);
     if (!attachmentToDelete) {
       throw new NotFoundException('Attachment not found');
     }
@@ -347,8 +331,8 @@ export class AttachmentService {
       .where('resource_id', resourceId);
   }
 
-  async downloadAttachment(attachmentKey: string) {
-    const attachment = await this.findByKey(attachmentKey);
+  async downloadAttachment(attachmentId: string) {
+    const attachment = await this.findById(attachmentId);
     const storagePath = this.getStoragePath(attachment);
 
     try {

@@ -71,19 +71,6 @@ export class AuthorService {
     return this.asAuthor(author);
   }
 
-  async findByKey(key: string): Promise<Author> {
-    const { data: author, error } = await this.authorRepository.findBy(
-      'key',
-      key,
-    );
-
-    if (error || !author) {
-      throw new NotFoundException('Author not found');
-    }
-
-    return this.asAuthor(author);
-  }
-
   async findByUsername(username: string): Promise<Author> {
     const { data: author, error } =
       await this.authorRepository.findByUsername(username);
@@ -152,7 +139,6 @@ export class AuthorService {
 
   async create(createAuthorDto: CreateAuthorDto): Promise<Author> {
     createAuthorDto.id = this.keyMaster.generateId();
-    createAuthorDto.key = this.keyMaster.generateKey();
 
     // 2) check if username already exists
     const existingByUsername = await this.checkUsernameExists(
@@ -195,11 +181,11 @@ export class AuthorService {
   }
 
   async update(
-    authorKey: string,
+    authorId: string,
     updateAuthorDto: UpdateAuthorDto,
   ): Promise<Author> {
     // 1) fetch author
-    const authorToUpdate = await this.findByKey(authorKey);
+    const authorToUpdate = await this.findById(authorId);
 
     // 2) if updating username, check if already in use by another author (case-insensitive)
     if (
@@ -228,8 +214,8 @@ export class AuthorService {
     return this.asAuthor(updated.data);
   }
 
-  async delete(authorKey: string): Promise<null> {
-    const authorToDelete = await this.findByKey(authorKey);
+  async delete(authorId: string): Promise<null> {
+    const authorToDelete = await this.findById(authorId);
 
     const { error: deleteError } = await this.authorRepository.delete(
       authorToDelete.id,

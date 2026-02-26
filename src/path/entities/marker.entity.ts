@@ -1,6 +1,5 @@
 export default class Marker {
   id: string;
-  key: string;
   pathId: string;
   cruxId: string;
   order: number;

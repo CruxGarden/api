@@ -30,13 +30,13 @@ export const DimensionSwagger = {
   GetByKey: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get a dimension by key',
-        description: 'Retrieves a single dimension by its unique key.',
+        summary: 'Get a dimension by ID',
+        description: 'Retrieves a single dimension by its UUID.',
       }),
       ApiParam({
-        name: 'dimensionKey',
-        description: 'The unique key of the dimension',
-        example: 'TKSoWfISLG_',
+        name: 'id',
+        description: 'The UUID of the dimension',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -46,7 +46,7 @@ export const DimensionSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', example: 'dim_123' },
-            key: { type: 'string', example: 'TKSoWfISLG_' },
+
             sourceId: { type: 'string', example: 'crux_123' },
             targetId: { type: 'string', example: 'crux_456' },
             type: { type: 'string', example: 'gate' },
@@ -81,9 +81,9 @@ export const DimensionSwagger = {
           'Retrieves all dimensional relationships for a specific crux, optionally filtered by type.',
       }),
       ApiParam({
-        name: 'key',
-        description: 'The unique key of the crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiQuery({
         name: 'type',
@@ -120,9 +120,9 @@ export const DimensionSwagger = {
           'Creates new dimensional relationships between a crux and target cruxes.',
       }),
       ApiParam({
-        name: 'key',
-        description: 'The unique key of the source crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the source crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiParam({
         name: 'type',
@@ -158,9 +158,9 @@ export const DimensionSwagger = {
           'Removes specific dimensional relationships of a given type.',
       }),
       ApiParam({
-        name: 'key',
-        description: 'The unique key of the source crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the source crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiParam({
         name: 'type',
@@ -202,9 +202,9 @@ export const DimensionSwagger = {
         description: 'Updates an existing dimensional relationship.',
       }),
       ApiParam({
-        name: 'dimensionKey',
-        description: 'The unique key of the dimension to update',
-        example: 'TKSoWfISLG_',
+        name: 'id',
+        description: 'The UUID of the dimension to update',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({ type: UpdateDimensionDto }),
       ApiBearerAuth(),
@@ -215,7 +215,7 @@ export const DimensionSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', example: 'dim_123' },
-            key: { type: 'string', example: 'TKSoWfISLG_' },
+
             sourceId: { type: 'string', example: 'crux_123' },
             targetId: { type: 'string', example: 'crux_456' },
             type: { type: 'string', example: 'gate' },
@@ -248,9 +248,9 @@ export const DimensionSwagger = {
         description: 'Soft deletes a dimensional relationship.',
       }),
       ApiParam({
-        name: 'dimensionKey',
-        description: 'The unique key of the dimension to delete',
-        example: 'TKSoWfISLG_',
+        name: 'id',
+        description: 'The UUID of the dimension to delete',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({

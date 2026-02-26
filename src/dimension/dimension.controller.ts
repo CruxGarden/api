@@ -38,10 +38,10 @@ export class DimensionController {
   }
 
   async canManageDimension(
-    dimensionKey: string,
+    id: string,
     author: Author,
   ): Promise<boolean> {
-    const dimension = await this.dimensionService.findByKey(dimensionKey);
+    const dimension = await this.dimensionService.findById(id);
     if (dimension.authorId !== author.id) {
       throw new ForbiddenException(
         'You do not have permission to manage this dimension',
@@ -58,35 +58,35 @@ export class DimensionController {
     return author;
   }
 
-  @Get(':dimensionKey')
+  @Get(':id')
   @DimensionSwagger.GetByKey()
-  async getByKey(
-    @Param('dimensionKey') dimensionKey: string,
+  async getById(
+    @Param('id') id: string,
   ): Promise<Dimension> {
-    return this.dimensionService.findByKey(dimensionKey);
+    return this.dimensionService.findById(id);
   }
 
-  @Patch(':dimensionKey')
+  @Patch(':id')
   @DimensionSwagger.UpdateDimension()
   async update(
-    @Param('dimensionKey') dimensionKey: string,
+    @Param('id') id: string,
     @Body() updateDimensionDto: UpdateDimensionDto,
     @Req() req: AuthRequest,
   ): Promise<Dimension> {
     const author = await this.getAuthor(req);
-    await this.canManageDimension(dimensionKey, author);
-    return this.dimensionService.update(dimensionKey, updateDimensionDto);
+    await this.canManageDimension(id, author);
+    return this.dimensionService.update(id, updateDimensionDto);
   }
 
-  @Delete(':dimensionKey')
+  @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @DimensionSwagger.DeleteDimension()
   async delete(
-    @Param('dimensionKey') dimensionKey: string,
+    @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<null> {
     const author = await this.getAuthor(req);
-    await this.canManageDimension(dimensionKey, author);
-    return this.dimensionService.delete(dimensionKey);
+    await this.canManageDimension(id, author);
+    return this.dimensionService.delete(id);
   }
 }

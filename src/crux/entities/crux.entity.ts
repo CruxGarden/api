@@ -1,6 +1,5 @@
 export default class Crux {
   id: string;
-  key: string;
   slug: string;
   title?: string;
   description?: string;

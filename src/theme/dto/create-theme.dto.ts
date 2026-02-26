@@ -46,15 +46,6 @@ export class CreateThemeDto {
   title: string;
 
   @ApiPropertyOptional({
-    description:
-      'Unique key identifier for the theme (auto-generated if not provided)',
-    example: 'ocean-blue',
-  })
-  @IsOptional()
-  @IsString()
-  key?: string;
-
-  @ApiPropertyOptional({
     description: 'Optional description of the theme',
     example: 'A calming blue theme inspired by ocean waters',
   })

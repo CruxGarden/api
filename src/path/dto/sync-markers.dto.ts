@@ -4,6 +4,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -11,11 +12,11 @@ import { Type } from 'class-transformer';
 
 export class MarkerInput {
   @ApiProperty({
-    description: 'Crux key for the marker',
-    example: 'crux-key-123',
+    description: 'Crux ID for the marker',
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @IsString()
-  cruxKey: string;
+  @IsUUID()
+  cruxId: string;
 
   @ApiProperty({
     description: 'Order/position of the marker in the path',
@@ -40,8 +41,8 @@ export class SyncMarkersDto {
     description: 'Array of markers to sync for the path',
     type: [MarkerInput],
     example: [
-      { cruxKey: 'crux-1', order: 0, note: 'First marker' },
-      { cruxKey: 'crux-2', order: 1 },
+      { cruxId: '550e8400-e29b-41d4-a716-446655440000', order: 0, note: 'First marker' },
+      { cruxId: '660e8400-e29b-41d4-a716-446655440000', order: 1 },
     ],
   })
   @IsArray()

@@ -11,7 +11,6 @@ describe('TagRepository', () => {
 
   const mockTag = {
     id: 'tag-id',
-    key: 'tag-key',
     resource_type: 'crux',
     resource_id: 'crux-123',
     label: 'test-tag',
@@ -71,17 +70,17 @@ describe('TagRepository', () => {
     it('should return tag when found', async () => {
       mockQueryBuilder.first.mockResolvedValue(mockTag);
 
-      const result = await repository.findBy('key', 'tag-key');
+      const result = await repository.findBy('id', 'tag-id');
 
       expect(result.data).toEqual(mockTag);
       expect(result.error).toBeNull();
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('key', 'tag-key');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 'tag-id');
     });
 
     it('should return error on exception', async () => {
       mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
 
-      const result = await repository.findBy('key', 'tag-key');
+      const result = await repository.findBy('id', 'tag-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
@@ -215,8 +214,8 @@ describe('TagRepository', () => {
   describe('createMany', () => {
     it('should create multiple tags', async () => {
       const tags = [
-        { id: 'id-1', key: 'key-1', label: 'tag1' },
-        { id: 'id-2', key: 'key-2', label: 'tag2' },
+        { id: 'id-1', label: 'tag1' },
+        { id: 'id-2', label: 'tag2' },
       ];
 
       mockQueryBuilder.insert.mockResolvedValue(undefined);

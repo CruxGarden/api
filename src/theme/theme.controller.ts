@@ -49,8 +49,8 @@ export class ThemeController {
     this.logger = this.loggerService.createChildLogger('ThemeController');
   }
 
-  async canManageTheme(themeKey: string, req: AuthRequest): Promise<void> {
-    const theme = await this.themeService.findByKey(themeKey);
+  async canManageTheme(id: string, req: AuthRequest): Promise<void> {
+    const theme = await this.themeService.findById(id);
     const author = await this.authorService.findByAccountId(req.account.id);
     if (!theme || !author) {
       throw new NotFoundException('Theme or Author not found');
@@ -77,10 +77,10 @@ export class ThemeController {
     }) as Promise<Theme[]>;
   }
 
-  @Get(':themeKey')
+  @Get(':id')
   @ThemeSwagger.GetByKey()
-  async getByKey(@Param('themeKey') themeKey: string): Promise<Theme> {
-    return this.themeService.findByKey(themeKey);
+  async getById(@Param('id') id: string): Promise<Theme> {
+    return this.themeService.findById(id);
   }
 
   @Post()
@@ -99,49 +99,49 @@ export class ThemeController {
     return this.themeService.create(createThemeDto);
   }
 
-  @Patch(':themeKey')
+  @Patch(':id')
   @ThemeSwagger.Update()
   async update(
-    @Param('themeKey') themeKey: string,
+    @Param('id') id: string,
     @Body() updateThemeDto: UpdateThemeDto,
     @Req() req: AuthRequest,
   ): Promise<Theme> {
-    await this.canManageTheme(themeKey, req);
-    return this.themeService.update(themeKey, updateThemeDto);
+    await this.canManageTheme(id, req);
+    return this.themeService.update(id, updateThemeDto);
   }
 
-  @Delete(':themeKey')
+  @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ThemeSwagger.Delete()
   async delete(
-    @Param('themeKey') themeKey: string,
+    @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<null> {
-    await this.canManageTheme(themeKey, req);
-    return this.themeService.delete(themeKey);
+    await this.canManageTheme(id, req);
+    return this.themeService.delete(id);
   }
 
   /* theme tags */
 
-  @Get(':themeKey/tags')
+  @Get(':id/tags')
   @ThemeSwagger.GetTags()
   async getTags(
-    @Param('themeKey') themeKey: string,
+    @Param('id') id: string,
     @Query('filter') filter?: string,
   ): Promise<Tag[]> {
-    return this.themeService.getTags(themeKey, filter);
+    return this.themeService.getTags(id, filter);
   }
 
-  @Put(':themeKey/tags')
+  @Put(':id/tags')
   @ThemeSwagger.SyncTags()
   async syncTags(
-    @Param('themeKey') themeKey: string,
+    @Param('id') id: string,
     @Body() syncTagsDto: SyncTagsDto,
     @Req() req: AuthRequest,
   ): Promise<Tag[]> {
-    await this.canManageTheme(themeKey, req);
+    await this.canManageTheme(id, req);
     const author = await this.authorService.findByAccountId(req.account.id);
-    return this.themeService.syncTags(themeKey, syncTagsDto.labels, author.id);
+    return this.themeService.syncTags(id, syncTagsDto.labels, author.id);
   }
 
   /* ~theme tags */

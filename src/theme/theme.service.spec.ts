@@ -18,7 +18,6 @@ describe('ThemeService', () => {
 
   const mockThemeRaw = {
     id: 'theme-id-123',
-    key: 'theme-key-abc',
     author_id: 'author-123',
     home_id: 'home-id-123',
     title: 'Test Theme',
@@ -67,7 +66,6 @@ describe('ThemeService', () => {
 
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
-      generateKey: jest.fn().mockReturnValue('generated-key'),
     };
 
     const mockLoggerService = {
@@ -127,39 +125,6 @@ describe('ThemeService', () => {
     });
   });
 
-  describe('findByKey', () => {
-    it('should return a theme when found', async () => {
-      repository.findBy.mockResolvedValue({
-        data: mockThemeRaw,
-        error: null,
-      });
-
-      const result = await service.findByKey('theme-key-abc');
-
-      expect(result.key).toBe('theme-key-abc');
-      expect(repository.findBy).toHaveBeenCalledWith('key', 'theme-key-abc');
-    });
-
-    it('should throw NotFoundException when theme not found', async () => {
-      repository.findBy.mockResolvedValue({ data: null, error: null });
-
-      await expect(service.findByKey('invalid-key')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findBy.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(service.findByKey('theme-key')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
   describe('create', () => {
     const createDto = {
       title: 'Test Theme',
@@ -186,7 +151,6 @@ describe('ThemeService', () => {
       expect(repository.create).toHaveBeenCalledWith({
         ...createDto,
         id: 'generated-id',
-        key: 'generated-key',
         system: false,
       });
     });
@@ -217,7 +181,7 @@ describe('ThemeService', () => {
         error: null,
       });
 
-      const result = await service.update('theme-key-abc', updateDto);
+      const result = await service.update('theme-id-123', updateDto);
 
       expect(result.title).toBe('Updated Theme');
       expect(repository.update).toHaveBeenCalledWith(
@@ -236,7 +200,7 @@ describe('ThemeService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('theme-key', updateDto)).rejects.toThrow(
+      await expect(service.update('theme-id-123', updateDto)).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -250,7 +214,7 @@ describe('ThemeService', () => {
       });
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.delete('theme-key-abc');
+      const result = await service.delete('theme-id-123');
 
       expect(result).toBeNull();
       expect(repository.delete).toHaveBeenCalledWith(mockThemeRaw.id);
@@ -259,7 +223,7 @@ describe('ThemeService', () => {
     it('should throw NotFoundException when theme not found', async () => {
       repository.findBy.mockResolvedValue({ data: null, error: null });
 
-      await expect(service.delete('theme-key')).rejects.toThrow(
+      await expect(service.delete('invalid-id')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -274,7 +238,7 @@ describe('ThemeService', () => {
         error: new Error('Delete failed'),
       });
 
-      await expect(service.delete('theme-key')).rejects.toThrow(
+      await expect(service.delete('theme-id-123')).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -285,12 +249,12 @@ describe('ThemeService', () => {
       const mockTags = [{ label: 'test-tag' }] as any;
       tagService.getTags.mockResolvedValue(mockTags);
 
-      const result = await service.getTags('theme-key', 'filter');
+      const result = await service.getTags('theme-id-123', 'filter');
 
       expect(result).toEqual(mockTags);
       expect(tagService.getTags).toHaveBeenCalledWith(
         ResourceType.THEME,
-        'theme-key',
+        'theme-id-123',
         'filter',
       );
     });
@@ -302,7 +266,7 @@ describe('ThemeService', () => {
       tagService.syncTags.mockResolvedValue(mockTags);
 
       const result = await service.syncTags(
-        'theme-key',
+        'theme-id-123',
         ['tag1', 'tag2'],
         'author-123',
       );
@@ -310,7 +274,7 @@ describe('ThemeService', () => {
       expect(result).toEqual(mockTags);
       expect(tagService.syncTags).toHaveBeenCalledWith(
         ResourceType.THEME,
-        'theme-key',
+        'theme-id-123',
         ['tag1', 'tag2'],
         'author-123',
       );
@@ -522,7 +486,7 @@ describe('ThemeService', () => {
       });
 
       await expect(
-        service.update('theme-key', invalidUpdateDto),
+        service.update('theme-id-123', invalidUpdateDto),
       ).rejects.toThrow(BadRequestException);
     });
   });

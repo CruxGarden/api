@@ -9,7 +9,6 @@ describe('AuthorRepository', () => {
 
   const mockAuthor = {
     id: 'author-id',
-    key: 'author-key',
     account_id: 'account-123',
     username: 'testuser',
     display_name: 'Test User',
@@ -65,17 +64,17 @@ describe('AuthorRepository', () => {
     it('should return author when found', async () => {
       mockQueryBuilder.first.mockResolvedValue(mockAuthor);
 
-      const result = await repository.findBy('key', 'author-key');
+      const result = await repository.findBy('id', 'author-id');
 
       expect(result.data).toEqual(mockAuthor);
       expect(result.error).toBeNull();
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('key', 'author-key');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 'author-id');
     });
 
     it('should return error on exception', async () => {
       mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
 
-      const result = await repository.findBy('key', 'author-key');
+      const result = await repository.findBy('id', 'author-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
@@ -96,7 +95,6 @@ describe('AuthorRepository', () => {
     it('should create author successfully', async () => {
       const createData = {
         id: 'author-id',
-        key: 'author-key',
         username: 'testuser',
         displayName: 'Test User',
         accountId: 'account-123',
@@ -122,7 +120,6 @@ describe('AuthorRepository', () => {
 
       const result = await repository.create({
         id: 'id',
-        key: 'key',
         username: 'user',
         displayName: 'User',
         accountId: 'account',

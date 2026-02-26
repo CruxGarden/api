@@ -17,7 +17,6 @@ describe('AttachmentService', () => {
 
   const mockAttachmentRaw = {
     id: 'attachment-id-123',
-    key: 'attachment-key-abc',
     type: 'image',
     kind: 'photo',
     meta: { caption: 'Test image' },
@@ -61,7 +60,6 @@ describe('AttachmentService', () => {
 
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
-      generateKey: jest.fn().mockReturnValue('generated-key'),
     };
 
     const mockLoggerService = {
@@ -116,31 +114,6 @@ describe('AttachmentService', () => {
       });
 
       await expect(service.findById('attachment-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
-  describe('findByKey', () => {
-    it('should return an attachment when found', async () => {
-      repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
-        error: null,
-      });
-
-      const result = await service.findByKey('attachment-key-abc');
-
-      expect(result.key).toBe('attachment-key-abc');
-      expect(repository.findBy).toHaveBeenCalledWith(
-        'key',
-        'attachment-key-abc',
-      );
-    });
-
-    it('should throw NotFoundException when attachment not found', async () => {
-      repository.findBy.mockResolvedValue({ data: null, error: null });
-
-      await expect(service.findByKey('invalid-key')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -201,7 +174,6 @@ describe('AttachmentService', () => {
       expect(repository.create).toHaveBeenCalledWith({
         ...createDto,
         id: 'generated-id',
-        key: 'generated-key',
       });
     });
 
@@ -234,7 +206,7 @@ describe('AttachmentService', () => {
         error: null,
       });
 
-      const result = await service.update('attachment-key-abc', updateDto);
+      const result = await service.update('attachment-id-123', updateDto);
 
       expect(result.filename).toBe('updated.jpg');
       expect(repository.update).toHaveBeenCalledWith(
@@ -253,7 +225,7 @@ describe('AttachmentService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('attachment-key', updateDto)).rejects.toThrow(
+      await expect(service.update('attachment-id-123', updateDto)).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -267,7 +239,7 @@ describe('AttachmentService', () => {
       });
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.delete('attachment-key-abc');
+      const result = await service.delete('attachment-id-123');
 
       expect(result).toBeNull();
       expect(repository.delete).toHaveBeenCalledWith(mockAttachmentRaw.id);
@@ -283,7 +255,7 @@ describe('AttachmentService', () => {
         error: new Error('Delete failed'),
       });
 
-      await expect(service.delete('attachment-key')).rejects.toThrow(
+      await expect(service.delete('attachment-id-123')).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -425,7 +397,7 @@ describe('AttachmentService', () => {
       });
 
       const result = await service.updateWithFile(
-        'attachment-key',
+        'attachment-id-123',
         updateDto,
         undefined,
       );
@@ -447,7 +419,7 @@ describe('AttachmentService', () => {
       storeService.upload.mockResolvedValue(undefined);
 
       const result = await service.updateWithFile(
-        'attachment-key',
+        'attachment-id-123',
         updateDto,
         mockFile,
       );
@@ -464,7 +436,7 @@ describe('AttachmentService', () => {
       storeService.upload.mockRejectedValue(new Error('Upload failed'));
 
       await expect(
-        service.updateWithFile('attachment-key', updateDto, mockFile),
+        service.updateWithFile('attachment-id-123', updateDto, mockFile),
       ).rejects.toThrow(InternalServerErrorException);
     });
   });
@@ -478,7 +450,7 @@ describe('AttachmentService', () => {
       storeService.delete.mockResolvedValue(undefined);
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.deleteWithFile('attachment-key');
+      const result = await service.deleteWithFile('attachment-id-123');
 
       expect(result).toBeNull();
       expect(storeService.delete).toHaveBeenCalled();
@@ -493,7 +465,7 @@ describe('AttachmentService', () => {
       storeService.delete.mockRejectedValue(new Error('Storage error'));
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.deleteWithFile('attachment-key');
+      const result = await service.deleteWithFile('attachment-id-123');
 
       expect(result).toBeNull();
       expect(repository.delete).toHaveBeenCalled();
@@ -510,7 +482,7 @@ describe('AttachmentService', () => {
         data: Buffer.from('file content'),
       });
 
-      const result = await service.downloadAttachment('attachment-key');
+      const result = await service.downloadAttachment('attachment-id-123');
 
       expect(result.data).toBeDefined();
       expect(result.filename).toBe('test.jpg');
@@ -526,7 +498,7 @@ describe('AttachmentService', () => {
       storeService.download.mockRejectedValue(new Error('Not found'));
 
       await expect(
-        service.downloadAttachment('attachment-key'),
+        service.downloadAttachment('attachment-id-123'),
       ).rejects.toThrow(NotFoundException);
     });
   });

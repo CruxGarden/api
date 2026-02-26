@@ -44,7 +44,6 @@ export const PathSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'abc123' },
               slug: { type: 'string', example: 'my-awesome-path' },
               title: { type: 'string', example: 'My Awesome Path' },
               description: {
@@ -70,13 +69,13 @@ export const PathSwagger = {
   GetByKey: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get a path by key',
-        description: 'Retrieves a specific path by its unique key.',
+        summary: 'Get a path by identifier',
+        description: 'Retrieves a specific path by its UUID or slug.',
       }),
       ApiParam({
-        name: 'pathKey',
-        description: 'The unique key of the path',
-        example: 'abc123',
+        name: 'identifier',
+        description: 'The UUID or slug of the path',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiResponse({
         status: 200,
@@ -85,7 +84,6 @@ export const PathSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            key: { type: 'string', example: 'abc123' },
             slug: { type: 'string', example: 'my-awesome-path' },
             title: { type: 'string', example: 'My Awesome Path' },
             description: {
@@ -123,7 +121,6 @@ export const PathSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            key: { type: 'string', example: 'abc123' },
             slug: { type: 'string', example: 'my-awesome-path' },
             title: { type: 'string', example: 'My Awesome Path' },
             description: {
@@ -154,9 +151,9 @@ export const PathSwagger = {
           'Updates an existing path with the provided data. Requires authentication and ownership.',
       }),
       ApiParam({
-        name: 'pathKey',
-        description: 'The unique key of the path to update',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the path to update',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({ type: UpdatePathDto }),
       ApiBearerAuth(),
@@ -167,7 +164,6 @@ export const PathSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            key: { type: 'string', example: 'abc123' },
             slug: { type: 'string', example: 'my-updated-path' },
             title: { type: 'string', example: 'My Updated Path' },
             description: { type: 'string', example: 'Updated description' },
@@ -196,9 +192,9 @@ export const PathSwagger = {
           'Deletes an existing path. Requires authentication and ownership.',
       }),
       ApiParam({
-        name: 'pathKey',
-        description: 'The unique key of the path to delete',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the path to delete',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -217,9 +213,9 @@ export const PathSwagger = {
         description: 'Retrieves all tags associated with a specific path.',
       }),
       ApiParam({
-        name: 'pathKey',
-        description: 'The unique key of the path',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the path',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -231,7 +227,6 @@ export const PathSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'TKSoWfISLG_' },
               label: { type: 'string', example: 'tutorial' },
               resourceType: { type: 'string', example: 'path' },
               resourceId: { type: 'string', format: 'uuid' },
@@ -255,9 +250,9 @@ export const PathSwagger = {
           'Replaces all tags for a path with the provided list. Tags must be in kebab-case format.',
       }),
       ApiParam({
-        name: 'pathKey',
-        description: 'The unique key of the path',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the path',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({
         schema: {
@@ -281,7 +276,6 @@ export const PathSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'TKSoWfISLG_' },
               label: { type: 'string', example: 'tutorial' },
               resourceType: { type: 'string', example: 'path' },
               resourceId: { type: 'string', format: 'uuid' },
@@ -311,9 +305,9 @@ export const PathSwagger = {
           'Retrieves all markers (crux references) for a specific path in order.',
       }),
       ApiParam({
-        name: 'pathKey',
-        description: 'The unique key of the path',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the path',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiResponse({
         status: 200,
@@ -324,7 +318,6 @@ export const PathSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'TKSoWfISLG_' },
               pathId: { type: 'string', format: 'uuid' },
               cruxId: { type: 'string', format: 'uuid' },
               order: { type: 'number', example: 0 },
@@ -345,12 +338,12 @@ export const PathSwagger = {
       ApiOperation({
         summary: 'Sync markers for a path',
         description:
-          'Replaces all markers for a path with the provided list. Each marker references a crux by key.',
+          'Replaces all markers for a path with the provided list. Each marker references a crux by ID.',
       }),
       ApiParam({
-        name: 'pathKey',
-        description: 'The unique key of the path',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the path',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({ type: SyncMarkersDto }),
       ApiBearerAuth(),
@@ -363,7 +356,6 @@ export const PathSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'TKSoWfISLG_' },
               pathId: { type: 'string', format: 'uuid' },
               cruxId: { type: 'string', format: 'uuid' },
               order: { type: 'number', example: 0 },

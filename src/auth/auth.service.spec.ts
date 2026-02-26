@@ -23,7 +23,6 @@ describe('AuthService', () => {
 
   const mockAccount = {
     id: 'account-123',
-    key: 'account-key',
     email: 'test@example.com',
     role: AccountRole.AUTHOR,
     created: new Date(),
@@ -33,7 +32,6 @@ describe('AuthService', () => {
 
   const mockAuthor = {
     id: 'author-123',
-    key: 'author-key',
     accountId: 'account-123',
     username: 'test',
     displayName: 'test',
@@ -64,7 +62,7 @@ describe('AuthService', () => {
 
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
-      generateKey: jest.fn().mockReturnValue('generated-key'),
+      generateToken: jest.fn().mockReturnValue('generated-token'),
     };
 
     const mockLoggerService = {
@@ -79,7 +77,6 @@ describe('AuthService', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-id-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -143,9 +140,9 @@ describe('AuthService', () => {
 
       const token = await service.genRefreshToken('grant-123');
 
-      expect(token).toBe('generated-key');
+      expect(token).toBe('generated-token');
       expect(redisService.set).toHaveBeenCalledWith(
-        'crux:auth:refresh:generated-key',
+        'crux:auth:refresh:generated-token',
         'grant-123',
         expect.any(Number),
       );
@@ -158,15 +155,15 @@ describe('AuthService', () => {
 
       const grantId = await service.genGrantId('test@example.com');
 
-      expect(grantId).toBe('generated-key');
+      expect(grantId).toBe('generated-token');
       expect(redisService.set).toHaveBeenCalledTimes(2);
       expect(redisService.set).toHaveBeenCalledWith(
         'crux:auth:grant:email:test@example.com',
-        'generated-key',
+        'generated-token',
         expect.any(Number),
       );
       expect(redisService.set).toHaveBeenCalledWith(
-        'crux:auth:grant:id:generated-key',
+        'crux:auth:grant:id:generated-token',
         'test@example.com',
         expect.any(Number),
       );
@@ -287,14 +284,14 @@ describe('AuthService', () => {
 
       expect(result).toBe('Auth Code emailed to test@example.com');
       expect(redisService.set).toHaveBeenCalledWith(
-        'crux:auth:code:generated-key',
+        'crux:auth:code:generated-token',
         'test@example.com',
         300,
       );
       expect(emailService.send).toHaveBeenCalledWith({
         email: 'test@example.com',
         subject: 'Auth Code',
-        body: 'Your auth code is generated-key',
+        body: 'Your auth code is generated-token',
       });
     });
   });
@@ -314,7 +311,7 @@ describe('AuthService', () => {
 
       expect(result).toBeTruthy();
       expect(result.accessToken).toBeTruthy();
-      expect(result.refreshToken).toBe('generated-key');
+      expect(result.refreshToken).toBe('generated-token');
       expect(result.expiresIn).toBe(3600);
       expect(accountService.findByEmail).toHaveBeenCalledWith(
         'test@example.com',
@@ -350,14 +347,12 @@ describe('AuthService', () => {
       expect(result).toBeTruthy();
       expect(accountService.create).toHaveBeenCalledWith({
         id: 'generated-id',
-        key: 'generated-key',
         email: 'test@example.com',
         role: AccountRole.AUTHOR,
         homeId: 'home-id-123',
       });
       expect(authorService.create).toHaveBeenCalledWith({
         id: 'generated-id',
-        key: 'generated-key',
         accountId: 'generated-id',
         username: 'test',
         displayName: 'test',
@@ -436,7 +431,7 @@ describe('AuthService', () => {
 
       expect(result).toBeTruthy();
       expect(result.accessToken).toBeTruthy();
-      expect(result.refreshToken).toBe('generated-key');
+      expect(result.refreshToken).toBe('generated-token');
       expect(redisService.del).toHaveBeenCalledWith(
         'crux:auth:refresh:old-refresh-token',
       );

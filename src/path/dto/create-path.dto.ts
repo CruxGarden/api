@@ -90,14 +90,6 @@ export class CreatePathDto {
   id?: string;
 
   @ApiPropertyOptional({
-    description: 'Unique key identifier for the path (auto-generated)',
-    example: 'abc123def',
-  })
-  @IsOptional()
-  @IsString()
-  key?: string;
-
-  @ApiPropertyOptional({
     description: 'Author ID (set internally from account)',
     example: '550e8400-e29b-41d4-a716-446655440000',
     format: 'uuid',

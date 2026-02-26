@@ -1,6 +1,5 @@
 export default interface AttachmentRaw {
   id: string;
-  key: string;
   type: string;
   kind: string;
   meta: any;

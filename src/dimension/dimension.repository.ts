@@ -57,7 +57,6 @@ export class DimensionRepository {
     const selectColumns = [`${tableName}.*`];
     if (embedTarget) {
       selectColumns.push(
-        'target_crux.key as target_key',
         'target_crux.slug as target_slug',
         'target_crux.title as target_title',
         'target_crux.data as target_data',
@@ -65,7 +64,6 @@ export class DimensionRepository {
     }
     if (embedSource) {
       selectColumns.push(
-        'source_crux.key as source_key',
         'source_crux.slug as source_slug',
         'source_crux.title as source_title',
         'source_crux.data as source_data',

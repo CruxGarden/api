@@ -1,6 +1,5 @@
 export default class Attachment {
   id: string;
-  key: string;
   type: string;
   kind: string;
   meta?: any;

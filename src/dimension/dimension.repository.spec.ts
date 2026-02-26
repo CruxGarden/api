@@ -11,7 +11,6 @@ describe('DimensionRepository', () => {
 
   const mockDimension = {
     id: 'dimension-id',
-    key: 'dimension-key',
     source_id: 'crux-source-123',
     target_id: 'crux-target-456',
     type: 'gate' as const,
@@ -70,20 +69,20 @@ describe('DimensionRepository', () => {
     it('should return dimension when found', async () => {
       mockQueryBuilder.first.mockResolvedValue(mockDimension);
 
-      const result = await repository.findBy('key', 'dimension-key');
+      const result = await repository.findBy('id', 'dimension-id');
 
       expect(result.data).toEqual(mockDimension);
       expect(result.error).toBeNull();
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'key',
-        'dimension-key',
+        'id',
+        'dimension-id',
       );
     });
 
     it('should return error on exception', async () => {
       mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
 
-      const result = await repository.findBy('key', 'dimension-key');
+      const result = await repository.findBy('id', 'dimension-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
@@ -102,7 +101,6 @@ describe('DimensionRepository', () => {
       );
       expect(mockQueryBuilder.select).toHaveBeenCalledWith([
         'dimensions.*',
-        'target_crux.key as target_key',
         'target_crux.slug as target_slug',
         'target_crux.title as target_title',
         'target_crux.data as target_data',
@@ -158,7 +156,6 @@ describe('DimensionRepository', () => {
       );
       expect(mockQueryBuilder.select).toHaveBeenCalledWith([
         'dimensions.*',
-        'source_crux.key as source_key',
         'source_crux.slug as source_slug',
         'source_crux.title as source_title',
         'source_crux.data as source_data',
@@ -188,8 +185,8 @@ describe('DimensionRepository', () => {
       expect(mockQueryBuilder.select).toHaveBeenCalledWith(
         expect.arrayContaining([
           'dimensions.*',
-          'target_crux.key as target_key',
-          'source_crux.key as source_key',
+          'target_crux.slug as target_slug',
+          'source_crux.slug as source_slug',
         ]),
       );
       expect(result).toBe(mockQueryBuilder);
@@ -213,7 +210,6 @@ describe('DimensionRepository', () => {
     it('should create dimension successfully', async () => {
       const createData = {
         id: 'dimension-id',
-        key: 'dimension-key',
         targetId: 'crux-target-456',
         type: DimensionType.GATE,
         weight: 1,
@@ -242,7 +238,6 @@ describe('DimensionRepository', () => {
 
       const result = await repository.create({
         id: 'id',
-        key: 'key',
         targetId: 'target',
         type: DimensionType.GATE,
       });

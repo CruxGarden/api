@@ -43,7 +43,6 @@ export const AttachmentSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            key: { type: 'string', example: 'TKSoWfISLG_' },
             type: { type: 'string', example: 'image' },
             kind: { type: 'string', example: 'photo' },
             meta: { type: 'object' },
@@ -79,7 +78,6 @@ export const AttachmentSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string' },
               type: { type: 'string', example: 'image' },
               kind: { type: 'string', example: 'photo' },
               resourceId: { type: 'string', format: 'uuid' },
@@ -99,13 +97,13 @@ export const AttachmentSwagger = {
   GetByKey: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get an attachment by key',
-        description: 'Retrieves a specific attachment by its unique key.',
+        summary: 'Get an attachment by ID',
+        description: 'Retrieves a specific attachment by its UUID.',
       }),
       ApiParam({
-        name: 'attachmentKey',
-        description: 'The unique key of the attachment',
-        example: 'TKSoWfISLG_',
+        name: 'id',
+        description: 'The UUID of the attachment',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiResponse({
         status: 200,
@@ -114,7 +112,6 @@ export const AttachmentSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            key: { type: 'string' },
             type: { type: 'string', example: 'image' },
             kind: { type: 'string', example: 'photo' },
             meta: { type: 'object' },
@@ -142,9 +139,9 @@ export const AttachmentSwagger = {
           'Updates an existing attachment. Optionally upload a new file to replace the existing one. Max file size: 50MB. Requires authentication and ownership.',
       }),
       ApiParam({
-        name: 'attachmentKey',
-        description: 'The unique key of the attachment to update',
-        example: 'TKSoWfISLG_',
+        name: 'id',
+        description: 'The UUID of the attachment to update',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiConsumes('multipart/form-data'),
       ApiBody({
@@ -182,7 +179,6 @@ export const AttachmentSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            key: { type: 'string', example: 'TKSoWfISLG_' },
             type: { type: 'string', example: 'image' },
             kind: { type: 'string', example: 'photo' },
             filename: { type: 'string', example: 'screenshot.png' },
@@ -209,9 +205,9 @@ export const AttachmentSwagger = {
           'Deletes an existing attachment. Requires authentication and ownership.',
       }),
       ApiParam({
-        name: 'attachmentKey',
-        description: 'The unique key of the attachment to delete',
-        example: 'TKSoWfISLG_',
+        name: 'id',
+        description: 'The UUID of the attachment to delete',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({

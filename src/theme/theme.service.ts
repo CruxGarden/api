@@ -55,22 +55,8 @@ export class ThemeService {
     return this.asTheme(theme);
   }
 
-  async findByKey(key: string): Promise<Theme> {
-    const { data: theme, error } = await this.themeRepository.findBy(
-      'key',
-      key,
-    );
-
-    if (error || !theme) {
-      throw new NotFoundException('Theme not found');
-    }
-
-    return this.asTheme(theme);
-  }
-
   async create(createThemeDto: CreateThemeDto): Promise<Theme> {
     createThemeDto.id = this.keyMaster.generateId();
-    createThemeDto.key = this.keyMaster.generateKey();
     createThemeDto.system = false;
 
     const validation = validateThemeMetaSafe(createThemeDto.meta);
@@ -90,8 +76,8 @@ export class ThemeService {
     return this.asTheme(created.data);
   }
 
-  async update(themeKey: string, updateDto: UpdateThemeDto): Promise<Theme> {
-    const themeToUpdate = await this.findByKey(themeKey);
+  async update(themeId: string, updateDto: UpdateThemeDto): Promise<Theme> {
+    const themeToUpdate = await this.findById(themeId);
 
     if (updateDto.meta) {
       const validation = validateThemeMetaSafe(updateDto.meta);
@@ -115,8 +101,8 @@ export class ThemeService {
     return this.asTheme(updated.data);
   }
 
-  async delete(themeKey: string): Promise<null> {
-    const themeToDelete = await this.findByKey(themeKey);
+  async delete(themeId: string): Promise<null> {
+    const themeToDelete = await this.findById(themeId);
     if (!themeToDelete) throw new NotFoundException('Theme not found');
 
     const { error: deleteError } = await this.themeRepository.delete(
@@ -133,18 +119,18 @@ export class ThemeService {
 
   /* theme tags */
 
-  async getTags(themeKey: string, filter?: string): Promise<Tag[]> {
-    return this.tagService.getTags(ResourceType.THEME, themeKey, filter);
+  async getTags(themeId: string, filter?: string): Promise<Tag[]> {
+    return this.tagService.getTags(ResourceType.THEME, themeId, filter);
   }
 
   async syncTags(
-    themeKey: string,
+    themeId: string,
     labels: string[],
     authorId: string,
   ): Promise<Tag[]> {
     return this.tagService.syncTags(
       ResourceType.THEME,
-      themeKey,
+      themeId,
       labels,
       authorId,
     );

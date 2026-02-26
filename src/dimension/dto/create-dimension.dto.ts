@@ -20,14 +20,6 @@ export class CreateDimensionDto {
   @IsString()
   id?: string;
 
-  @ApiPropertyOptional({
-    description: 'Unique key for the dimension (auto-generated)',
-    example: 'TKSoWfISLG_',
-  })
-  @IsOptional()
-  @IsString()
-  key?: string;
-
   @ApiProperty({
     description: 'Target crux ID to create dimensional relationship with',
     example: 'crux_123',

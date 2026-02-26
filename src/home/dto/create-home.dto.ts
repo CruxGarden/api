@@ -11,15 +11,6 @@ export class CreateHomeDto {
   @IsString()
   id?: string;
 
-  @ApiPropertyOptional({
-    description:
-      'Unique key identifier for the home (auto-generated if not provided)',
-    example: 'my-home',
-  })
-  @IsOptional()
-  @IsString()
-  key?: string;
-
   @ApiProperty({
     description: 'Name of the home',
     example: 'My Garden',

@@ -17,7 +17,6 @@ describe('AuthorService', () => {
 
   const mockAuthorRaw = {
     id: 'author-id-123',
-    key: 'author-key-abc',
     account_id: 'account-123',
     username: 'testuser',
     display_name: 'Test User',
@@ -40,13 +39,11 @@ describe('AuthorService', () => {
 
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
-      generateKey: jest.fn().mockReturnValue('generated-key'),
     };
 
     const mockCruxService = {
       create: jest.fn().mockResolvedValue({
         id: 'root-crux-id',
-        key: 'root-crux-key',
         slug: 'test-root',
         title: 'Welcome to Crux Garden!',
         data: 'What are you thinking?',
@@ -105,28 +102,6 @@ describe('AuthorService', () => {
       });
 
       await expect(service.findById('author-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
-  describe('findByKey', () => {
-    it('should return an author when found', async () => {
-      repository.findBy.mockResolvedValue({
-        data: mockAuthorRaw,
-        error: null,
-      });
-
-      const result = await service.findByKey('author-key-abc');
-
-      expect(result.key).toBe('author-key-abc');
-      expect(repository.findBy).toHaveBeenCalledWith('key', 'author-key-abc');
-    });
-
-    it('should throw NotFoundException when author not found', async () => {
-      repository.findBy.mockResolvedValue({ data: null, error: null });
-
-      await expect(service.findByKey('invalid-key')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -260,7 +235,7 @@ describe('AuthorService', () => {
         error: null,
       });
 
-      const result = await service.update('author-key-abc', updateDto);
+      const result = await service.update('author-id-123', updateDto);
 
       expect(result.displayName).toBe('Updated Name');
       expect(repository.update).toHaveBeenCalledWith(
@@ -279,7 +254,7 @@ describe('AuthorService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('author-key', updateDto)).rejects.toThrow(
+      await expect(service.update('author-id-123', updateDto)).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -293,7 +268,7 @@ describe('AuthorService', () => {
       });
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.delete('author-key-abc');
+      const result = await service.delete('author-id-123');
 
       expect(result).toBeNull();
       expect(repository.delete).toHaveBeenCalledWith(mockAuthorRaw.id);
@@ -309,7 +284,7 @@ describe('AuthorService', () => {
         error: new Error('Delete failed'),
       });
 
-      await expect(service.delete('author-key')).rejects.toThrow(
+      await expect(service.delete('author-id-123')).rejects.toThrow(
         InternalServerErrorException,
       );
     });

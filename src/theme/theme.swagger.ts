@@ -59,7 +59,6 @@ export const ThemeSwagger = {
               example: '550e8400-e29b-41d4-a716-446655440002',
             },
             title: { type: 'string', example: 'Ocean Blue' },
-            key: { type: 'string', example: 'ocean-blue' },
             description: {
               type: 'string',
               example: 'A calming blue theme inspired by ocean waters',
@@ -84,7 +83,7 @@ export const ThemeSwagger = {
       }),
       ApiUnauthorizedResponse({ description: 'Authentication required' }),
       ApiConflictResponse({
-        description: 'Theme with this name or key already exists',
+        description: 'Theme with this name already exists',
       }),
       ApiBadRequestResponse({ description: 'Invalid input data' }),
     ),
@@ -106,7 +105,6 @@ export const ThemeSwagger = {
               id: { type: 'string', format: 'uuid' },
               authorId: { type: 'string', format: 'uuid' },
               title: { type: 'string', example: 'Ocean Blue' },
-              key: { type: 'string', example: 'ocean-blue' },
               description: { type: 'string' },
               type: { type: 'string', example: 'color-scheme' },
               kind: { type: 'string', example: 'minimalist' },
@@ -132,13 +130,13 @@ export const ThemeSwagger = {
   GetByKey: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get a theme by key',
-        description: 'Retrieves a specific theme by its unique key.',
+        summary: 'Get a theme by ID',
+        description: 'Retrieves a specific theme by its UUID.',
       }),
       ApiParam({
-        name: 'themeKey',
-        description: 'The unique key of the theme',
-        example: 'ocean-blue',
+        name: 'id',
+        description: 'The UUID of the theme',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiResponse({
         status: 200,
@@ -149,7 +147,6 @@ export const ThemeSwagger = {
             id: { type: 'string', format: 'uuid' },
             authorId: { type: 'string', format: 'uuid' },
             title: { type: 'string', example: 'Ocean Blue' },
-            key: { type: 'string', example: 'ocean-blue' },
             description: { type: 'string' },
             type: { type: 'string', example: 'color-scheme' },
             kind: { type: 'string', example: 'minimalist' },
@@ -180,9 +177,9 @@ export const ThemeSwagger = {
           'Updates an existing theme with the provided data. Requires authentication and ownership.',
       }),
       ApiParam({
-        name: 'themeKey',
-        description: 'The unique key of the theme to update',
-        example: 'ocean-blue',
+        name: 'id',
+        description: 'The UUID of the theme to update',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({ type: UpdateThemeDto }),
       ApiBearerAuth(),
@@ -195,7 +192,6 @@ export const ThemeSwagger = {
             id: { type: 'string', format: 'uuid' },
             authorId: { type: 'string', format: 'uuid' },
             title: { type: 'string', example: 'Updated Ocean Blue' },
-            key: { type: 'string', example: 'ocean-blue-updated' },
             description: { type: 'string' },
             type: { type: 'string', example: 'color-scheme' },
             kind: { type: 'string', example: 'minimalist' },
@@ -218,7 +214,7 @@ export const ThemeSwagger = {
       ApiUnauthorizedResponse({ description: 'Authentication required' }),
       ApiNotFoundResponse({ description: 'Theme not found' }),
       ApiConflictResponse({
-        description: 'Theme with this name or key already exists',
+        description: 'Theme with this name already exists',
       }),
       ApiBadRequestResponse({ description: 'Invalid input data' }),
     ),
@@ -231,9 +227,9 @@ export const ThemeSwagger = {
           'Deletes an existing theme. Requires authentication and ownership.',
       }),
       ApiParam({
-        name: 'themeKey',
-        description: 'The unique key of the theme to delete',
-        example: 'ocean-blue',
+        name: 'id',
+        description: 'The UUID of the theme to delete',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -252,9 +248,9 @@ export const ThemeSwagger = {
         description: 'Retrieves all tags associated with a specific theme.',
       }),
       ApiParam({
-        name: 'themeKey',
-        description: 'The unique key of the theme',
-        example: 'ocean-blue',
+        name: 'id',
+        description: 'The UUID of the theme',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -266,7 +262,6 @@ export const ThemeSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'TKSoWfISLG_' },
               label: { type: 'string', example: 'dark-mode' },
               resourceType: { type: 'string', example: 'theme' },
               resourceId: { type: 'string', format: 'uuid' },
@@ -290,9 +285,9 @@ export const ThemeSwagger = {
           'Replaces all tags for a theme with the provided list. Tags must be in kebab-case format.',
       }),
       ApiParam({
-        name: 'themeKey',
-        description: 'The unique key of the theme',
-        example: 'ocean-blue',
+        name: 'id',
+        description: 'The UUID of the theme',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({
         schema: {
@@ -316,7 +311,6 @@ export const ThemeSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'TKSoWfISLG_' },
               label: { type: 'string', example: 'dark-mode' },
               resourceType: { type: 'string', example: 'theme' },
               resourceId: { type: 'string', format: 'uuid' },

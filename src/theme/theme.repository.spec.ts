@@ -10,7 +10,6 @@ describe('ThemeRepository', () => {
 
   const mockTheme = {
     id: 'theme-id',
-    key: 'theme-key',
     author_id: 'author-123',
     home_id: 'home-id-123',
     title: 'Test Theme',
@@ -72,17 +71,17 @@ describe('ThemeRepository', () => {
     it('should return theme when found', async () => {
       mockQueryBuilder.first.mockResolvedValue(mockTheme);
 
-      const result = await repository.findBy('key', 'theme-key');
+      const result = await repository.findBy('id', 'theme-id');
 
       expect(result.data).toEqual(mockTheme);
       expect(result.error).toBeNull();
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('key', 'theme-key');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 'theme-id');
     });
 
     it('should return error on exception', async () => {
       mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
 
-      const result = await repository.findBy('key', 'theme-key');
+      const result = await repository.findBy('id', 'theme-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
@@ -104,7 +103,6 @@ describe('ThemeRepository', () => {
     it('should create theme successfully', async () => {
       const createData = {
         id: 'theme-id',
-        key: 'theme-key',
         title: 'Test Theme',
         type: 'nature',
         kind: 'light',
@@ -132,7 +130,6 @@ describe('ThemeRepository', () => {
 
       const result = await repository.create({
         id: 'id',
-        key: 'key',
         title: 'Theme',
         type: 'nature',
         meta: { palette: { light: { primary: '#4dd9b8' } } },

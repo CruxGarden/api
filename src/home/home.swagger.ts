@@ -47,7 +47,7 @@ export const HomeSwagger = {
               format: 'uuid',
               example: '550e8400-e29b-41d4-a716-446655440000',
             },
-            key: { type: 'string', example: 'my-garden' },
+
             name: { type: 'string', example: 'My Garden' },
             description: {
               type: 'string',
@@ -86,7 +86,7 @@ export const HomeSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'my-garden' },
+  
               name: { type: 'string', example: 'My Garden' },
               description: { type: 'string' },
               primary: { type: 'boolean', example: true },
@@ -105,13 +105,13 @@ export const HomeSwagger = {
   GetByKey: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get a home by key',
-        description: 'Retrieves a specific home by its unique key.',
+        summary: 'Get a home by ID',
+        description: 'Retrieves a specific home by its UUID.',
       }),
       ApiParam({
-        name: 'homeKey',
-        description: 'The unique key of the home',
-        example: 'my-garden',
+        name: 'id',
+        description: 'The UUID of the home',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -121,7 +121,7 @@ export const HomeSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            key: { type: 'string', example: 'my-garden' },
+
             name: { type: 'string', example: 'My Garden' },
             description: { type: 'string' },
             primary: { type: 'boolean', example: true },
@@ -145,9 +145,9 @@ export const HomeSwagger = {
           'Updates an existing home with the provided data. Requires admin authentication.',
       }),
       ApiParam({
-        name: 'homeKey',
-        description: 'The unique key of the home to update',
-        example: 'my-garden',
+        name: 'id',
+        description: 'The UUID of the home to update',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({ type: UpdateHomeDto }),
       ApiBearerAuth(),
@@ -158,7 +158,7 @@ export const HomeSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            key: { type: 'string', example: 'my-garden' },
+
             name: { type: 'string', example: 'Updated Garden Name' },
             description: { type: 'string' },
             primary: { type: 'boolean', example: true },
@@ -183,9 +183,9 @@ export const HomeSwagger = {
         description: 'Deletes an existing home. Requires admin authentication.',
       }),
       ApiParam({
-        name: 'homeKey',
-        description: 'The unique key of the home to delete',
-        example: 'my-garden',
+        name: 'id',
+        description: 'The UUID of the home to delete',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({

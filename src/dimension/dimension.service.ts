@@ -60,19 +60,8 @@ export class DimensionService {
     return this.asDimension(data);
   }
 
-  async findByKey(key: string): Promise<Dimension> {
-    const { data, error } = await this.dimensionRepository.findBy('key', key);
-
-    if (error || !data) {
-      throw new NotFoundException('Dimension not found');
-    }
-
-    return this.asDimension(data);
-  }
-
   async create(createDimensionDto: CreateDimensionDto): Promise<Dimension> {
     createDimensionDto.id = this.keyMaster.generateId();
-    createDimensionDto.key = this.keyMaster.generateKey();
 
     const created = await this.dimensionRepository.create(createDimensionDto);
     if (created.error)
@@ -84,10 +73,10 @@ export class DimensionService {
   }
 
   async update(
-    dimensionKey: string,
+    dimensionId: string,
     updateDimensionDto: UpdateDimensionDto,
   ): Promise<Dimension> {
-    const dimensionToUpdate = await this.findByKey(dimensionKey);
+    const dimensionToUpdate = await this.findById(dimensionId);
 
     const updated = await this.dimensionRepository.update(
       dimensionToUpdate.id,
@@ -101,8 +90,8 @@ export class DimensionService {
     return this.asDimension(updated.data);
   }
 
-  async delete(dimensionKey: string): Promise<null> {
-    const dimensionToDelete = await this.findByKey(dimensionKey);
+  async delete(dimensionId: string): Promise<null> {
+    const dimensionToDelete = await this.findById(dimensionId);
 
     const { error: deleteError } = await this.dimensionRepository.delete(
       dimensionToDelete.id,

@@ -10,7 +10,6 @@ describe('PathRepository', () => {
 
   const mockPath = {
     id: 'path-id',
-    key: 'path-key',
     slug: 'test-path',
     title: 'Test Path',
     description: 'A test path',
@@ -27,7 +26,6 @@ describe('PathRepository', () => {
 
   const mockMarker = {
     id: 'marker-id',
-    key: 'marker-key',
     path_id: 'path-id',
     crux_id: 'crux-id',
     order: 1,
@@ -82,17 +80,17 @@ describe('PathRepository', () => {
     it('should return path when found', async () => {
       mockQueryBuilder.first.mockResolvedValue(mockPath);
 
-      const result = await repository.findBy('key', 'path-key');
+      const result = await repository.findBy('id', 'path-id');
 
       expect(result.data).toEqual(mockPath);
       expect(result.error).toBeNull();
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('key', 'path-key');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 'path-id');
     });
 
     it('should return error on exception', async () => {
       mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
 
-      const result = await repository.findBy('key', 'path-key');
+      const result = await repository.findBy('id', 'path-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
@@ -113,7 +111,6 @@ describe('PathRepository', () => {
     it('should create path successfully', async () => {
       const createData = {
         id: 'path-id',
-        key: 'path-key',
         slug: 'test-path',
         title: 'Test Path',
         type: PathType.LIVING,
@@ -143,7 +140,6 @@ describe('PathRepository', () => {
 
       const result = await repository.create({
         id: 'id',
-        key: 'key',
         slug: 'slug',
         type: PathType.LIVING,
         visibility: PathVisibility.PUBLIC,
@@ -239,7 +235,6 @@ describe('PathRepository', () => {
     it('should create marker successfully', async () => {
       const createData = {
         id: 'marker-id',
-        key: 'marker-key',
         pathId: 'path-id',
         cruxId: 'crux-id',
         order: 1,
@@ -267,7 +262,6 @@ describe('PathRepository', () => {
 
       const result = await repository.createMarker({
         id: 'id',
-        key: 'key',
         pathId: 'path-id',
         cruxId: 'crux-id',
         order: 1,

@@ -27,7 +27,6 @@ describe('AccountService', () => {
 
   const mockAccountRaw = {
     id: 'account-id-123',
-    key: 'account-key-abc',
     email: 'test@example.com',
     role: 'author' as const,
     home_id: 'home-id-123',
@@ -75,7 +74,6 @@ describe('AccountService', () => {
 
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
-      generateKey: jest.fn().mockReturnValue('generated-key'),
     };
 
     const mockLoggerService = {
@@ -221,7 +219,6 @@ describe('AccountService', () => {
         ...createDto,
         email: 'new@example.com',
         id: 'generated-id',
-        key: 'generated-key',
       });
     });
 
@@ -453,7 +450,6 @@ describe('AccountService', () => {
     it('should delete an account with author and cascade delete content', async () => {
       const mockAuthor = {
         id: 'author-id-123',
-        key: 'author-key-abc',
         account_id: 'account-id-123',
         username: 'testuser',
         display_name: 'Test User',
@@ -471,7 +467,6 @@ describe('AccountService', () => {
       const mockCruxes = [
         {
           id: 'crux-1',
-          key: 'crux-key-1',
           slug: 'crux-1',
           title: null,
           description: null,
@@ -490,7 +485,6 @@ describe('AccountService', () => {
         },
         {
           id: 'crux-2',
-          key: 'crux-key-2',
           slug: 'crux-2',
           title: null,
           description: null,

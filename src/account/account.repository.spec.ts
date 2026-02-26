@@ -9,7 +9,6 @@ describe('AccountRepository', () => {
 
   const mockAccount = {
     id: 'account-id',
-    key: 'account-key',
     email: 'test@example.com',
     role: 'author' as const,
     created: new Date(),
@@ -106,7 +105,6 @@ describe('AccountRepository', () => {
     it('should create account successfully', async () => {
       const createData = {
         id: 'account-id',
-        key: 'account-key',
         email: 'test@example.com',
       };
 
@@ -130,7 +128,6 @@ describe('AccountRepository', () => {
 
       const result = await repository.create({
         id: 'id',
-        key: 'key',
         email: 'test@example.com',
       });
 

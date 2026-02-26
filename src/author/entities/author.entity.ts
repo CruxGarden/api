@@ -1,6 +1,5 @@
 export default class Author {
   id: string;
-  key: string;
   username: string;
   displayName: string;
   bio?: string;

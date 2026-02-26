@@ -88,7 +88,6 @@ export class AccountService {
   async create(createAccountDto: CreateAccountDto): Promise<Account> {
     createAccountDto.email = this.formatEmail(createAccountDto.email);
     createAccountDto.id = createAccountDto.id || this.keyMaster.generateId();
-    createAccountDto.key = createAccountDto.key || this.keyMaster.generateKey();
 
     // 1) check if email already exists
     const existing = await this.findByEmail(createAccountDto.email);

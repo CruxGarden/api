@@ -15,7 +15,6 @@ describe('DimensionService', () => {
 
   const mockDimensionRaw = {
     id: 'dimension-id-123',
-    key: 'dimension-key-abc',
     source_id: 'crux-source-123',
     target_id: 'crux-target-456',
     type: 'gate' as const,
@@ -39,7 +38,6 @@ describe('DimensionService', () => {
 
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
-      generateKey: jest.fn().mockReturnValue('generated-key'),
     };
 
     const mockLoggerService = {
@@ -97,42 +95,6 @@ describe('DimensionService', () => {
     });
   });
 
-  describe('findByKey', () => {
-    it('should return a dimension when found', async () => {
-      repository.findBy.mockResolvedValue({
-        data: mockDimensionRaw,
-        error: null,
-      });
-
-      const result = await service.findByKey('dimension-key-abc');
-
-      expect(result.key).toBe('dimension-key-abc');
-      expect(repository.findBy).toHaveBeenCalledWith(
-        'key',
-        'dimension-key-abc',
-      );
-    });
-
-    it('should throw NotFoundException when dimension not found', async () => {
-      repository.findBy.mockResolvedValue({ data: null, error: null });
-
-      await expect(service.findByKey('invalid-key')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findBy.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(service.findByKey('dimension-key')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
   describe('create', () => {
     const createDto = {
       targetId: 'crux-target-456',
@@ -155,7 +117,6 @@ describe('DimensionService', () => {
       expect(repository.create).toHaveBeenCalledWith({
         ...createDto,
         id: 'generated-id',
-        key: 'generated-key',
       });
     });
 
@@ -185,7 +146,7 @@ describe('DimensionService', () => {
         error: null,
       });
 
-      const result = await service.update('dimension-key-abc', updateDto);
+      const result = await service.update('dimension-id-123', updateDto);
 
       expect(result.type).toBe('garden');
       expect(repository.update).toHaveBeenCalledWith(
@@ -204,7 +165,7 @@ describe('DimensionService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('dimension-key', updateDto)).rejects.toThrow(
+      await expect(service.update('dimension-id-123', updateDto)).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -218,7 +179,7 @@ describe('DimensionService', () => {
       });
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.delete('dimension-key-abc');
+      const result = await service.delete('dimension-id-123');
 
       expect(result).toBeNull();
       expect(repository.delete).toHaveBeenCalledWith(mockDimensionRaw.id);
@@ -234,7 +195,7 @@ describe('DimensionService', () => {
         error: new Error('Delete failed'),
       });
 
-      await expect(service.delete('dimension-key')).rejects.toThrow(
+      await expect(service.delete('dimension-id-123')).rejects.toThrow(
         InternalServerErrorException,
       );
     });

@@ -9,7 +9,6 @@ describe('AttachmentRepository', () => {
 
   const mockAttachment = {
     id: 'attachment-id',
-    key: 'attachment-key',
     type: 'image',
     kind: 'photo',
     meta: { caption: 'Test image' },
@@ -71,20 +70,20 @@ describe('AttachmentRepository', () => {
     it('should return attachment when found', async () => {
       mockQueryBuilder.first.mockResolvedValue(mockAttachment);
 
-      const result = await repository.findBy('key', 'attachment-key');
+      const result = await repository.findBy('id', 'attachment-id');
 
       expect(result.data).toEqual(mockAttachment);
       expect(result.error).toBeNull();
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'key',
-        'attachment-key',
+        'id',
+        'attachment-id',
       );
     });
 
     it('should return error on exception', async () => {
       mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
 
-      const result = await repository.findBy('key', 'attachment-key');
+      const result = await repository.findBy('id', 'attachment-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
@@ -133,7 +132,6 @@ describe('AttachmentRepository', () => {
     it('should create attachment successfully', async () => {
       const createData = {
         id: 'attachment-id',
-        key: 'attachment-key',
         type: 'image',
         kind: 'photo',
         meta: { caption: 'Test' },
@@ -167,7 +165,6 @@ describe('AttachmentRepository', () => {
 
       const result = await repository.create({
         id: 'id',
-        key: 'key',
         type: 'image',
         kind: 'photo',
         resourceId: 'resource',

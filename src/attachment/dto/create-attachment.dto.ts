@@ -11,14 +11,6 @@ export class CreateAttachmentDto {
   @IsString()
   id?: string;
 
-  @ApiPropertyOptional({
-    description: 'Unique key for the attachment (auto-generated)',
-    example: 'TKSoWfISLG_',
-  })
-  @IsOptional()
-  @IsString()
-  key?: string;
-
   @ApiProperty({
     description: 'Type of the attachment',
     example: 'image',

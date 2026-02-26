@@ -25,7 +25,6 @@ describe('PathService', () => {
 
   const mockPathRaw = {
     id: 'path-id-123',
-    key: 'path-key-abc',
     slug: 'test-path',
     title: 'Test Path',
     description: 'A test path',
@@ -43,7 +42,6 @@ describe('PathService', () => {
 
   const mockMarkerRaw = {
     id: 'marker-id-123',
-    key: 'marker-key-abc',
     path_id: 'path-id-123',
     crux_id: 'crux-id-456',
     order: 1,
@@ -57,7 +55,6 @@ describe('PathService', () => {
 
   const mockCrux = {
     id: 'crux-id-456',
-    key: 'crux-key',
     slug: 'test-crux',
   };
 
@@ -79,12 +76,11 @@ describe('PathService', () => {
     };
 
     const mockCruxService = {
-      findByKey: jest.fn(),
+      findById: jest.fn(),
     };
 
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
-      generateKey: jest.fn().mockReturnValue('generated-key'),
     };
 
     const mockLoggerService = {
@@ -99,7 +95,6 @@ describe('PathService', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-id-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -156,28 +151,6 @@ describe('PathService', () => {
     });
   });
 
-  describe('findByKey', () => {
-    it('should return a path when found', async () => {
-      repository.findBy.mockResolvedValue({
-        data: mockPathRaw,
-        error: null,
-      });
-
-      const result = await service.findByKey('path-key-abc');
-
-      expect(result.key).toBe('path-key-abc');
-      expect(repository.findBy).toHaveBeenCalledWith('key', 'path-key-abc');
-    });
-
-    it('should throw NotFoundException when path not found', async () => {
-      repository.findBy.mockResolvedValue({ data: null, error: null });
-
-      await expect(service.findByKey('invalid-key')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
   describe('create', () => {
     const createDto = {
       slug: 'test-path',
@@ -201,7 +174,6 @@ describe('PathService', () => {
       expect(repository.create).toHaveBeenCalledWith({
         ...createDto,
         id: 'generated-id',
-        key: 'generated-key',
       });
     });
 
@@ -231,7 +203,7 @@ describe('PathService', () => {
         error: null,
       });
 
-      const result = await service.update('path-key-abc', updateDto);
+      const result = await service.update('path-id-123', updateDto);
 
       expect(result.title).toBe('Updated Title');
       expect(repository.update).toHaveBeenCalledWith(mockPathRaw.id, updateDto);
@@ -247,7 +219,7 @@ describe('PathService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('path-key', updateDto)).rejects.toThrow(
+      await expect(service.update('path-id-123', updateDto)).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -261,7 +233,7 @@ describe('PathService', () => {
       });
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.delete('path-key-abc');
+      const result = await service.delete('path-id-123');
 
       expect(result).toBeNull();
       expect(repository.delete).toHaveBeenCalledWith(mockPathRaw.id);
@@ -270,7 +242,7 @@ describe('PathService', () => {
     it('should throw NotFoundException when path not found', async () => {
       repository.findBy.mockResolvedValue({ data: null, error: null });
 
-      await expect(service.delete('path-key')).rejects.toThrow(
+      await expect(service.delete('invalid-id')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -285,7 +257,7 @@ describe('PathService', () => {
         error: new Error('Delete failed'),
       });
 
-      await expect(service.delete('path-key')).rejects.toThrow(
+      await expect(service.delete('path-id-123')).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -302,7 +274,7 @@ describe('PathService', () => {
         error: null,
       });
 
-      const result = await service.getMarkers('path-key-abc');
+      const result = await service.getMarkers('path-id-123');
 
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe('marker-id-123');
@@ -321,7 +293,7 @@ describe('PathService', () => {
         error: new Error('Fetch error'),
       });
 
-      await expect(service.getMarkers('path-key')).rejects.toThrow(
+      await expect(service.getMarkers('path-id-123')).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -329,7 +301,7 @@ describe('PathService', () => {
 
   describe('syncMarkers', () => {
     const markerInputs = [
-      { cruxKey: 'crux-key', order: 1, note: 'Test marker' },
+      { cruxId: 'crux-id-456', order: 1, note: 'Test marker' },
     ];
 
     it('should sync markers successfully', async () => {
@@ -341,14 +313,14 @@ describe('PathService', () => {
         data: null,
         error: null,
       });
-      cruxService.findByKey.mockResolvedValue(mockCrux as any);
+      cruxService.findById.mockResolvedValue(mockCrux as any);
       repository.createMarker.mockResolvedValue({
         data: mockMarkerRaw,
         error: null,
       });
 
       const result = await service.syncMarkers(
-        'path-key',
+        'path-id-123',
         markerInputs,
         'author-123',
       );
@@ -369,10 +341,10 @@ describe('PathService', () => {
         data: null,
         error: null,
       });
-      cruxService.findByKey.mockResolvedValue(null);
+      cruxService.findById.mockResolvedValue(null);
 
       await expect(
-        service.syncMarkers('path-key', markerInputs, 'author-123'),
+        service.syncMarkers('path-id-123', markerInputs, 'author-123'),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -387,7 +359,7 @@ describe('PathService', () => {
       });
 
       await expect(
-        service.syncMarkers('path-key', markerInputs, 'author-123'),
+        service.syncMarkers('path-id-123', markerInputs, 'author-123'),
       ).rejects.toThrow(InternalServerErrorException);
     });
 
@@ -400,14 +372,14 @@ describe('PathService', () => {
         data: null,
         error: null,
       });
-      cruxService.findByKey.mockResolvedValue(mockCrux as any);
+      cruxService.findById.mockResolvedValue(mockCrux as any);
       repository.createMarker.mockResolvedValue({
         data: null,
         error: new Error('Create failed'),
       });
 
       await expect(
-        service.syncMarkers('path-key', markerInputs, 'author-123'),
+        service.syncMarkers('path-id-123', markerInputs, 'author-123'),
       ).rejects.toThrow(InternalServerErrorException);
     });
   });
@@ -417,12 +389,12 @@ describe('PathService', () => {
       const mockTags = [{ label: 'test-tag' }] as any;
       tagService.getTags.mockResolvedValue(mockTags);
 
-      const result = await service.getTags('path-key', 'filter');
+      const result = await service.getTags('path-id-123', 'filter');
 
       expect(result).toEqual(mockTags);
       expect(tagService.getTags).toHaveBeenCalledWith(
         ResourceType.PATH,
-        'path-key',
+        'path-id-123',
         'filter',
       );
     });
@@ -434,7 +406,7 @@ describe('PathService', () => {
       tagService.syncTags.mockResolvedValue(mockTags);
 
       const result = await service.syncTags(
-        'path-key',
+        'path-id-123',
         ['tag1', 'tag2'],
         'author-123',
       );
@@ -442,7 +414,7 @@ describe('PathService', () => {
       expect(result).toEqual(mockTags);
       expect(tagService.syncTags).toHaveBeenCalledWith(
         ResourceType.PATH,
-        'path-key',
+        'path-id-123',
         ['tag1', 'tag2'],
         'author-123',
       );

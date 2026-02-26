@@ -48,7 +48,6 @@ export async function seed(knex: Knex): Promise<void> {
     const demoCruxes = [
         {
             id: cruxIds.whatIsCruxGarden,
-            key: 'x5cePKOMDLtq4VGP',
             slug: 'what-is-crux-garden',
             title: 'What is Crux Garden?',
             description: null,
@@ -63,7 +62,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.theGateDimension,
-            key: '6JkpJQhNXN1BfNZ0',
             slug: 'the-gate-dimension',
             title: 'The Gate Dimension',
             description: null,
@@ -78,7 +76,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.theGardenDimension,
-            key: 'q-f42iFP9NN--m4j',
             slug: 'the-garden-dimension',
             title: 'The Garden Dimension',
             description: null,
@@ -93,7 +90,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.theGrowthDimension,
-            key: 'qMLz86MestQUfIaf',
             slug: 'the-growth-dimension',
             title: 'The Growth Dimension',
             description: null,
@@ -108,7 +104,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.theGraftDimension,
-            key: '4Vtt0OtmKzzZEtYW',
             slug: 'the-graft-dimension',
             title: 'The Graft Dimension',
             description: null,
@@ -124,7 +119,6 @@ export async function seed(knex: Knex): Promise<void> {
         // Gate examples
         {
             id: cruxIds.theMemex,
-            key: 'M3m3xBush1945VB',
             slug: 'the-memex',
             title: 'The Memex (1945)',
             description: 'Vannevar Bush\'s vision of associative memory',
@@ -139,7 +133,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.digitalGardens,
-            key: 'D1g1talGard3n5MV',
             slug: 'digital-gardens-movement',
             title: 'Digital Gardens Movement',
             description: 'Growing ideas in public',
@@ -154,7 +147,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.graphDatabases,
-            key: 'GraphDb5N3o4jCyph',
             slug: 'graph-databases',
             title: 'Graph Databases',
             description: 'Storing relationships as first-class citizens',
@@ -169,7 +161,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.interactiveFiction,
-            key: 'Int3ract1v3F1ct10n',
             slug: 'interactive-fiction',
             title: 'Interactive Fiction',
             description: 'Stories where readers make choices',
@@ -185,7 +176,6 @@ export async function seed(knex: Knex): Promise<void> {
         // Garden examples
         {
             id: cruxIds.researchProjects,
-            key: 'R3s3archPr0j3cts',
             slug: 'research-projects',
             title: 'Research Projects',
             description: 'Connected knowledge that evolves',
@@ -200,7 +190,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.interactiveStories,
-            key: 'Int3ract1v3St0r13s',
             slug: 'interactive-stories',
             title: 'Interactive Stories',
             description: 'Narrative experiences with branching paths',
@@ -215,7 +204,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.livingDocumentation,
-            key: 'L1v1ngD0cum3ntat1on',
             slug: 'living-documentation',
             title: 'Living Documentation',
             description: 'Documentation that grows with your project',
@@ -230,7 +218,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.collaborativeWorlds,
-            key: 'C0llab0rat1v3W0rlds',
             slug: 'collaborative-worlds',
             title: 'Collaborative Worlds',
             description: 'Shared universes built together',
@@ -246,7 +233,6 @@ export async function seed(knex: Knex): Promise<void> {
         // Growth examples
         {
             id: cruxIds.originalConcept,
-            key: '0r1g1nalC0nc3ptSt0ry',
             slug: 'original-concept',
             title: 'Original Concept: Storytelling',
             description: 'Where Crux Garden began',
@@ -261,7 +247,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.discoveryOfFourDimensions,
-            key: 'D1sc0v3ry4D1m3ns10ns',
             slug: 'discovery-of-four-dimensions',
             title: 'Discovery of Four Dimensions',
             description: 'Realizing all relationships have types',
@@ -276,7 +261,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.fractalRealization,
-            key: 'Fract4lR3al1zat10n',
             slug: 'fractal-realization',
             title: 'Fractal Realization',
             description: 'The model scales infinitely',
@@ -291,7 +275,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.mediumForImagination,
-            key: 'M3d1umF0rImag1nat10n',
             slug: 'medium-for-imagination',
             title: 'Medium for Imagination',
             description: 'The current vision',
@@ -307,7 +290,6 @@ export async function seed(knex: Knex): Promise<void> {
         // Graft examples
         {
             id: cruxIds.toolsForThought,
-            key: 'T00lsF0rTh0ughtMvt',
             slug: 'tools-for-thought',
             title: 'Tools for Thought Movement',
             description: 'Software that augments thinking',
@@ -322,7 +304,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.pkm,
-            key: 'P3rs0nalKn0wl3dg3Mgt',
             slug: 'personal-knowledge-management',
             title: 'Personal Knowledge Management',
             description: 'Systems for organizing what you learn',
@@ -337,7 +318,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.zettelkasten,
-            key: 'Z3tt3lkast3nM3th0d',
             slug: 'zettelkasten-method',
             title: 'Zettelkasten Method',
             description: 'The slip-box system',
@@ -352,7 +332,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: cruxIds.collectiveIntelligence,
-            key: 'C0ll3ct1v3Int3ll1g3nc3',
             slug: 'collective-intelligence',
             title: 'Collective Intelligence',
             description: 'Thinking together',
@@ -370,7 +349,7 @@ export async function seed(knex: Knex): Promise<void> {
     // Check each crux and only insert if it doesn't exist
     for (const crux of demoCruxes) {
         const existing = await knex("cruxes")
-            .where({ key: crux.key })
+            .where({ id: crux.id })
             .first();
 
         if (!existing) {
@@ -382,7 +361,6 @@ export async function seed(knex: Knex): Promise<void> {
     const demoDimensions = [
         {
             id: '3d248351-8c39-4bed-9c09-fd7aa26a4fce',
-            key: '-YJW6HbzsPIFg5LT',
             source_id: cruxIds.keeperRoot,
             target_id: cruxIds.whatIsCruxGarden,
             type: 'garden',
@@ -393,7 +371,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: '419ffdad-c43a-4b86-a44c-2fd069e93e55',
-            key: '-Vvo42QGdKQ-5gst',
             source_id: cruxIds.whatIsCruxGarden,
             target_id: cruxIds.theGateDimension,
             type: 'garden',
@@ -404,7 +381,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: '535c1cf8-ad2a-4523-aba9-6e059414e290',
-            key: 'mpkTND2M6K4aoYkX',
             source_id: cruxIds.whatIsCruxGarden,
             target_id: cruxIds.theGardenDimension,
             type: 'garden',
@@ -415,7 +391,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: '7b2d3451-e8e0-480c-931f-03ec1644e03f',
-            key: 'iZnSwslMQ1Ufw4fw',
             source_id: cruxIds.whatIsCruxGarden,
             target_id: cruxIds.theGrowthDimension,
             type: 'garden',
@@ -426,7 +401,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: '9848697d-17a8-4612-9f51-2df2aae69367',
-            key: 'F0ZCJEW9Gl7mjAI5',
             source_id: cruxIds.whatIsCruxGarden,
             target_id: cruxIds.theGraftDimension,
             type: 'garden',
@@ -438,7 +412,6 @@ export async function seed(knex: Knex): Promise<void> {
         // Gate examples - connect from "The Gate Dimension" to demonstrate gate relationships
         {
             id: 'a1111111-1111-1111-1111-111111111111',
-            key: 'gat3Mem3xExampl3',
             source_id: cruxIds.theGateDimension,
             target_id: cruxIds.theMemex,
             type: 'gate',
@@ -449,7 +422,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'a2222222-2222-2222-2222-222222222222',
-            key: 'gat3D1g1talGard3n',
             source_id: cruxIds.theGateDimension,
             target_id: cruxIds.digitalGardens,
             type: 'gate',
@@ -460,7 +432,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'a3333333-3333-3333-3333-333333333333',
-            key: 'gat3GraphDbExampl3',
             source_id: cruxIds.theGateDimension,
             target_id: cruxIds.graphDatabases,
             type: 'gate',
@@ -471,7 +442,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'a4444444-4444-4444-4444-444444444444',
-            key: 'gat3Int3ract1v3F1c',
             source_id: cruxIds.theGateDimension,
             target_id: cruxIds.interactiveFiction,
             type: 'gate',
@@ -483,7 +453,6 @@ export async function seed(knex: Knex): Promise<void> {
         // Garden examples - connect from "The Garden Dimension" to demonstrate garden relationships
         {
             id: 'b1111111-1111-1111-1111-111111111111',
-            key: 'gard3nR3s3archPrj',
             source_id: cruxIds.theGardenDimension,
             target_id: cruxIds.researchProjects,
             type: 'garden',
@@ -494,7 +463,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'b2222222-2222-2222-2222-222222222222',
-            key: 'gard3nInt3ractSt0ry',
             source_id: cruxIds.theGardenDimension,
             target_id: cruxIds.interactiveStories,
             type: 'garden',
@@ -505,7 +473,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'b3333333-3333-3333-3333-333333333333',
-            key: 'gard3nL1v1ngD0cs',
             source_id: cruxIds.theGardenDimension,
             target_id: cruxIds.livingDocumentation,
             type: 'garden',
@@ -516,7 +483,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'b4444444-4444-4444-4444-444444444444',
-            key: 'gard3nC0llab0Wrlds',
             source_id: cruxIds.theGardenDimension,
             target_id: cruxIds.collaborativeWorlds,
             type: 'garden',
@@ -528,7 +494,6 @@ export async function seed(knex: Knex): Promise<void> {
         // Growth examples - connect showing evolution of Crux Garden concept
         {
             id: 'c1111111-1111-1111-1111-111111111111',
-            key: 'gr0wth0r1g1nalC0nc3pt',
             source_id: cruxIds.whatIsCruxGarden,
             target_id: cruxIds.originalConcept,
             type: 'growth',
@@ -539,7 +504,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'c2222222-2222-2222-2222-222222222222',
-            key: 'gr0wthD1sc0v3ry4D',
             source_id: cruxIds.originalConcept,
             target_id: cruxIds.discoveryOfFourDimensions,
             type: 'growth',
@@ -550,7 +514,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'c3333333-3333-3333-3333-333333333333',
-            key: 'gr0wthFract4lR3al',
             source_id: cruxIds.discoveryOfFourDimensions,
             target_id: cruxIds.fractalRealization,
             type: 'growth',
@@ -561,7 +524,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'c4444444-4444-4444-4444-444444444444',
-            key: 'gr0wthM3d1umImag',
             source_id: cruxIds.fractalRealization,
             target_id: cruxIds.mediumForImagination,
             type: 'growth',
@@ -573,7 +535,6 @@ export async function seed(knex: Knex): Promise<void> {
         // Graft examples - connect from "The Graft Dimension" to demonstrate graft relationships
         {
             id: 'd1111111-1111-1111-1111-111111111111',
-            key: 'graftT00lsTh0ught',
             source_id: cruxIds.theGraftDimension,
             target_id: cruxIds.toolsForThought,
             type: 'graft',
@@ -584,7 +545,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'd2222222-2222-2222-2222-222222222222',
-            key: 'graftPKMExampl3',
             source_id: cruxIds.theGraftDimension,
             target_id: cruxIds.pkm,
             type: 'graft',
@@ -595,7 +555,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'd3333333-3333-3333-3333-333333333333',
-            key: 'graftZ3tt3lkast3n',
             source_id: cruxIds.theGraftDimension,
             target_id: cruxIds.zettelkasten,
             type: 'graft',
@@ -606,7 +565,6 @@ export async function seed(knex: Knex): Promise<void> {
         },
         {
             id: 'd4444444-4444-4444-4444-444444444444',
-            key: 'graftC0ll3ct1v3Int',
             source_id: cruxIds.theGraftDimension,
             target_id: cruxIds.collectiveIntelligence,
             type: 'graft',
@@ -620,7 +578,7 @@ export async function seed(knex: Knex): Promise<void> {
     // Check each dimension and only insert if it doesn't exist
     for (const dimension of demoDimensions) {
         const existing = await knex("dimensions")
-            .where({ key: dimension.key })
+            .where({ id: dimension.id })
             .first();
 
         if (!existing) {

@@ -67,7 +67,7 @@ export class AuthService {
   }
 
   async genRefreshToken(grantId: string): Promise<string> {
-    const refreshToken = this.keyMaster.generateKey(AUTH_TOKEN_LENGTH);
+    const refreshToken = this.keyMaster.generateToken(AUTH_TOKEN_LENGTH);
     await this.redisService.set(
       this.refreshTokenKey(refreshToken),
       grantId,
@@ -78,7 +78,7 @@ export class AuthService {
   }
 
   async genGrantId(email: string): Promise<string> {
-    const grantId = this.keyMaster.generateKey(AUTH_TOKEN_LENGTH);
+    const grantId = this.keyMaster.generateToken(AUTH_TOKEN_LENGTH);
     await this.redisService.set(
       this.grantEmailKey(email),
       grantId,
@@ -126,7 +126,7 @@ export class AuthService {
   }
 
   async code(authCodeDto: AuthCodeDto): Promise<string> {
-    const uid = this.keyMaster.generateKey(AUTH_TOKEN_LENGTH);
+    const uid = this.keyMaster.generateToken(AUTH_TOKEN_LENGTH);
     const email = lower(authCodeDto.email);
     await this.redisService.set(this.codeKey(uid), email, CODE_EXPIRE);
     await this.emailService.send({
@@ -167,7 +167,6 @@ export class AuthService {
       try {
         account = await this.accountService.create({
           id: accountId,
-          key: this.keyMaster.generateKey(),
           email,
           role: AccountRole.AUTHOR,
           homeId: home.id,
@@ -186,7 +185,6 @@ export class AuthService {
       try {
         const author = await this.authorService.create({
           id: authorId,
-          key: this.keyMaster.generateKey(),
           accountId: accountId,
           username: name,
           displayName: name,

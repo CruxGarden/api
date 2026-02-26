@@ -85,7 +85,7 @@ export const TagSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', example: 'tag_123' },
-              key: { type: 'string', example: 'abcd1234' },
+
               resourceType: {
                 type: 'string',
                 enum: ['crux', 'path', 'theme'],
@@ -115,13 +115,13 @@ export const TagSwagger = {
   GetByKey: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get a tag by key',
-        description: 'Retrieves a single tag by its unique key.',
+        summary: 'Get a tag by ID',
+        description: 'Retrieves a single tag by its UUID.',
       }),
       ApiParam({
-        name: 'tagKey',
-        description: 'The unique key of the tag',
-        example: 'abcd1234',
+        name: 'id',
+        description: 'The UUID of the tag',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -131,7 +131,6 @@ export const TagSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', example: 'tag_123' },
-            key: { type: 'string', example: 'abcd1234' },
             resourceType: { type: 'string', example: 'crux' },
             resourceId: { type: 'string', example: 'crux_456' },
             label: { type: 'string', example: 'frontend-development' },
@@ -150,12 +149,12 @@ export const TagSwagger = {
       ApiOperation({
         summary: 'Update a tag',
         description:
-          'Updates the label of an existing tag by its key. This is an admin-only operation and affects ALL resources using this tag.',
+          'Updates the label of an existing tag by its ID. This is an admin-only operation and affects ALL resources using this tag.',
       }),
       ApiParam({
-        name: 'tagKey',
-        description: 'The unique key of the tag to update',
-        example: 'abcd1234',
+        name: 'id',
+        description: 'The UUID of the tag to update',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({ type: UpdateTagDto }),
       ApiBearerAuth(),
@@ -166,7 +165,6 @@ export const TagSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', example: 'tag_123' },
-            key: { type: 'string', example: 'abcd1234' },
             resourceType: {
               type: 'string',
               enum: ['crux', 'path', 'theme'],
@@ -198,12 +196,12 @@ export const TagSwagger = {
       ApiOperation({
         summary: 'Delete a tag',
         description:
-          'Soft deletes an existing tag by its key. This is an admin-only operation and affects ALL resources using this tag. The tag is marked as deleted but not permanently removed from the database.',
+          'Soft deletes an existing tag by its ID. This is an admin-only operation and affects ALL resources using this tag. The tag is marked as deleted but not permanently removed from the database.',
       }),
       ApiParam({
-        name: 'tagKey',
-        description: 'The unique key of the tag to delete',
-        example: 'abcd1234',
+        name: 'id',
+        description: 'The UUID of the tag to delete',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({

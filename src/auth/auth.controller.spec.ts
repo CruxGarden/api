@@ -12,7 +12,6 @@ describe('AuthController', () => {
 
   const mockAccount = {
     id: 'account-123',
-    key: 'account-key',
     email: 'test@example.com',
     role: AccountRole.AUTHOR,
     created: new Date(),

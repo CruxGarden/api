@@ -49,19 +49,8 @@ export class HomeService {
     return this.asHome(home);
   }
 
-  async findByKey(key: string): Promise<Home> {
-    const { data: home, error } = await this.homeRepository.findBy('key', key);
-
-    if (error || !home) {
-      throw new NotFoundException('Home not found');
-    }
-
-    return this.asHome(home);
-  }
-
   async create(createHomeDto: CreateHomeDto): Promise<Home> {
     createHomeDto.id = this.keyMaster.generateId();
-    createHomeDto.key = this.keyMaster.generateKey();
 
     const created = await this.homeRepository.create(createHomeDto);
     if (created.error)
@@ -72,9 +61,9 @@ export class HomeService {
     return this.asHome(created.data);
   }
 
-  async update(homeKey: string, updateDto: UpdateHomeDto): Promise<Home> {
+  async update(homeId: string, updateDto: UpdateHomeDto): Promise<Home> {
     // 1) fetch home
-    const homeToUpdate = await this.findByKey(homeKey);
+    const homeToUpdate = await this.findById(homeId);
 
     // 2) update home
     const updated = await this.homeRepository.update(
@@ -89,8 +78,8 @@ export class HomeService {
     return this.asHome(updated.data);
   }
 
-  async delete(homeKey: string): Promise<null> {
-    const homeToDelete = await this.findByKey(homeKey);
+  async delete(homeId: string): Promise<null> {
+    const homeToDelete = await this.findById(homeId);
     if (!homeToDelete) throw new NotFoundException('Home not found');
 
     const { error: deleteError } = await this.homeRepository.delete(

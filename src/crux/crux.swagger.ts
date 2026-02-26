@@ -45,7 +45,6 @@ export const CruxSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', example: 'crux_123' },
-              key: { type: 'string', example: 'abc123' },
               slug: { type: 'string', example: 'my-awesome-crux' },
               title: { type: 'string', example: 'My Awesome Crux' },
               description: {
@@ -97,7 +96,6 @@ export const CruxSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', example: 'crux_123' },
-            key: { type: 'string', example: 'abc123' },
             slug: { type: 'string', example: 'my-awesome-crux' },
             title: { type: 'string', example: 'My Awesome Crux' },
             description: {
@@ -134,18 +132,17 @@ export const CruxSwagger = {
       ApiOperation({
         summary: 'Get a crux by identifier',
         description:
-          'Retrieves a specific crux by its UUID, key, or slug (prefixed with +).',
+          'Retrieves a specific crux by its UUID or slug.',
       }),
       ApiParam({
         name: 'identifier',
-        description: 'The UUID, key, or slug (with + prefix) of the crux',
+        description: 'The UUID or slug of the crux',
         examples: {
           uuid: {
             value: 'be464476-892a-40f5-b26b-ee340f060c72',
             description: 'UUID',
           },
-          key: { value: 'abc123', description: 'Short key' },
-          slug: { value: '+my-crux', description: 'Slug with + prefix' },
+          slug: { value: 'my-crux', description: 'Slug' },
         },
       }),
       ApiResponse({
@@ -155,7 +152,6 @@ export const CruxSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', example: 'crux_123' },
-            key: { type: 'string', example: 'abc123' },
             slug: { type: 'string', example: 'my-awesome-crux' },
             title: { type: 'string', example: 'My Awesome Crux' },
             description: {
@@ -194,9 +190,9 @@ export const CruxSwagger = {
           'Updates an existing crux with the provided data. Requires authentication and ownership.',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the crux to update',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the crux to update',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({ type: UpdateCruxDto }),
       ApiBearerAuth(),
@@ -207,7 +203,6 @@ export const CruxSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', example: 'crux_123' },
-            key: { type: 'string', example: 'abc123' },
             slug: { type: 'string', example: 'my-awesome-crux' },
             title: { type: 'string', example: 'My Updated Crux' },
             description: { type: 'string', example: 'Updated description' },
@@ -245,9 +240,9 @@ export const CruxSwagger = {
           'Deletes an existing crux. Requires authentication and ownership.',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the crux to delete',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the crux to delete',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -266,9 +261,9 @@ export const CruxSwagger = {
         description: 'Retrieves all tags associated with a specific crux.',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -299,9 +294,9 @@ export const CruxSwagger = {
           'Replaces all tags for a crux with the provided list. Tags must be in kebab-case format.',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({
         schema: {
@@ -325,7 +320,6 @@ export const CruxSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'TKSoWfISLG_' },
               label: { type: 'string', example: 'web-development' },
               resourceType: { type: 'string', example: 'crux' },
               resourceId: { type: 'string', format: 'uuid' },
@@ -355,9 +349,9 @@ export const CruxSwagger = {
           'Retrieves all dimensional relationships where this crux is the source. Dimensions can be filtered by type and optionally include embedded source/target crux data.',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the source crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the source crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiQuery({
         name: 'type',
@@ -376,7 +370,7 @@ export const CruxSwagger = {
           default: {
             value: 'target',
             description:
-              'Default - embeds target crux only (key, slug, title, data)',
+              'Default - embeds target crux only (id, slug, title, data)',
           },
           none: {
             value: 'none',
@@ -405,7 +399,6 @@ export const CruxSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'dim_abc123' },
               sourceId: {
                 type: 'string',
                 format: 'uuid',
@@ -432,7 +425,6 @@ export const CruxSwagger = {
                   'Embedded source crux data (only present if embed includes "source")',
                 properties: {
                   id: { type: 'string', format: 'uuid' },
-                  key: { type: 'string', example: 'crux_abc' },
                   slug: { type: 'string', example: 'my-source-crux' },
                   title: { type: 'string', example: 'Source Crux Title' },
                   data: { type: 'string', example: 'Source crux content...' },
@@ -444,7 +436,6 @@ export const CruxSwagger = {
                   'Embedded target crux data (present by default, excluded if embed=none or embed=source)',
                 properties: {
                   id: { type: 'string', format: 'uuid' },
-                  key: { type: 'string', example: 'crux_xyz' },
                   slug: { type: 'string', example: 'my-target-crux' },
                   title: { type: 'string', example: 'Target Crux Title' },
                   data: { type: 'string', example: 'Target crux content...' },
@@ -465,9 +456,9 @@ export const CruxSwagger = {
           'Creates a new dimensional relationship from this crux to another crux.',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the source crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the source crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -500,9 +491,9 @@ export const CruxSwagger = {
           'Updates an existing dimensional relationship. Requires authentication and ownership of the source crux.',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the source crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the source crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiParam({
         name: 'dimensionId',
@@ -538,9 +529,9 @@ export const CruxSwagger = {
           'Retrieves all file attachments associated with a specific crux.',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
@@ -552,7 +543,6 @@ export const CruxSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              key: { type: 'string', example: 'TKSoWfISLG_' },
               type: { type: 'string', example: 'image' },
               kind: { type: 'string', example: 'photo' },
               filename: { type: 'string', example: 'screenshot.png' },
@@ -576,9 +566,9 @@ export const CruxSwagger = {
           'Uploads a file and creates an attachment record for a crux. Max file size: 50MB. Requires authentication and crux ownership.',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiConsumes('multipart/form-data'),
       ApiBody({
@@ -617,7 +607,6 @@ export const CruxSwagger = {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            key: { type: 'string', example: 'TKSoWfISLG_' },
             type: { type: 'string', example: 'image' },
             kind: { type: 'string', example: 'photo' },
             filename: { type: 'string', example: 'screenshot.png' },
@@ -647,14 +636,14 @@ export const CruxSwagger = {
           'Downloads the file for a specific attachment. Returns the file with appropriate Content-Type and Content-Disposition headers. Cached for 1 year.',
       }),
       ApiParam({
-        name: 'cruxKey',
-        description: 'The unique key of the crux',
-        example: 'abc123',
+        name: 'id',
+        description: 'The UUID of the crux',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiParam({
-        name: 'attachmentKey',
-        description: 'The unique key of the attachment',
-        example: 'TKSoWfISLG_',
+        name: 'attachmentId',
+        description: 'The UUID of the attachment',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiResponse({
         status: 200,

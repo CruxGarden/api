@@ -3,7 +3,6 @@ export default class Theme {
   authorId: string;
   homeId: string;
   title: string;
-  key: string;
   description?: string;
   type?: string;
   kind?: string;

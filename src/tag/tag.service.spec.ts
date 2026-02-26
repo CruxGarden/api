@@ -16,7 +16,6 @@ describe('TagService', () => {
 
   const mockTagRaw = {
     id: 'tag-id-123',
-    key: 'tag-key-abc',
     resource_type: ResourceType.CRUX,
     resource_id: 'crux-123',
     label: 'test-tag',
@@ -40,7 +39,6 @@ describe('TagService', () => {
 
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
-      generateKey: jest.fn().mockReturnValue('generated-key'),
     };
 
     const mockLoggerService = {
@@ -55,7 +53,6 @@ describe('TagService', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-id-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -116,36 +113,6 @@ describe('TagService', () => {
     });
   });
 
-  describe('findByKey', () => {
-    it('should return a tag when found', async () => {
-      repository.findBy.mockResolvedValue({ data: mockTagRaw, error: null });
-
-      const result = await service.findByKey('tag-key-abc');
-
-      expect(result.key).toBe('tag-key-abc');
-      expect(repository.findBy).toHaveBeenCalledWith('key', 'tag-key-abc');
-    });
-
-    it('should throw NotFoundException when tag not found', async () => {
-      repository.findBy.mockResolvedValue({ data: null, error: null });
-
-      await expect(service.findByKey('invalid-key')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findBy.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(service.findByKey('tag-key')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
   describe('update', () => {
     const updateDto = { label: 'updated-tag' };
 
@@ -154,7 +121,7 @@ describe('TagService', () => {
       repository.findBy.mockResolvedValue({ data: mockTagRaw, error: null });
       repository.update.mockResolvedValue({ data: updatedTag, error: null });
 
-      const result = await service.update('tag-key-abc', updateDto);
+      const result = await service.update('tag-id-123', updateDto);
 
       expect(result.label).toBe('updated-tag');
       expect(repository.update).toHaveBeenCalledWith(mockTagRaw.id, updateDto);
@@ -167,7 +134,7 @@ describe('TagService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('tag-key', updateDto)).rejects.toThrow(
+      await expect(service.update('tag-id-123', updateDto)).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -178,7 +145,7 @@ describe('TagService', () => {
       repository.findBy.mockResolvedValue({ data: mockTagRaw, error: null });
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.delete('tag-key-abc');
+      const result = await service.delete('tag-id-123');
 
       expect(result).toBeNull();
       expect(repository.delete).toHaveBeenCalledWith(mockTagRaw.id);
@@ -191,7 +158,7 @@ describe('TagService', () => {
         error: new Error('Delete failed'),
       });
 
-      await expect(service.delete('tag-key')).rejects.toThrow(
+      await expect(service.delete('tag-id-123')).rejects.toThrow(
         InternalServerErrorException,
       );
     });

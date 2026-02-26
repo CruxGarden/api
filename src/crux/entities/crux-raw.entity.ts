@@ -1,6 +1,5 @@
 export default interface CruxRaw {
   id: string;
-  key: string;
   slug: string;
   title?: string;
   description?: string;

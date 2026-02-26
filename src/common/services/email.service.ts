@@ -29,12 +29,17 @@ export class EmailService {
   }
 
   private hasAwsCredentials(): boolean {
-    return !!(
-      process.env.AWS_ACCESS_KEY_ID &&
-      process.env.AWS_SECRET_ACCESS_KEY &&
-      process.env.AWS_REGION &&
-      process.env.AWS_SES_FROM_EMAIL
-    );
+    const placeholders = ['dummy', 'your-key', 'your-secret', ''];
+    const key = process.env.AWS_ACCESS_KEY_ID ?? '';
+    const secret = process.env.AWS_SECRET_ACCESS_KEY ?? '';
+    const region = process.env.AWS_REGION ?? '';
+    const from = process.env.AWS_SES_FROM_EMAIL ?? '';
+
+    if (!key || !secret || !region || !from) return false;
+    if (placeholders.includes(key) || placeholders.includes(secret))
+      return false;
+
+    return true;
   }
 
   async send(params) {

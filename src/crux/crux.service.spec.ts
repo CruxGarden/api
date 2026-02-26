@@ -20,7 +20,6 @@ describe('CruxService', () => {
 
   const mockCruxRaw = {
     id: 'crux-id-123',
-    key: 'crux-key-abc',
     slug: 'test-crux',
     title: 'Test Crux',
     description: 'A test crux',
@@ -61,13 +60,12 @@ describe('CruxService', () => {
     const mockAttachmentService = {
       findByResource: jest.fn(),
       createWithFile: jest.fn(),
-      findByKey: jest.fn(),
+      findById: jest.fn(),
       downloadAttachment: jest.fn(),
     };
 
     const mockKeyMaster = {
       generateId: jest.fn().mockReturnValue('generated-id'),
-      generateKey: jest.fn().mockReturnValue('generated-key'),
     };
 
     const mockLoggerService = {
@@ -125,28 +123,6 @@ describe('CruxService', () => {
       });
 
       await expect(service.findById('crux-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
-  describe('findByKey', () => {
-    it('should return a crux when found', async () => {
-      repository.findBy.mockResolvedValue({
-        data: mockCruxRaw,
-        error: null,
-      });
-
-      const result = await service.findByKey('crux-key-abc');
-
-      expect(result.key).toBe('crux-key-abc');
-      expect(repository.findBy).toHaveBeenCalledWith('key', 'crux-key-abc');
-    });
-
-    it('should throw NotFoundException when crux not found', async () => {
-      repository.findBy.mockResolvedValue({ data: null, error: null });
-
-      await expect(service.findByKey('invalid-key')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -215,7 +191,6 @@ describe('CruxService', () => {
       expect(repository.create).toHaveBeenCalledWith({
         ...createDto,
         id: 'generated-id',
-        key: 'generated-key',
       });
     });
 
@@ -245,7 +220,7 @@ describe('CruxService', () => {
         error: null,
       });
 
-      const result = await service.update('crux-key-abc', updateDto);
+      const result = await service.update('crux-id-123', updateDto);
 
       expect(result.title).toBe('Updated Title');
       expect(repository.update).toHaveBeenCalledWith(mockCruxRaw.id, updateDto);
@@ -261,7 +236,7 @@ describe('CruxService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('crux-key', updateDto)).rejects.toThrow(
+      await expect(service.update('crux-id-123', updateDto)).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -275,7 +250,7 @@ describe('CruxService', () => {
       });
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.delete('crux-key-abc');
+      const result = await service.delete('crux-id-123');
 
       expect(result).toBeNull();
       expect(repository.delete).toHaveBeenCalledWith(mockCruxRaw.id);
@@ -284,7 +259,7 @@ describe('CruxService', () => {
     it('should throw NotFoundException when crux not found', async () => {
       repository.findBy.mockResolvedValue({ data: null, error: null });
 
-      await expect(service.delete('crux-key')).rejects.toThrow(
+      await expect(service.delete('invalid-id')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -299,7 +274,7 @@ describe('CruxService', () => {
         error: new Error('Delete failed'),
       });
 
-      await expect(service.delete('crux-key')).rejects.toThrow(
+      await expect(service.delete('crux-id-123')).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -337,7 +312,7 @@ describe('CruxService', () => {
       dimensionService.create.mockResolvedValue(mockDimension);
 
       const result = await service.createDimension(
-        'crux-key-abc',
+        'crux-id-123',
         createDimensionDto,
       );
 
@@ -352,7 +327,7 @@ describe('CruxService', () => {
       repository.findBy.mockResolvedValue({ data: null, error: null });
 
       await expect(
-        service.createDimension('invalid-key', createDimensionDto),
+        service.createDimension('invalid-id', createDimensionDto),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -382,10 +357,10 @@ describe('CruxService', () => {
       });
       tagService.getTags.mockResolvedValue(mockTags);
 
-      const result = await service.getTags('crux-key-abc', 'filter');
+      const result = await service.getTags('crux-id-123', 'filter');
 
       expect(result).toEqual(mockTags);
-      expect(repository.findBy).toHaveBeenCalledWith('key', 'crux-key-abc');
+      expect(repository.findBy).toHaveBeenCalledWith('id', 'crux-id-123');
       expect(tagService.getTags).toHaveBeenCalledWith(
         ResourceType.CRUX,
         mockCruxRaw.id,
@@ -404,13 +379,13 @@ describe('CruxService', () => {
       tagService.syncTags.mockResolvedValue(mockTags);
 
       const result = await service.syncTags(
-        'crux-key-abc',
+        'crux-id-123',
         ['tag1', 'tag2'],
         'author-123',
       );
 
       expect(result).toEqual(mockTags);
-      expect(repository.findBy).toHaveBeenCalledWith('key', 'crux-key-abc');
+      expect(repository.findBy).toHaveBeenCalledWith('id', 'crux-id-123');
       expect(tagService.syncTags).toHaveBeenCalledWith(
         ResourceType.CRUX,
         mockCruxRaw.id,

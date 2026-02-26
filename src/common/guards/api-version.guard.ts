@@ -1,8 +1,6 @@
 import {
   CanActivate,
   ExecutionContext,
-  HttpException,
-  HttpStatus,
   Injectable,
 } from '@nestjs/common';
 import { version } from '../../../package.json';
@@ -23,16 +21,10 @@ export class ApiVersionGuard implements CanActivate {
       return true;
     }
 
-    // Check if requested version is supported
+    // Log unsupported versions but don't block (disabled for now)
     if (!this.supportedVersions.includes(clientVersion)) {
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: `API version ${clientVersion} is not supported`,
-          supportedVersions: this.supportedVersions,
-          currentVersion: this.currentVersion,
-        },
-        HttpStatus.BAD_REQUEST,
+      console.warn(
+        `[ApiVersionGuard] Unsupported api-version: ${clientVersion} (supported: ${this.supportedVersions.join(', ')})`,
       );
     }
 

@@ -76,6 +76,7 @@
     "release:major": "npm version major && git push --follow-tag"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@aws-sdk/client-s3": "^3.908.0",
     "@aws-sdk/client-sesv2": "^3.849.0",
     "@nestjs/common": "^11.1.5",

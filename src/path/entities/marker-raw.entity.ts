@@ -1,6 +1,5 @@
 export default interface MarkerRaw {
   id: string;
-  key: string;
   path_id: string;
   crux_id: string;
   order: number;

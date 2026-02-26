@@ -19,14 +19,6 @@ export class CreateAccountDto {
   id: string;
 
   @ApiProperty({
-    description: 'Unique key for the account (auto-generated)',
-    example: 'TKSoWfISLG_',
-  })
-  @IsOptional()
-  @IsString()
-  key?: string;
-
-  @ApiProperty({
     description: 'Email address for the account',
     example: 'user@example.com',
     format: 'email',

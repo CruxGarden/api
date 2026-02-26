@@ -194,14 +194,14 @@ export const AuthorSwagger = {
   GetByIdentifier: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get an author by key or username',
+        summary: 'Get an author by ID or username',
         description:
-          'Retrieves a specific author by their key or username. Prefix identifier with @ to search by username (e.g., @johndoe), otherwise searches by key.',
+          'Retrieves a specific author by their UUID or username. Prefix identifier with @ to search by username (e.g., @johndoe), otherwise looks up by UUID.',
       }),
       ApiParam({
         name: 'identifier',
         description:
-          'Author key (e.g., "gHtdgqnJiE") or @username (e.g., "@johndoe")',
+          'Author UUID (e.g., "550e8400-e29b-41d4-a716-446655440000") or @username (e.g., "@johndoe")',
         example: '@johndoe',
       }),
       ApiQuery({
@@ -221,7 +221,6 @@ export const AuthorSwagger = {
               description: 'Author without embedded resources',
               properties: {
                 id: { type: 'string', example: 'author_123' },
-                key: { type: 'string', example: 'gHtdgqnJiE' },
                 username: { type: 'string', example: 'johndoe' },
                 displayName: { type: 'string', example: 'John Doe' },
                 bio: {
@@ -250,7 +249,6 @@ export const AuthorSwagger = {
               description: 'Author with embedded home crux (when ?embed=home)',
               properties: {
                 id: { type: 'string', example: 'author_123' },
-                key: { type: 'string', example: 'gHtdgqnJiE' },
                 username: { type: 'string', example: 'johndoe' },
                 displayName: { type: 'string', example: 'John Doe' },
                 bio: {
@@ -265,7 +263,6 @@ export const AuthorSwagger = {
                   type: 'object',
                   properties: {
                     id: { type: 'string', example: 'crux_789' },
-                    key: { type: 'string', example: 'abc123' },
                     title: { type: 'string', example: 'My Home Crux' },
                   },
                 },
@@ -287,9 +284,9 @@ export const AuthorSwagger = {
           'Updates an existing author profile. Requires authentication and ownership.',
       }),
       ApiParam({
-        name: 'authorKey',
-        description: 'The unique key of the author to update',
-        example: 'gHtdgqnJiE',
+        name: 'id',
+        description: 'The UUID of the author to update',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBody({ type: UpdateAuthorDto }),
       ApiBearerAuth(),
@@ -327,9 +324,9 @@ export const AuthorSwagger = {
           'Deletes an existing author profile. Requires authentication and ownership.',
       }),
       ApiParam({
-        name: 'authorKey',
-        description: 'The unique key of the author to delete',
-        example: 'gHtdgqnJiE',
+        name: 'id',
+        description: 'The UUID of the author to delete',
+        example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({

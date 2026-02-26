@@ -69,16 +69,6 @@ export class CruxService {
     return this.asCrux(data);
   }
 
-  async findByKey(key: string): Promise<Crux> {
-    const { data, error } = await this.cruxRepository.findBy('key', key);
-
-    if (error || !data) {
-      throw new NotFoundException('Crux not found');
-    }
-
-    return this.asCrux(data);
-  }
-
   async findBySlug(slug: string): Promise<Crux> {
     const { data, error } = await this.cruxRepository.findBy('slug', slug);
 
@@ -103,26 +93,19 @@ export class CruxService {
   }
 
   async findByIdentifier(identifier: string): Promise<Crux> {
-    // If starts with +, it's a slug
-    if (identifier.startsWith('+')) {
-      const slug = identifier.substring(1);
-      return this.findBySlug(slug);
-    }
-
-    // If it looks like a UUID (contains dashes and is 36 chars), search by ID
+    // If it looks like a UUID, search by ID
     const uuidPattern =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (uuidPattern.test(identifier)) {
       return this.findById(identifier);
     }
 
-    // Otherwise, treat it as a key
-    return this.findByKey(identifier);
+    // Otherwise, treat it as a slug
+    return this.findBySlug(identifier);
   }
 
   async create(createCruxDto: CreateCruxDto): Promise<Crux> {
     createCruxDto.id = this.keyMaster.generateId();
-    createCruxDto.key = this.keyMaster.generateKey();
 
     this.applyDefaults(createCruxDto);
 
@@ -135,9 +118,9 @@ export class CruxService {
     return this.asCrux(created.data);
   }
 
-  async update(cruxKey: string, updateCruxDto: UpdateCruxDto): Promise<Crux> {
+  async update(cruxId: string, updateCruxDto: UpdateCruxDto): Promise<Crux> {
     // 1) fetch crux
-    const cruxToUpdate = await this.findByKey(cruxKey);
+    const cruxToUpdate = await this.findById(cruxId);
 
     // 2) update crux
     const updated = await this.cruxRepository.update(
@@ -153,9 +136,9 @@ export class CruxService {
     return this.asCrux(updated.data);
   }
 
-  async delete(cruxKey: string): Promise<null> {
+  async delete(cruxId: string): Promise<null> {
     // 1) fetch crux
-    const cruxToDelete = await this.findByKey(cruxKey);
+    const cruxToDelete = await this.findById(cruxId);
     if (!cruxToDelete) throw new NotFoundException('Crux not found');
 
     // 2) delete crux
@@ -189,10 +172,10 @@ export class CruxService {
   }
 
   async createDimension(
-    cruxKey: string,
+    cruxId: string,
     createDimensionDto: CreateDimensionDto,
   ): Promise<Dimension> {
-    const sourceCrux = await this.findByKey(cruxKey);
+    const sourceCrux = await this.findById(cruxId);
     if (!sourceCrux) {
       throw new NotFoundException('Crux not found');
     }
@@ -211,17 +194,17 @@ export class CruxService {
 
   /* crux tags */
 
-  async getTags(cruxKey: string, filter?: string): Promise<Tag[]> {
-    const crux = await this.findByKey(cruxKey);
+  async getTags(cruxId: string, filter?: string): Promise<Tag[]> {
+    const crux = await this.findById(cruxId);
     return this.tagService.getTags(ResourceType.CRUX, crux.id, filter);
   }
 
   async syncTags(
-    cruxKey: string,
+    cruxId: string,
     labels: string[],
     authorId: string,
   ): Promise<Tag[]> {
-    const crux = await this.findByKey(cruxKey);
+    const crux = await this.findById(cruxId);
     return this.tagService.syncTags(
       ResourceType.CRUX,
       crux.id,
@@ -234,18 +217,18 @@ export class CruxService {
 
   /* crux attachments */
 
-  async getAttachments(cruxKey: string): Promise<Attachment[]> {
-    const crux = await this.findByKey(cruxKey);
+  async getAttachments(cruxId: string): Promise<Attachment[]> {
+    const crux = await this.findById(cruxId);
     return this.attachmentService.findByResource(ResourceType.CRUX, crux.id);
   }
 
   async createAttachment(
-    cruxKey: string,
+    cruxId: string,
     uploadDto: UploadAttachmentDto,
     file: any,
     authorId: string,
   ): Promise<Attachment> {
-    const crux = await this.findByKey(cruxKey);
+    const crux = await this.findById(cruxId);
     return this.attachmentService.createWithFile(
       ResourceType.CRUX,
       crux.id,
@@ -256,10 +239,10 @@ export class CruxService {
     );
   }
 
-  async downloadAttachment(cruxKey: string, attachmentKey: string) {
+  async downloadAttachment(cruxId: string, attachmentId: string) {
     // Verify the attachment belongs to this crux
-    const crux = await this.findByKey(cruxKey);
-    const attachment = await this.attachmentService.findByKey(attachmentKey);
+    const crux = await this.findById(cruxId);
+    const attachment = await this.attachmentService.findById(attachmentId);
 
     if (
       attachment.resourceType !== ResourceType.CRUX ||
@@ -268,7 +251,7 @@ export class CruxService {
       throw new NotFoundException('Attachment not found for this crux');
     }
 
-    return this.attachmentService.downloadAttachment(attachmentKey);
+    return this.attachmentService.downloadAttachment(attachmentId);
   }
 
   /* ~crux attachments */
