@@ -262,10 +262,15 @@ export class AuthorService {
     );
 
     // Update author meta with avatar URL
-    const meta = { ...(author.meta || {}), avatarUrl: `/authors/${authorId}/avatar` };
+    const meta = {
+      ...(author.meta || {}),
+      avatarUrl: `/authors/${authorId}/avatar`,
+    };
     const updated = await this.authorRepository.update(authorId, { meta });
     if (updated.error) {
-      throw new InternalServerErrorException(`Avatar update error: ${updated.error}`);
+      throw new InternalServerErrorException(
+        `Avatar update error: ${updated.error}`,
+      );
     }
 
     return this.asAuthor(updated.data);
@@ -290,10 +295,13 @@ export class AuthorService {
 
     // Clear avatarUrl from meta
     const author = await this.findById(authorId);
-    const { avatarUrl: _, ...restMeta } = (author.meta || {}) as Record<string, unknown>;
-    const updated = await this.authorRepository.update(authorId, { meta: restMeta });
+    const meta = { ...(author.meta || {}) } as Record<string, unknown>;
+    delete meta.avatarUrl;
+    const updated = await this.authorRepository.update(authorId, { meta });
     if (updated.error) {
-      throw new InternalServerErrorException(`Avatar remove error: ${updated.error}`);
+      throw new InternalServerErrorException(
+        `Avatar remove error: ${updated.error}`,
+      );
     }
 
     return this.asAuthor(updated.data);

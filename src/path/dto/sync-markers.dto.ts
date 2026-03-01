@@ -41,7 +41,11 @@ export class SyncMarkersDto {
     description: 'Array of markers to sync for the path',
     type: [MarkerInput],
     example: [
-      { cruxId: '550e8400-e29b-41d4-a716-446655440000', order: 0, note: 'First marker' },
+      {
+        cruxId: '550e8400-e29b-41d4-a716-446655440000',
+        order: 0,
+        note: 'First marker',
+      },
       { cruxId: '660e8400-e29b-41d4-a716-446655440000', order: 1 },
     ],
   })

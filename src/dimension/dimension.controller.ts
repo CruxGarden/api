@@ -37,10 +37,7 @@ export class DimensionController {
     this.logger = this.loggerService.createChildLogger('DimensionController');
   }
 
-  async canManageDimension(
-    id: string,
-    author: Author,
-  ): Promise<boolean> {
+  async canManageDimension(id: string, author: Author): Promise<boolean> {
     const dimension = await this.dimensionService.findById(id);
     if (dimension.authorId !== author.id) {
       throw new ForbiddenException(
@@ -60,9 +57,7 @@ export class DimensionController {
 
   @Get(':id')
   @DimensionSwagger.GetByKey()
-  async getById(
-    @Param('id') id: string,
-  ): Promise<Dimension> {
+  async getById(@Param('id') id: string): Promise<Dimension> {
     return this.dimensionService.findById(id);
   }
 

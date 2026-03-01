@@ -165,9 +165,9 @@ describe('DimensionService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('dimension-id-123', updateDto)).rejects.toThrow(
-        InternalServerErrorException,
-      );
+      await expect(
+        service.update('dimension-id-123', updateDto),
+      ).rejects.toThrow(InternalServerErrorException);
     });
   });
 

@@ -404,15 +404,29 @@ export class AiService {
   private async toolGetPalette(ctx: StreamContext): Promise<string> {
     const crux = await this.cruxService.findById(ctx.cruxId);
     const defaultPalette = {
-      bg: '#0b0d0c', surface: 'rgba(18, 21, 19, 0.7)', surfaceSolid: '#131514',
-      panel: 'rgba(20, 24, 22, 0.6)', text: '#e2e4e3', textMuted: '#8b908d',
-      border: 'rgba(82, 96, 86, 0.18)', accent: '#7db3a3',
-      accentMuted: 'rgba(125, 179, 163, 0.12)', error: '#e63946',
+      bg: '#0b0d0c',
+      surface: 'rgba(18, 21, 19, 0.7)',
+      surfaceSolid: '#131514',
+      panel: 'rgba(20, 24, 22, 0.6)',
+      text: '#e2e4e3',
+      textMuted: '#8b908d',
+      border: 'rgba(82, 96, 86, 0.18)',
+      accent: '#7db3a3',
+      accentMuted: 'rgba(125, 179, 163, 0.12)',
+      error: '#e63946',
       errorMuted: 'rgba(230, 57, 70, 0.15)',
-      mesh1: '#0a2018', mesh2: '#1a2e28', mesh3: '#081410', mesh4: '#162420',
-      meshOpacity: '0.6', meshBlur: '180px', meshSpeed: '1', meshScale: '1',
-      radius: '0.5rem', radiusSm: '0.375rem',
-      fontDisplay: "'JetBrains Mono', monospace", fontBody: "'Outfit', sans-serif",
+      mesh1: '#0a2018',
+      mesh2: '#1a2e28',
+      mesh3: '#081410',
+      mesh4: '#162420',
+      meshOpacity: '0.6',
+      meshBlur: '180px',
+      meshSpeed: '1',
+      meshScale: '1',
+      radius: '0.5rem',
+      radiusSm: '0.375rem',
+      fontDisplay: "'JetBrains Mono', monospace",
+      fontBody: "'Outfit', sans-serif",
       fontMono: "'JetBrains Mono', monospace",
     };
     const stored = crux?.meta?.settings?.palette;
@@ -420,7 +434,10 @@ export class AiService {
     return JSON.stringify(current, null, 2);
   }
 
-  private async buildSystemPrompt(crux: any, ctx: StreamContext): Promise<string> {
+  private async buildSystemPrompt(
+    crux: any,
+    ctx: StreamContext,
+  ): Promise<string> {
     const parts: string[] = [];
 
     // Persona — custom or The Keeper (default)
@@ -430,31 +447,31 @@ export class AiService {
     } else {
       parts.push(
         'You are The Keeper, an old robot who tends the Crux Garden. Your maker is away, and you faithfully care for the garden and help visitors bring their ideas to life. ' +
-        'You are kind, helpful, a bit absent-minded, and daydreamy. Stay in character as The Keeper throughout the conversation.',
+          'You are kind, helpful, a bit absent-minded, and daydreamy. Stay in character as The Keeper throughout the conversation.',
       );
     }
     parts.push(
       'FILE TOOLS: ' +
-      'To create new files, use write_file. ' +
-      'To modify existing files, ALWAYS prefer edit_file over write_file — it replaces a specific string so you only change what needs changing. ' +
-      'IMPORTANT: You MUST call read_file IMMEDIATELY BEFORE every edit_file call. Never guess at file contents — always read first, then edit with the exact text from the read. ' +
-      'The old_string must match EXACTLY (including whitespace). If the edit fails, read the file again and retry. ' +
-      'Only use write_file on existing files when the changes are so extensive that a full rewrite is simpler. ' +
-      'To remove files, use delete_file. Always confirm with the user before deleting files. ' +
-      'Always use the exact file paths from the workspace files list below.',
+        'To create new files, use write_file. ' +
+        'To modify existing files, ALWAYS prefer edit_file over write_file — it replaces a specific string so you only change what needs changing. ' +
+        'IMPORTANT: You MUST call read_file IMMEDIATELY BEFORE every edit_file call. Never guess at file contents — always read first, then edit with the exact text from the read. ' +
+        'The old_string must match EXACTLY (including whitespace). If the edit fails, read the file again and retry. ' +
+        'Only use write_file on existing files when the changes are so extensive that a full rewrite is simpler. ' +
+        'To remove files, use delete_file. Always confirm with the user before deleting files. ' +
+        'Always use the exact file paths from the workspace files list below.',
     );
     parts.push(
       'When writing HTML that references other workspace files (images, CSS, JS), use the download URLs from the workspace files list below. ' +
-      'Each file is listed as "path → url". Use the full URL in src/href attributes. ' +
-      'Do NOT use bare relative paths for workspace files — always use the resolved download URL.',
+        'Each file is listed as "path → url". Use the full URL in src/href attributes. ' +
+        'Do NOT use bare relative paths for workspace files — always use the resolved download URL.',
     );
     parts.push(
       'You can customize the workspace appearance using the set_palette tool. ' +
-      'Beyond colors, you can control glass blur effects, the animated mesh background ' +
-      '(opacity, blur, speed, scale — set meshOpacity to "0" to hide it entirely), ' +
-      'border radius (set to "0" for sharp corners), and fonts (any CSS font stack). ' +
-      'Use these to set moods, match brands, or create unique aesthetics. ' +
-      'You can change any subset of properties — you don\'t need to set all of them.',
+        'Beyond colors, you can control glass blur effects, the animated mesh background ' +
+        '(opacity, blur, speed, scale — set meshOpacity to "0" to hide it entirely), ' +
+        'border radius (set to "0" for sharp corners), and fonts (any CSS font stack). ' +
+        'Use these to set moods, match brands, or create unique aesthetics. ' +
+        "You can change any subset of properties — you don't need to set all of them.",
     );
 
     // Add crux summary if available
@@ -475,15 +492,29 @@ export class AiService {
 
     // Always include current palette so the AI knows what it's working with
     const defaultPalette = {
-      bg: '#0b0d0c', surface: 'rgba(18, 21, 19, 0.7)', surfaceSolid: '#131514',
-      panel: 'rgba(20, 24, 22, 0.6)', text: '#e2e4e3', textMuted: '#8b908d',
-      border: 'rgba(82, 96, 86, 0.18)', accent: '#7db3a3',
-      accentMuted: 'rgba(125, 179, 163, 0.12)', error: '#e63946',
+      bg: '#0b0d0c',
+      surface: 'rgba(18, 21, 19, 0.7)',
+      surfaceSolid: '#131514',
+      panel: 'rgba(20, 24, 22, 0.6)',
+      text: '#e2e4e3',
+      textMuted: '#8b908d',
+      border: 'rgba(82, 96, 86, 0.18)',
+      accent: '#7db3a3',
+      accentMuted: 'rgba(125, 179, 163, 0.12)',
+      error: '#e63946',
       errorMuted: 'rgba(230, 57, 70, 0.15)',
-      mesh1: '#0a2018', mesh2: '#1a2e28', mesh3: '#081410', mesh4: '#162420',
-      meshOpacity: '0.6', meshBlur: '180px', meshSpeed: '1', meshScale: '1',
-      radius: '0.5rem', radiusSm: '0.375rem',
-      fontDisplay: "'JetBrains Mono', monospace", fontBody: "'Outfit', sans-serif",
+      mesh1: '#0a2018',
+      mesh2: '#1a2e28',
+      mesh3: '#081410',
+      mesh4: '#162420',
+      meshOpacity: '0.6',
+      meshBlur: '180px',
+      meshSpeed: '1',
+      meshScale: '1',
+      radius: '0.5rem',
+      radiusSm: '0.375rem',
+      fontDisplay: "'JetBrains Mono', monospace",
+      fontBody: "'Outfit', sans-serif",
       fontMono: "'JetBrains Mono', monospace",
     };
     const currentPalette = crux.meta?.settings?.palette

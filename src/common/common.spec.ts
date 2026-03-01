@@ -37,7 +37,6 @@ describe('Common Module', () => {
         expect(id.length).toBe(36); // UUID format: 32 chars + 4 dashes
       });
     });
-
   });
 
   describe('DbService', () => {

@@ -33,7 +33,9 @@ export class CruxRepository {
       .orderBy('created', 'desc') as Knex.QueryBuilder<CruxRaw, CruxRaw[]>;
   }
 
-  findPublicByAuthorQuery(authorId: string): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
+  findPublicByAuthorQuery(
+    authorId: string,
+  ): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
     return this.dbService
       .query()
       .from<CruxRaw>(CruxRepository.TABLE_NAME)

@@ -48,7 +48,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         },
         new_string: {
           type: 'string',
-          description: 'The replacement string. Can be empty to delete the matched text.',
+          description:
+            'The replacement string. Can be empty to delete the matched text.',
         },
       },
       required: ['path', 'old_string', 'new_string'],
@@ -94,7 +95,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: 'get_palette',
     description:
-      'Get the current workspace palette. Returns all 26 properties: colors, glass blur, mesh background, border radius, and fonts. Call this before making changes so you know what you\'re working with.',
+      "Get the current workspace palette. Returns all 26 properties: colors, glass blur, mesh background, border radius, and fonts. Call this before making changes so you know what you're working with.",
     input_schema: {
       type: 'object' as const,
       properties: {},
@@ -113,15 +114,37 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       type: 'object' as const,
       properties: {
         // Colors
-        bg: { type: 'string', description: 'Background color (e.g., "#0b0d0c")' },
-        surface: { type: 'string', description: 'Surface/panel background (e.g., "rgba(18, 21, 19, 0.7)")' },
+        bg: {
+          type: 'string',
+          description: 'Background color (e.g., "#0b0d0c")',
+        },
+        surface: {
+          type: 'string',
+          description:
+            'Surface/panel background (e.g., "rgba(18, 21, 19, 0.7)")',
+        },
         surfaceSolid: { type: 'string', description: 'Opaque surface color' },
-        panel: { type: 'string', description: 'Glass panel background (e.g., "rgba(20, 24, 22, 0.6)")' },
+        panel: {
+          type: 'string',
+          description: 'Glass panel background (e.g., "rgba(20, 24, 22, 0.6)")',
+        },
         text: { type: 'string', description: 'Primary text color' },
-        textMuted: { type: 'string', description: 'Secondary/muted text color' },
-        border: { type: 'string', description: 'Border color (e.g., "rgba(82, 96, 86, 0.18)")' },
-        accent: { type: 'string', description: 'Accent color for interactive elements' },
-        accentMuted: { type: 'string', description: 'Accent background (e.g., "rgba(125, 179, 163, 0.12)")' },
+        textMuted: {
+          type: 'string',
+          description: 'Secondary/muted text color',
+        },
+        border: {
+          type: 'string',
+          description: 'Border color (e.g., "rgba(82, 96, 86, 0.18)")',
+        },
+        accent: {
+          type: 'string',
+          description: 'Accent color for interactive elements',
+        },
+        accentMuted: {
+          type: 'string',
+          description: 'Accent background (e.g., "rgba(125, 179, 163, 0.12)")',
+        },
         error: { type: 'string', description: 'Error text color' },
         errorMuted: { type: 'string', description: 'Error background color' },
         mesh1: { type: 'string', description: 'Mesh gradient color 1' },
@@ -129,17 +152,49 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         mesh3: { type: 'string', description: 'Mesh gradient color 3' },
         mesh4: { type: 'string', description: 'Mesh gradient color 4' },
         // Mesh
-        meshOpacity: { type: 'string', description: 'Mesh blob opacity ("0" hidden, "0.6" default, "1" full)' },
-        meshBlur: { type: 'string', description: 'Blob softness ("60px" sharp, "180px" default, "250px" very soft)' },
-        meshSpeed: { type: 'string', description: 'Animation speed ("0.3" slow, "1" normal, "3" fast)' },
-        meshScale: { type: 'string', description: 'Blob size ("0.5" small, "1" default, "2" huge)' },
+        meshOpacity: {
+          type: 'string',
+          description:
+            'Mesh blob opacity ("0" hidden, "0.6" default, "1" full)',
+        },
+        meshBlur: {
+          type: 'string',
+          description:
+            'Blob softness ("60px" sharp, "180px" default, "250px" very soft)',
+        },
+        meshSpeed: {
+          type: 'string',
+          description: 'Animation speed ("0.3" slow, "1" normal, "3" fast)',
+        },
+        meshScale: {
+          type: 'string',
+          description: 'Blob size ("0.5" small, "1" default, "2" huge)',
+        },
         // Shape
-        radius: { type: 'string', description: 'Border radius for panels/cards ("0" sharp, "0.5rem" default, "1rem" round)' },
-        radiusSm: { type: 'string', description: 'Border radius for buttons/inputs ("0" sharp, "0.375rem" default, "1rem" pill)' },
+        radius: {
+          type: 'string',
+          description:
+            'Border radius for panels/cards ("0" sharp, "0.5rem" default, "1rem" round)',
+        },
+        radiusSm: {
+          type: 'string',
+          description:
+            'Border radius for buttons/inputs ("0" sharp, "0.375rem" default, "1rem" pill)',
+        },
         // Fonts
-        fontDisplay: { type: 'string', description: 'Heading font stack (e.g., "Georgia, serif", "system-ui, sans-serif")' },
-        fontBody: { type: 'string', description: 'Body text font stack (e.g., "Inter, sans-serif")' },
-        fontMono: { type: 'string', description: 'Code font stack (e.g., "Fira Code, monospace")' },
+        fontDisplay: {
+          type: 'string',
+          description:
+            'Heading font stack (e.g., "Georgia, serif", "system-ui, sans-serif")',
+        },
+        fontBody: {
+          type: 'string',
+          description: 'Body text font stack (e.g., "Inter, sans-serif")',
+        },
+        fontMono: {
+          type: 'string',
+          description: 'Code font stack (e.g., "Fira Code, monospace")',
+        },
       },
       required: [],
     },

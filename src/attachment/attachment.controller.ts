@@ -38,10 +38,7 @@ export class AttachmentController {
     this.logger = this.loggerService.createChildLogger('AttachmentController');
   }
 
-  async canManageAttachment(
-    id: string,
-    req: AuthRequest,
-  ): Promise<void> {
+  async canManageAttachment(id: string, req: AuthRequest): Promise<void> {
     const attachment = await this.attachmentService.findById(id);
     const author = await this.authorService.findByAccountId(req.account.id);
     if (!attachment || !author) {
@@ -64,11 +61,7 @@ export class AttachmentController {
     @Req() req: AuthRequest,
   ): Promise<Attachment> {
     await this.canManageAttachment(id, req);
-    return this.attachmentService.updateWithFile(
-      id,
-      updateDto,
-      file,
-    );
+    return this.attachmentService.updateWithFile(id, updateDto, file);
   }
 
   @Delete(':id')

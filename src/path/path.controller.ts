@@ -147,11 +147,7 @@ export class PathController {
   ): Promise<Marker[]> {
     const author = await this.getAuthor(req);
     await this.canManagePath(id, author);
-    return this.pathService.syncMarkers(
-      id,
-      syncMarkersDto.markers,
-      author.id,
-    );
+    return this.pathService.syncMarkers(id, syncMarkersDto.markers, author.id);
   }
 
   /* ~path markers */

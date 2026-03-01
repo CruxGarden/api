@@ -59,7 +59,9 @@ export class CruxService {
     return this.cruxRepository.findAllQuery();
   }
 
-  findPublicByAuthorQuery(authorId: string): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
+  findPublicByAuthorQuery(
+    authorId: string,
+  ): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
     return this.cruxRepository.findPublicByAuthorQuery(authorId);
   }
 
@@ -310,9 +312,7 @@ export class CruxService {
     });
 
     if (updated.error) {
-      throw new InternalServerErrorException(
-        `Publish error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException(`Publish error: ${updated.error}`);
     }
 
     return this.asCrux(updated.data);

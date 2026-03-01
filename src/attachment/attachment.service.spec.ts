@@ -225,9 +225,9 @@ describe('AttachmentService', () => {
         error: new Error('Update failed'),
       });
 
-      await expect(service.update('attachment-id-123', updateDto)).rejects.toThrow(
-        InternalServerErrorException,
-      );
+      await expect(
+        service.update('attachment-id-123', updateDto),
+      ).rejects.toThrow(InternalServerErrorException);
     });
   });
 

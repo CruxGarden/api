@@ -73,10 +73,7 @@ describe('DimensionRepository', () => {
 
       expect(result.data).toEqual(mockDimension);
       expect(result.error).toBeNull();
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'id',
-        'dimension-id',
-      );
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 'dimension-id');
     });
 
     it('should return error on exception', async () => {

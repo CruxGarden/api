@@ -230,9 +230,7 @@ export class CruxController {
 
   @Get(':id/attachments')
   @CruxSwagger.GetAttachments()
-  async getAttachments(
-    @Param('id') id: string,
-  ): Promise<Attachment[]> {
+  async getAttachments(@Param('id') id: string): Promise<Attachment[]> {
     return this.cruxService.getAttachments(id);
   }
 
@@ -248,12 +246,7 @@ export class CruxController {
     const author = await this.getAuthor(req);
     await this.canManageCrux(id, author);
 
-    return this.cruxService.createAttachment(
-      id,
-      uploadDto,
-      file,
-      author.id,
-    );
+    return this.cruxService.createAttachment(id, uploadDto, file, author.id);
   }
 
   @Get(':id/attachments/:attachmentId/download')
@@ -265,10 +258,7 @@ export class CruxController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     await this.getCruxById(id); // Verify crux exists and apply access control
-    const file = await this.cruxService.downloadAttachment(
-      id,
-      attachmentId,
-    );
+    const file = await this.cruxService.downloadAttachment(id, attachmentId);
 
     if (!file) {
       throw new NotFoundException('Attachment file not found');

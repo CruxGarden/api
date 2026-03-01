@@ -6,7 +6,11 @@ import { AttachmentModule } from '../attachment/attachment.module';
 import { AuthorModule } from '../author/author.module';
 
 @Module({
-  imports: [forwardRef(() => CruxModule), forwardRef(() => AttachmentModule), forwardRef(() => AuthorModule)],
+  imports: [
+    forwardRef(() => CruxModule),
+    forwardRef(() => AttachmentModule),
+    forwardRef(() => AuthorModule),
+  ],
   controllers: [AiController],
   providers: [AiService],
   exports: [AiService],

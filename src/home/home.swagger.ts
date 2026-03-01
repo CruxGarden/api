@@ -86,7 +86,7 @@ export const HomeSwagger = {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-  
+
               name: { type: 'string', example: 'My Garden' },
               description: { type: 'string' },
               primary: { type: 'boolean', example: true },

@@ -131,8 +131,7 @@ export const CruxSwagger = {
     combineDecorators(
       ApiOperation({
         summary: 'Get a crux by identifier',
-        description:
-          'Retrieves a specific crux by its UUID or slug.',
+        description: 'Retrieves a specific crux by its UUID or slug.',
       }),
       ApiParam({
         name: 'identifier',

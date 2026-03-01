@@ -11,7 +11,10 @@ export class ChatDto {
   @IsArray()
   messages: { role: 'user' | 'assistant'; content: string }[];
 
-  @ApiPropertyOptional({ description: 'Model to use', default: 'claude-sonnet-4-20250514' })
+  @ApiPropertyOptional({
+    description: 'Model to use',
+    default: 'claude-sonnet-4-20250514',
+  })
   @IsOptional()
   @IsString()
   model?: string;

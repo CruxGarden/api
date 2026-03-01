@@ -26,7 +26,12 @@ async function bootstrap() {
     origin: process.env.CORS_ORIGIN || '*',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'api-version', 'X-Anthropic-Key'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'api-version',
+      'X-Anthropic-Key',
+    ],
   });
 
   // Security headers
