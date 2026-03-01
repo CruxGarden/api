@@ -14,7 +14,6 @@ describe('AttachmentController', () => {
 
   const mockAttachment = {
     id: 'attachment-id',
-    key: 'attachment-key',
     type: 'image',
     kind: 'photo',
     meta: { caption: 'Test' },
@@ -34,7 +33,6 @@ describe('AttachmentController', () => {
 
   const mockAuthor = {
     id: 'author-123',
-    key: 'author-key',
     accountId: 'account-123',
     username: 'testuser',
     displayName: 'Test User',
@@ -64,7 +62,7 @@ describe('AttachmentController', () => {
 
   beforeEach(async () => {
     const mockAttachmentService = {
-      findByKey: jest.fn(),
+      findById: jest.fn(),
       updateWithFile: jest.fn(),
       deleteWithFile: jest.fn(),
     };
@@ -101,14 +99,14 @@ describe('AttachmentController', () => {
 
     it('should update attachment when author owns it', async () => {
       const updatedAttachment = { ...mockAttachment, type: 'document' };
-      attachmentService.findByKey.mockResolvedValue(mockAttachment);
+      attachmentService.findById.mockResolvedValue(mockAttachment);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
       attachmentService.updateWithFile.mockResolvedValue(
         updatedAttachment as any,
       );
 
       const result = await controller.update(
-        'attachment-key',
+        'attachment-id',
         updateDto,
         mockFile,
         mockRequest,
@@ -116,7 +114,7 @@ describe('AttachmentController', () => {
 
       expect(result).toEqual(updatedAttachment);
       expect(attachmentService.updateWithFile).toHaveBeenCalledWith(
-        'attachment-key',
+        'attachment-id',
         updateDto,
         mockFile,
       );
@@ -124,111 +122,111 @@ describe('AttachmentController', () => {
 
     it('should throw ForbiddenException when author does not own attachment', async () => {
       const otherAttachment = { ...mockAttachment, authorId: 'other-author' };
-      attachmentService.findByKey.mockResolvedValue(otherAttachment);
+      attachmentService.findById.mockResolvedValue(otherAttachment);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
       await expect(
-        controller.update('attachment-key', updateDto, mockFile, mockRequest),
+        controller.update('attachment-id', updateDto, mockFile, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('should throw NotFoundException when attachment not found', async () => {
-      attachmentService.findByKey.mockResolvedValue(null);
+      attachmentService.findById.mockResolvedValue(null);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
       await expect(
-        controller.update('attachment-key', updateDto, mockFile, mockRequest),
+        controller.update('attachment-id', updateDto, mockFile, mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('should throw NotFoundException when author not found', async () => {
-      attachmentService.findByKey.mockResolvedValue(mockAttachment);
+      attachmentService.findById.mockResolvedValue(mockAttachment);
       authorService.findByAccountId.mockResolvedValue(null);
 
       await expect(
-        controller.update('attachment-key', updateDto, mockFile, mockRequest),
+        controller.update('attachment-id', updateDto, mockFile, mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('delete', () => {
     it('should delete attachment when author owns it', async () => {
-      attachmentService.findByKey.mockResolvedValue(mockAttachment);
+      attachmentService.findById.mockResolvedValue(mockAttachment);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
       attachmentService.deleteWithFile.mockResolvedValue(null);
 
-      const result = await controller.delete('attachment-key', mockRequest);
+      const result = await controller.delete('attachment-id', mockRequest);
 
       expect(result).toBeNull();
       expect(attachmentService.deleteWithFile).toHaveBeenCalledWith(
-        'attachment-key',
+        'attachment-id',
       );
     });
 
     it('should throw ForbiddenException when author does not own attachment', async () => {
       const otherAttachment = { ...mockAttachment, authorId: 'other-author' };
-      attachmentService.findByKey.mockResolvedValue(otherAttachment);
+      attachmentService.findById.mockResolvedValue(otherAttachment);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
       await expect(
-        controller.delete('attachment-key', mockRequest),
+        controller.delete('attachment-id', mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('should throw NotFoundException when attachment not found', async () => {
-      attachmentService.findByKey.mockResolvedValue(null);
+      attachmentService.findById.mockResolvedValue(null);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
       await expect(
-        controller.delete('attachment-key', mockRequest),
+        controller.delete('attachment-id', mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('should throw NotFoundException when author not found', async () => {
-      attachmentService.findByKey.mockResolvedValue(mockAttachment);
+      attachmentService.findById.mockResolvedValue(mockAttachment);
       authorService.findByAccountId.mockResolvedValue(null);
 
       await expect(
-        controller.delete('attachment-key', mockRequest),
+        controller.delete('attachment-id', mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('canManageAttachment', () => {
     it('should not throw when author owns attachment', async () => {
-      attachmentService.findByKey.mockResolvedValue(mockAttachment);
+      attachmentService.findById.mockResolvedValue(mockAttachment);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
       await expect(
-        controller.canManageAttachment('attachment-key', mockRequest),
+        controller.canManageAttachment('attachment-id', mockRequest),
       ).resolves.not.toThrow();
     });
 
     it('should throw ForbiddenException when author does not own attachment', async () => {
       const otherAttachment = { ...mockAttachment, authorId: 'other-author' };
-      attachmentService.findByKey.mockResolvedValue(otherAttachment);
+      attachmentService.findById.mockResolvedValue(otherAttachment);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
       await expect(
-        controller.canManageAttachment('attachment-key', mockRequest),
+        controller.canManageAttachment('attachment-id', mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('should throw NotFoundException when attachment not found', async () => {
-      attachmentService.findByKey.mockResolvedValue(null);
+      attachmentService.findById.mockResolvedValue(null);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
       await expect(
-        controller.canManageAttachment('attachment-key', mockRequest),
+        controller.canManageAttachment('attachment-id', mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('should throw NotFoundException when author not found', async () => {
-      attachmentService.findByKey.mockResolvedValue(mockAttachment);
+      attachmentService.findById.mockResolvedValue(mockAttachment);
       authorService.findByAccountId.mockResolvedValue(null);
 
       await expect(
-        controller.canManageAttachment('attachment-key', mockRequest),
+        controller.canManageAttachment('attachment-id', mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });

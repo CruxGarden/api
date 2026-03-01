@@ -16,7 +16,6 @@ describe('CruxController', () => {
 
   const mockCrux = {
     id: 'crux-id',
-    key: 'crux-key',
     slug: 'test-crux',
     title: 'Test Crux',
     data: '{}',
@@ -39,7 +38,6 @@ describe('CruxController', () => {
 
   const mockDimension = {
     id: 'dimension-id',
-    key: 'dimension-key',
     sourceId: 'crux-id',
     targetId: 'target-id',
     type: 'gate' as const,
@@ -59,7 +57,7 @@ describe('CruxController', () => {
 
   beforeEach(async () => {
     const mockService = {
-      findByKey: jest.fn(),
+      findById: jest.fn(),
       findByIdentifier: jest.fn(),
       findAllQuery: jest.fn(),
       create: jest.fn(),
@@ -82,7 +80,6 @@ describe('CruxController', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-id-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -125,10 +122,10 @@ describe('CruxController', () => {
     it('should return a crux by identifier', async () => {
       service.findByIdentifier.mockResolvedValue(mockCrux);
 
-      const result = await controller.getByIdentifier('crux-key');
+      const result = await controller.getByIdentifier('crux-id');
 
       expect(result).toEqual(mockCrux);
-      expect(service.findByIdentifier).toHaveBeenCalledWith('crux-key');
+      expect(service.findByIdentifier).toHaveBeenCalledWith('crux-id');
     });
   });
 
@@ -168,26 +165,22 @@ describe('CruxController', () => {
     it('should update a crux when author owns it', async () => {
       const updatedCrux = { ...mockCrux, title: 'Updated Title' };
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
       service.update.mockResolvedValue(updatedCrux);
 
-      const result = await controller.update(
-        'crux-key',
-        updateDto,
-        mockRequest,
-      );
+      const result = await controller.update('crux-id', updateDto, mockRequest);
 
       expect(result).toEqual(updatedCrux);
-      expect(service.update).toHaveBeenCalledWith('crux-key', updateDto);
+      expect(service.update).toHaveBeenCalledWith('crux-id', updateDto);
     });
 
     it('should throw ForbiddenException when author does not own crux', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
 
       await expect(
-        controller.update('crux-key', updateDto, mockRequest),
+        controller.update('crux-id', updateDto, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -195,7 +188,7 @@ describe('CruxController', () => {
       authorService.findByAccountId.mockResolvedValue(null);
 
       await expect(
-        controller.update('crux-key', updateDto, mockRequest),
+        controller.update('crux-id', updateDto, mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -203,21 +196,21 @@ describe('CruxController', () => {
   describe('delete', () => {
     it('should delete a crux when author owns it', async () => {
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
       service.delete.mockResolvedValue(null);
 
-      const result = await controller.delete('crux-key', mockRequest);
+      const result = await controller.delete('crux-id', mockRequest);
 
       expect(result).toBeNull();
-      expect(service.delete).toHaveBeenCalledWith('crux-key');
+      expect(service.delete).toHaveBeenCalledWith('crux-id');
     });
 
     it('should throw ForbiddenException when author does not own crux', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
 
-      await expect(controller.delete('crux-key', mockRequest)).rejects.toThrow(
+      await expect(controller.delete('crux-id', mockRequest)).rejects.toThrow(
         ForbiddenException,
       );
     });
@@ -226,14 +219,14 @@ describe('CruxController', () => {
   describe('getDimensions', () => {
     it('should return paginated dimensions for a crux', async () => {
       const query = {} as any;
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
       service.getDimensionsQuery.mockReturnValue(query);
       dbService.paginate.mockResolvedValue([mockDimension]);
 
       const result = await controller.getDimensions(
         mockRequest,
         mockResponse,
-        'crux-key',
+        'crux-id',
         DimensionType.GATE,
       );
 
@@ -247,10 +240,10 @@ describe('CruxController', () => {
     });
 
     it('should throw NotFoundException when crux not found', async () => {
-      service.findByKey.mockResolvedValue(null);
+      service.findById.mockResolvedValue(null);
 
       await expect(
-        controller.getDimensions(mockRequest, mockResponse, 'invalid-key'),
+        controller.getDimensions(mockRequest, mockResponse, 'invalid-id'),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -263,17 +256,17 @@ describe('CruxController', () => {
 
     it('should create a dimension when author owns crux', async () => {
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
       service.createDimension.mockResolvedValue(mockDimension as any);
 
       const result = await controller.createDimension(
-        'crux-key',
+        'crux-id',
         createDimensionDto,
         mockRequest,
       );
 
       expect(result).toEqual(mockDimension);
-      expect(service.createDimension).toHaveBeenCalledWith('crux-key', {
+      expect(service.createDimension).toHaveBeenCalledWith('crux-id', {
         ...createDimensionDto,
         authorId: 'author-123',
       });
@@ -282,10 +275,10 @@ describe('CruxController', () => {
     it('should throw ForbiddenException when author does not own crux', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
 
       await expect(
-        controller.createDimension('crux-key', createDimensionDto, mockRequest),
+        controller.createDimension('crux-id', createDimensionDto, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -295,10 +288,10 @@ describe('CruxController', () => {
       const mockTags = [{ label: 'tag1' }, { label: 'tag2' }] as any;
       service.getTags.mockResolvedValue(mockTags);
 
-      const result = await controller.getTags('crux-key', 'filter');
+      const result = await controller.getTags('crux-id', 'filter');
 
       expect(result).toEqual(mockTags);
-      expect(service.getTags).toHaveBeenCalledWith('crux-key', 'filter');
+      expect(service.getTags).toHaveBeenCalledWith('crux-id', 'filter');
     });
 
     it('should throw NotFoundException when crux not found', async () => {
@@ -306,7 +299,7 @@ describe('CruxController', () => {
         new NotFoundException('Crux not found'),
       );
 
-      await expect(controller.getTags('invalid-key')).rejects.toThrow(
+      await expect(controller.getTags('invalid-id')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -318,18 +311,14 @@ describe('CruxController', () => {
     it('should sync tags when author owns crux', async () => {
       const mockTags = [{ label: 'tag1' }, { label: 'tag2' }] as any;
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
       service.syncTags.mockResolvedValue(mockTags);
 
-      const result = await controller.syncTags(
-        'crux-key',
-        syncDto,
-        mockRequest,
-      );
+      const result = await controller.syncTags('crux-id', syncDto, mockRequest);
 
       expect(result).toEqual(mockTags);
       expect(service.syncTags).toHaveBeenCalledWith(
-        'crux-key',
+        'crux-id',
         ['tag1', 'tag2'],
         'author-123',
       );
@@ -338,20 +327,20 @@ describe('CruxController', () => {
     it('should throw ForbiddenException when author does not own crux', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
 
       await expect(
-        controller.syncTags('crux-key', syncDto, mockRequest),
+        controller.syncTags('crux-id', syncDto, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
   });
 
   describe('canManageCrux', () => {
     it('should return true when author owns crux', async () => {
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
 
       const result = await controller.canManageCrux(
-        'crux-key',
+        'crux-id',
         mockAuthor as any,
       );
 
@@ -360,10 +349,10 @@ describe('CruxController', () => {
 
     it('should throw ForbiddenException when author does not own crux', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
 
       await expect(
-        controller.canManageCrux('crux-key', otherAuthor as any),
+        controller.canManageCrux('crux-id', otherAuthor as any),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -387,19 +376,19 @@ describe('CruxController', () => {
     });
   });
 
-  describe('getCruxByKey', () => {
+  describe('getCruxById', () => {
     it('should return crux when found', async () => {
-      service.findByKey.mockResolvedValue(mockCrux);
+      service.findById.mockResolvedValue(mockCrux);
 
-      const result = await controller.getCruxByKey('crux-key');
+      const result = await controller.getCruxById('crux-id');
 
       expect(result).toEqual(mockCrux);
     });
 
     it('should throw NotFoundException when crux not found', async () => {
-      service.findByKey.mockResolvedValue(null);
+      service.findById.mockResolvedValue(null);
 
-      await expect(controller.getCruxByKey('invalid-key')).rejects.toThrow(
+      await expect(controller.getCruxById('invalid-id')).rejects.toThrow(
         NotFoundException,
       );
     });

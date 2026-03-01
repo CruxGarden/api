@@ -14,7 +14,6 @@ describe('HomeController', () => {
 
   const mockHome = {
     id: 'home-id',
-    key: 'home-key',
     name: 'Test Home',
     description: 'A test home',
     primary: true,
@@ -49,7 +48,7 @@ describe('HomeController', () => {
 
   beforeEach(async () => {
     const mockService = {
-      findByKey: jest.fn(),
+      findById: jest.fn(),
       findAllQuery: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -97,14 +96,14 @@ describe('HomeController', () => {
     });
   });
 
-  describe('getByKey', () => {
-    it('should return a home by key', async () => {
-      service.findByKey.mockResolvedValue(mockHome);
+  describe('getById', () => {
+    it('should return a home by id', async () => {
+      service.findById.mockResolvedValue(mockHome);
 
-      const result = await controller.getByKey('home-key');
+      const result = await controller.getById('home-id');
 
       expect(result).toEqual(mockHome);
-      expect(service.findByKey).toHaveBeenCalledWith('home-key');
+      expect(service.findById).toHaveBeenCalledWith('home-id');
     });
   });
 
@@ -140,18 +139,18 @@ describe('HomeController', () => {
       service.update.mockResolvedValue(updatedHome);
 
       const result = await controller.update(
-        'home-key',
+        'home-id',
         updateDto,
         mockAdminRequest,
       );
 
       expect(result).toEqual(updatedHome);
-      expect(service.update).toHaveBeenCalledWith('home-key', updateDto);
+      expect(service.update).toHaveBeenCalledWith('home-id', updateDto);
     });
 
     it('should throw ForbiddenException when user is not admin', async () => {
       await expect(
-        controller.update('home-key', updateDto, mockAuthorRequest),
+        controller.update('home-id', updateDto, mockAuthorRequest),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -160,15 +159,15 @@ describe('HomeController', () => {
     it('should delete a home when user is admin', async () => {
       service.delete.mockResolvedValue(null);
 
-      const result = await controller.delete('home-key', mockAdminRequest);
+      const result = await controller.delete('home-id', mockAdminRequest);
 
       expect(result).toBeNull();
-      expect(service.delete).toHaveBeenCalledWith('home-key');
+      expect(service.delete).toHaveBeenCalledWith('home-id');
     });
 
     it('should throw ForbiddenException when user is not admin', async () => {
       await expect(
-        controller.delete('home-key', mockAuthorRequest),
+        controller.delete('home-id', mockAuthorRequest),
       ).rejects.toThrow(ForbiddenException);
     });
   });

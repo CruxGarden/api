@@ -16,7 +16,6 @@ describe('AuthorController', () => {
 
   const mockAuthor = {
     id: 'author-id',
-    key: 'author-key',
     accountId: 'account-123',
     username: 'testuser',
     displayName: 'Test User',
@@ -42,7 +41,7 @@ describe('AuthorController', () => {
 
   beforeEach(async () => {
     const mockService = {
-      findByKey: jest.fn(),
+      findById: jest.fn(),
       findByUsername: jest.fn(),
       findAllQuery: jest.fn(),
       create: jest.fn(),
@@ -99,13 +98,13 @@ describe('AuthorController', () => {
   });
 
   describe('getByIdentifier', () => {
-    it('should return author by key', async () => {
-      service.findByKey.mockResolvedValue(mockAuthor);
+    it('should return author by id', async () => {
+      service.findById.mockResolvedValue(mockAuthor);
 
-      const result = await controller.getByIdentifier('author-key');
+      const result = await controller.getByIdentifier('author-id');
 
       expect(result).toEqual(mockAuthor);
-      expect(service.findByKey).toHaveBeenCalledWith('author-key');
+      expect(service.findById).toHaveBeenCalledWith('author-id');
     });
 
     it('should return author by username when prefixed with @', async () => {
@@ -142,92 +141,89 @@ describe('AuthorController', () => {
 
     it('should update an author when account owns it', async () => {
       const updatedAuthor = { ...mockAuthor, displayName: 'Updated Name' };
-      service.findByKey.mockResolvedValue(mockAuthor);
+      service.findById.mockResolvedValue(mockAuthor);
       service.update.mockResolvedValue(updatedAuthor);
 
       const result = await controller.update(
-        'author-key',
+        'author-id',
         updateDto,
         mockRequest,
       );
 
       expect(result).toEqual(updatedAuthor);
-      expect(service.update).toHaveBeenCalledWith('author-key', updateDto);
+      expect(service.update).toHaveBeenCalledWith('author-id', updateDto);
     });
 
     it('should throw ForbiddenException when account does not own author', async () => {
       const otherAuthor = { ...mockAuthor, accountId: 'other-account-id' };
-      service.findByKey.mockResolvedValue(otherAuthor);
+      service.findById.mockResolvedValue(otherAuthor);
 
       await expect(
-        controller.update('author-key', updateDto, mockRequest),
+        controller.update('author-id', updateDto, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('should throw NotFoundException when author not found', async () => {
-      service.findByKey.mockResolvedValue(null);
+      service.findById.mockResolvedValue(null);
 
       await expect(
-        controller.update('author-key', updateDto, mockRequest),
+        controller.update('author-id', updateDto, mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('delete', () => {
     it('should delete an author when account owns it', async () => {
-      service.findByKey.mockResolvedValue(mockAuthor);
+      service.findById.mockResolvedValue(mockAuthor);
       service.delete.mockResolvedValue(null);
 
-      const result = await controller.delete('author-key', mockRequest);
+      const result = await controller.delete('author-id', mockRequest);
 
       expect(result).toBeNull();
-      expect(service.delete).toHaveBeenCalledWith('author-key');
+      expect(service.delete).toHaveBeenCalledWith('author-id');
     });
 
     it('should throw ForbiddenException when account does not own author', async () => {
       const otherAuthor = { ...mockAuthor, accountId: 'other-account-id' };
-      service.findByKey.mockResolvedValue(otherAuthor);
+      service.findById.mockResolvedValue(otherAuthor);
 
-      await expect(
-        controller.delete('author-key', mockRequest),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(controller.delete('author-id', mockRequest)).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('should throw NotFoundException when author not found', async () => {
-      service.findByKey.mockResolvedValue(null);
+      service.findById.mockResolvedValue(null);
 
-      await expect(
-        controller.delete('author-key', mockRequest),
-      ).rejects.toThrow(NotFoundException);
+      await expect(controller.delete('author-id', mockRequest)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   describe('canManageAuthor', () => {
     it('should return true when account owns author', async () => {
-      service.findByKey.mockResolvedValue(mockAuthor);
+      service.findById.mockResolvedValue(mockAuthor);
 
-      const result = await controller.canManageAuthor(
-        'author-key',
-        mockRequest,
-      );
+      const result = await controller.canManageAuthor('author-id', mockRequest);
 
       expect(result).toBe(true);
     });
 
     it('should throw ForbiddenException when account does not own author', async () => {
       const otherAuthor = { ...mockAuthor, accountId: 'other-account-id' };
-      service.findByKey.mockResolvedValue(otherAuthor);
+      service.findById.mockResolvedValue(otherAuthor);
 
       await expect(
-        controller.canManageAuthor('author-key', mockRequest),
+        controller.canManageAuthor('author-id', mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('should throw NotFoundException when author not found', async () => {
-      service.findByKey.mockResolvedValue(null);
+      service.findById.mockResolvedValue(null);
 
       await expect(
-        controller.canManageAuthor('author-key', mockRequest),
+        controller.canManageAuthor('author-id', mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -235,7 +231,6 @@ describe('AuthorController', () => {
   describe('getCruxBySlug', () => {
     const mockCrux = {
       id: 'crux-id',
-      key: 'crux-key',
       slug: 'test-crux',
       title: 'Test Crux',
       data: 'Test content',
@@ -260,14 +255,14 @@ describe('AuthorController', () => {
       );
     });
 
-    it('should return crux by author key and slug', async () => {
-      service.findByKey.mockResolvedValue(mockAuthor);
+    it('should return crux by author id and slug', async () => {
+      service.findById.mockResolvedValue(mockAuthor);
       cruxService.findByAuthorAndSlug.mockResolvedValue(mockCrux as any);
 
-      const result = await controller.getCruxBySlug('author-key', 'test-crux');
+      const result = await controller.getCruxBySlug('author-id', 'test-crux');
 
       expect(result).toEqual(mockCrux);
-      expect(service.findByKey).toHaveBeenCalledWith('author-key');
+      expect(service.findById).toHaveBeenCalledWith('author-id');
       expect(cruxService.findByAuthorAndSlug).toHaveBeenCalledWith(
         'author-id',
         'test-crux',

@@ -22,7 +22,6 @@ describe('PathController', () => {
 
   const mockPath = {
     id: 'path-id',
-    key: 'path-key',
     slug: 'test-path',
     title: 'Test Path',
     description: 'A test path',
@@ -41,7 +40,6 @@ describe('PathController', () => {
 
   const mockMarker = {
     id: 'marker-id',
-    key: 'marker-key',
     pathId: 'path-id',
     cruxId: 'crux-id',
     order: 1,
@@ -72,7 +70,8 @@ describe('PathController', () => {
 
   beforeEach(async () => {
     const mockService = {
-      findByKey: jest.fn(),
+      findById: jest.fn(),
+      findByIdentifier: jest.fn(),
       findAllQuery: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -94,7 +93,6 @@ describe('PathController', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-id-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -143,14 +141,14 @@ describe('PathController', () => {
     });
   });
 
-  describe('getByKey', () => {
-    it('should return a path by key', async () => {
-      service.findByKey.mockResolvedValue(mockPath as any);
+  describe('getByIdentifier', () => {
+    it('should return a path by identifier', async () => {
+      service.findByIdentifier.mockResolvedValue(mockPath as any);
 
-      const result = await controller.getByKey('path-key');
+      const result = await controller.getByIdentifier('path-id');
 
       expect(result).toEqual(mockPath);
-      expect(service.findByKey).toHaveBeenCalledWith('path-key');
+      expect(service.findByIdentifier).toHaveBeenCalledWith('path-id');
     });
   });
 
@@ -192,26 +190,22 @@ describe('PathController', () => {
     it('should update a path when author owns it', async () => {
       const updatedPath = { ...mockPath, title: 'Updated Title' };
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockPath as any);
+      service.findById.mockResolvedValue(mockPath as any);
       service.update.mockResolvedValue(updatedPath as any);
 
-      const result = await controller.update(
-        'path-key',
-        updateDto,
-        mockRequest,
-      );
+      const result = await controller.update('path-id', updateDto, mockRequest);
 
       expect(result).toEqual(updatedPath);
-      expect(service.update).toHaveBeenCalledWith('path-key', updateDto);
+      expect(service.update).toHaveBeenCalledWith('path-id', updateDto);
     });
 
     it('should throw ForbiddenException when author does not own path', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockPath as any);
+      service.findById.mockResolvedValue(mockPath as any);
 
       await expect(
-        controller.update('path-key', updateDto, mockRequest),
+        controller.update('path-id', updateDto, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -219,7 +213,7 @@ describe('PathController', () => {
       authorService.findByAccountId.mockResolvedValue(null);
 
       await expect(
-        controller.update('path-key', updateDto, mockRequest),
+        controller.update('path-id', updateDto, mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -227,21 +221,21 @@ describe('PathController', () => {
   describe('delete', () => {
     it('should delete a path when author owns it', async () => {
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockPath as any);
+      service.findById.mockResolvedValue(mockPath as any);
       service.delete.mockResolvedValue(null);
 
-      const result = await controller.delete('path-key', mockRequest);
+      const result = await controller.delete('path-id', mockRequest);
 
       expect(result).toBeNull();
-      expect(service.delete).toHaveBeenCalledWith('path-key');
+      expect(service.delete).toHaveBeenCalledWith('path-id');
     });
 
     it('should throw ForbiddenException when author does not own path', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockPath as any);
+      service.findById.mockResolvedValue(mockPath as any);
 
-      await expect(controller.delete('path-key', mockRequest)).rejects.toThrow(
+      await expect(controller.delete('path-id', mockRequest)).rejects.toThrow(
         ForbiddenException,
       );
     });
@@ -251,32 +245,32 @@ describe('PathController', () => {
     it('should return markers for a path', async () => {
       service.getMarkers.mockResolvedValue([mockMarker] as any);
 
-      const result = await controller.getMarkers('path-key');
+      const result = await controller.getMarkers('path-id');
 
       expect(result).toEqual([mockMarker]);
-      expect(service.getMarkers).toHaveBeenCalledWith('path-key');
+      expect(service.getMarkers).toHaveBeenCalledWith('path-id');
     });
   });
 
   describe('syncMarkers', () => {
     const syncDto = {
-      markers: [{ cruxKey: 'crux-key', order: 1, note: 'Test' }],
+      markers: [{ cruxId: 'crux-id', order: 1, note: 'Test' }],
     };
 
     it('should sync markers when author owns path', async () => {
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockPath as any);
+      service.findById.mockResolvedValue(mockPath as any);
       service.syncMarkers.mockResolvedValue([mockMarker] as any);
 
       const result = await controller.syncMarkers(
-        'path-key',
+        'path-id',
         syncDto,
         mockRequest,
       );
 
       expect(result).toEqual([mockMarker]);
       expect(service.syncMarkers).toHaveBeenCalledWith(
-        'path-key',
+        'path-id',
         syncDto.markers,
         'author-123',
       );
@@ -285,10 +279,10 @@ describe('PathController', () => {
     it('should throw ForbiddenException when author does not own path', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockPath as any);
+      service.findById.mockResolvedValue(mockPath as any);
 
       await expect(
-        controller.syncMarkers('path-key', syncDto, mockRequest),
+        controller.syncMarkers('path-id', syncDto, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -298,10 +292,10 @@ describe('PathController', () => {
       const mockTags = [{ label: 'tag1' }, { label: 'tag2' }] as any;
       service.getTags.mockResolvedValue(mockTags);
 
-      const result = await controller.getTags('path-key', 'filter');
+      const result = await controller.getTags('path-id', 'filter');
 
       expect(result).toEqual(mockTags);
-      expect(service.getTags).toHaveBeenCalledWith('path-key', 'filter');
+      expect(service.getTags).toHaveBeenCalledWith('path-id', 'filter');
     });
   });
 
@@ -311,18 +305,14 @@ describe('PathController', () => {
     it('should sync tags when author owns path', async () => {
       const mockTags = [{ label: 'tag1' }, { label: 'tag2' }] as any;
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockPath as any);
+      service.findById.mockResolvedValue(mockPath as any);
       service.syncTags.mockResolvedValue(mockTags);
 
-      const result = await controller.syncTags(
-        'path-key',
-        syncDto,
-        mockRequest,
-      );
+      const result = await controller.syncTags('path-id', syncDto, mockRequest);
 
       expect(result).toEqual(mockTags);
       expect(service.syncTags).toHaveBeenCalledWith(
-        'path-key',
+        'path-id',
         ['tag1', 'tag2'],
         'author-123',
       );
@@ -331,20 +321,20 @@ describe('PathController', () => {
     it('should throw ForbiddenException when author does not own path', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockPath as any);
+      service.findById.mockResolvedValue(mockPath as any);
 
       await expect(
-        controller.syncTags('path-key', syncDto, mockRequest),
+        controller.syncTags('path-id', syncDto, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
   });
 
   describe('canManagePath', () => {
     it('should return true when author owns path', async () => {
-      service.findByKey.mockResolvedValue(mockPath as any);
+      service.findById.mockResolvedValue(mockPath as any);
 
       const result = await controller.canManagePath(
-        'path-key',
+        'path-id',
         mockAuthor as any,
       );
 
@@ -353,10 +343,10 @@ describe('PathController', () => {
 
     it('should throw ForbiddenException when author does not own path', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
-      service.findByKey.mockResolvedValue(mockPath as any);
+      service.findById.mockResolvedValue(mockPath as any);
 
       await expect(
-        controller.canManagePath('path-key', otherAuthor as any),
+        controller.canManagePath('path-id', otherAuthor as any),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -375,24 +365,6 @@ describe('PathController', () => {
       authorService.findByAccountId.mockResolvedValue(null);
 
       await expect(controller.getAuthor(mockRequest)).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
-  describe('getPathByKey', () => {
-    it('should return path when found', async () => {
-      service.findByKey.mockResolvedValue(mockPath as any);
-
-      const result = await controller.getPathByKey('path-key');
-
-      expect(result).toEqual(mockPath);
-    });
-
-    it('should throw NotFoundException when path not found', async () => {
-      service.findByKey.mockResolvedValue(null);
-
-      await expect(controller.getPathByKey('invalid-key')).rejects.toThrow(
         NotFoundException,
       );
     });

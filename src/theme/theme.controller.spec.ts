@@ -17,7 +17,6 @@ describe('ThemeController', () => {
 
   const mockTheme = {
     id: 'theme-id',
-    key: 'theme-key',
     authorId: 'author-123',
     homeId: 'home-id-123',
     title: 'Test Theme',
@@ -54,7 +53,7 @@ describe('ThemeController', () => {
 
   beforeEach(async () => {
     const mockService = {
-      findByKey: jest.fn(),
+      findById: jest.fn(),
       findAllQuery: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -74,7 +73,6 @@ describe('ThemeController', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-id-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -120,14 +118,14 @@ describe('ThemeController', () => {
     });
   });
 
-  describe('getByKey', () => {
-    it('should return a theme by key', async () => {
-      service.findByKey.mockResolvedValue(mockTheme);
+  describe('getById', () => {
+    it('should return a theme by id', async () => {
+      service.findById.mockResolvedValue(mockTheme);
 
-      const result = await controller.getByKey('theme-key');
+      const result = await controller.getById('theme-id');
 
       expect(result).toEqual(mockTheme);
-      expect(service.findByKey).toHaveBeenCalledWith('theme-key');
+      expect(service.findById).toHaveBeenCalledWith('theme-id');
     });
   });
 
@@ -171,35 +169,35 @@ describe('ThemeController', () => {
     it('should update a theme when author owns it', async () => {
       const updatedTheme = { ...mockTheme, title: 'Updated Theme' };
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockTheme);
+      service.findById.mockResolvedValue(mockTheme);
       service.update.mockResolvedValue(updatedTheme);
 
       const result = await controller.update(
-        'theme-key',
+        'theme-id',
         updateDto,
         mockRequest,
       );
 
       expect(result).toEqual(updatedTheme);
-      expect(service.update).toHaveBeenCalledWith('theme-key', updateDto);
+      expect(service.update).toHaveBeenCalledWith('theme-id', updateDto);
     });
 
     it('should throw ForbiddenException when author does not own theme', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockTheme);
+      service.findById.mockResolvedValue(mockTheme);
 
       await expect(
-        controller.update('theme-key', updateDto, mockRequest),
+        controller.update('theme-id', updateDto, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('should throw NotFoundException when theme or author not found', async () => {
-      service.findByKey.mockResolvedValue(null);
+      service.findById.mockResolvedValue(null);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
       await expect(
-        controller.update('theme-key', updateDto, mockRequest),
+        controller.update('theme-id', updateDto, mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -207,30 +205,30 @@ describe('ThemeController', () => {
   describe('delete', () => {
     it('should delete a theme when author owns it', async () => {
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockTheme);
+      service.findById.mockResolvedValue(mockTheme);
       service.delete.mockResolvedValue(null);
 
-      const result = await controller.delete('theme-key', mockRequest);
+      const result = await controller.delete('theme-id', mockRequest);
 
       expect(result).toBeNull();
-      expect(service.delete).toHaveBeenCalledWith('theme-key');
+      expect(service.delete).toHaveBeenCalledWith('theme-id');
     });
 
     it('should throw ForbiddenException when author does not own theme', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockTheme);
+      service.findById.mockResolvedValue(mockTheme);
 
-      await expect(controller.delete('theme-key', mockRequest)).rejects.toThrow(
+      await expect(controller.delete('theme-id', mockRequest)).rejects.toThrow(
         ForbiddenException,
       );
     });
 
     it('should throw NotFoundException when theme or author not found', async () => {
-      service.findByKey.mockResolvedValue(null);
+      service.findById.mockResolvedValue(null);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
-      await expect(controller.delete('theme-key', mockRequest)).rejects.toThrow(
+      await expect(controller.delete('theme-id', mockRequest)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -241,10 +239,10 @@ describe('ThemeController', () => {
       const mockTags = [{ label: 'tag1' }, { label: 'tag2' }] as any;
       service.getTags.mockResolvedValue(mockTags);
 
-      const result = await controller.getTags('theme-key', 'filter');
+      const result = await controller.getTags('theme-id', 'filter');
 
       expect(result).toEqual(mockTags);
-      expect(service.getTags).toHaveBeenCalledWith('theme-key', 'filter');
+      expect(service.getTags).toHaveBeenCalledWith('theme-id', 'filter');
     });
   });
 
@@ -253,18 +251,18 @@ describe('ThemeController', () => {
       const syncDto = { labels: ['tag1', 'tag2'] };
       const mockTags = [{ label: 'tag1' }, { label: 'tag2' }] as any;
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockTheme);
+      service.findById.mockResolvedValue(mockTheme);
       service.syncTags.mockResolvedValue(mockTags);
 
       const result = await controller.syncTags(
-        'theme-key',
+        'theme-id',
         syncDto,
         mockRequest,
       );
 
       expect(result).toEqual(mockTags);
       expect(service.syncTags).toHaveBeenCalledWith(
-        'theme-key',
+        'theme-id',
         ['tag1', 'tag2'],
         'author-123',
       );
@@ -274,10 +272,10 @@ describe('ThemeController', () => {
       const syncDto = { labels: ['tag1'] };
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockTheme);
+      service.findById.mockResolvedValue(mockTheme);
 
       await expect(
-        controller.syncTags('theme-key', syncDto, mockRequest),
+        controller.syncTags('theme-id', syncDto, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -285,29 +283,29 @@ describe('ThemeController', () => {
   describe('canManageTheme', () => {
     it('should not throw when author owns theme', async () => {
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockTheme);
+      service.findById.mockResolvedValue(mockTheme);
 
       await expect(
-        controller.canManageTheme('theme-key', mockRequest),
+        controller.canManageTheme('theme-id', mockRequest),
       ).resolves.not.toThrow();
     });
 
     it('should throw ForbiddenException when author does not own theme', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockTheme);
+      service.findById.mockResolvedValue(mockTheme);
 
       await expect(
-        controller.canManageTheme('theme-key', mockRequest),
+        controller.canManageTheme('theme-id', mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('should throw NotFoundException when theme or author not found', async () => {
-      service.findByKey.mockResolvedValue(null);
+      service.findById.mockResolvedValue(null);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
 
       await expect(
-        controller.canManageTheme('theme-key', mockRequest),
+        controller.canManageTheme('theme-id', mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });

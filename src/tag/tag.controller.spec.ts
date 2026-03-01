@@ -14,7 +14,6 @@ describe('TagController', () => {
 
   const mockTag = {
     id: 'tag-id',
-    key: 'tag-key',
     resourceType: ResourceType.CRUX,
     resourceId: 'crux-123',
     label: 'test-tag',
@@ -42,7 +41,7 @@ describe('TagController', () => {
   beforeEach(async () => {
     const mockService = {
       findAllQuery: jest.fn(),
-      findByKey: jest.fn(),
+      findById: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     };
@@ -115,14 +114,14 @@ describe('TagController', () => {
     });
   });
 
-  describe('getByKey', () => {
-    it('should return a tag by key', async () => {
-      service.findByKey.mockResolvedValue(mockTag);
+  describe('getById', () => {
+    it('should return a tag by id', async () => {
+      service.findById.mockResolvedValue(mockTag);
 
-      const result = await controller.getByKey('tag-key');
+      const result = await controller.getById('tag-id');
 
       expect(result).toEqual(mockTag);
-      expect(service.findByKey).toHaveBeenCalledWith('tag-key');
+      expect(service.findById).toHaveBeenCalledWith('tag-id');
     });
   });
 
@@ -133,10 +132,10 @@ describe('TagController', () => {
       const updatedTag = { ...mockTag, label: 'updated-tag' };
       service.update.mockResolvedValue(updatedTag);
 
-      const result = await controller.update('tag-key', updateDto, mockRequest);
+      const result = await controller.update('tag-id', updateDto, mockRequest);
 
       expect(result).toEqual(updatedTag);
-      expect(service.update).toHaveBeenCalledWith('tag-key', updateDto);
+      expect(service.update).toHaveBeenCalledWith('tag-id', updateDto);
     });
 
     it('should throw ForbiddenException when user is not admin', async () => {
@@ -146,7 +145,7 @@ describe('TagController', () => {
       } as any;
 
       await expect(
-        controller.update('tag-key', updateDto, nonAdminRequest),
+        controller.update('tag-id', updateDto, nonAdminRequest),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -155,10 +154,10 @@ describe('TagController', () => {
     it('should delete a tag when user is admin', async () => {
       service.delete.mockResolvedValue(null);
 
-      const result = await controller.delete('tag-key', mockRequest);
+      const result = await controller.delete('tag-id', mockRequest);
 
       expect(result).toBeNull();
-      expect(service.delete).toHaveBeenCalledWith('tag-key');
+      expect(service.delete).toHaveBeenCalledWith('tag-id');
     });
 
     it('should throw ForbiddenException when user is not admin', async () => {
@@ -168,7 +167,7 @@ describe('TagController', () => {
       } as any;
 
       await expect(
-        controller.delete('tag-key', nonAdminRequest),
+        controller.delete('tag-id', nonAdminRequest),
       ).rejects.toThrow(ForbiddenException);
     });
   });

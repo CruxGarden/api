@@ -14,7 +14,6 @@ describe('DimensionController', () => {
 
   const mockDimension = {
     id: 'dimension-id',
-    key: 'dimension-key',
     sourceId: 'crux-source-123',
     targetId: 'crux-target-456',
     type: 'gate' as const,
@@ -44,7 +43,7 @@ describe('DimensionController', () => {
 
   beforeEach(async () => {
     const mockService = {
-      findByKey: jest.fn(),
+      findById: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     };
@@ -76,14 +75,14 @@ describe('DimensionController', () => {
     authorService = module.get(AuthorService);
   });
 
-  describe('getByKey', () => {
-    it('should return a dimension by key', async () => {
-      service.findByKey.mockResolvedValue(mockDimension);
+  describe('getById', () => {
+    it('should return a dimension by id', async () => {
+      service.findById.mockResolvedValue(mockDimension);
 
-      const result = await controller.getByKey('dimension-key');
+      const result = await controller.getById('dimension-id');
 
       expect(result).toEqual(mockDimension);
-      expect(service.findByKey).toHaveBeenCalledWith('dimension-key');
+      expect(service.findById).toHaveBeenCalledWith('dimension-id');
     });
   });
 
@@ -93,26 +92,26 @@ describe('DimensionController', () => {
     it('should update a dimension when author owns it', async () => {
       const updatedDimension = { ...mockDimension, type: 'garden' as const };
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockDimension);
+      service.findById.mockResolvedValue(mockDimension);
       service.update.mockResolvedValue(updatedDimension);
 
       const result = await controller.update(
-        'dimension-key',
+        'dimension-id',
         updateDto,
         mockRequest,
       );
 
       expect(result).toEqual(updatedDimension);
-      expect(service.update).toHaveBeenCalledWith('dimension-key', updateDto);
+      expect(service.update).toHaveBeenCalledWith('dimension-id', updateDto);
     });
 
     it('should throw ForbiddenException when author does not own dimension', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockDimension);
+      service.findById.mockResolvedValue(mockDimension);
 
       await expect(
-        controller.update('dimension-key', updateDto, mockRequest),
+        controller.update('dimension-id', updateDto, mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -120,7 +119,7 @@ describe('DimensionController', () => {
       authorService.findByAccountId.mockResolvedValue(null);
 
       await expect(
-        controller.update('dimension-key', updateDto, mockRequest),
+        controller.update('dimension-id', updateDto, mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -128,22 +127,22 @@ describe('DimensionController', () => {
   describe('delete', () => {
     it('should delete a dimension when author owns it', async () => {
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      service.findByKey.mockResolvedValue(mockDimension);
+      service.findById.mockResolvedValue(mockDimension);
       service.delete.mockResolvedValue(null);
 
-      const result = await controller.delete('dimension-key', mockRequest);
+      const result = await controller.delete('dimension-id', mockRequest);
 
       expect(result).toBeNull();
-      expect(service.delete).toHaveBeenCalledWith('dimension-key');
+      expect(service.delete).toHaveBeenCalledWith('dimension-id');
     });
 
     it('should throw ForbiddenException when author does not own dimension', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
       authorService.findByAccountId.mockResolvedValue(otherAuthor as any);
-      service.findByKey.mockResolvedValue(mockDimension);
+      service.findById.mockResolvedValue(mockDimension);
 
       await expect(
-        controller.delete('dimension-key', mockRequest),
+        controller.delete('dimension-id', mockRequest),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -151,17 +150,17 @@ describe('DimensionController', () => {
       authorService.findByAccountId.mockResolvedValue(null);
 
       await expect(
-        controller.delete('dimension-key', mockRequest),
+        controller.delete('dimension-id', mockRequest),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('canManageDimension', () => {
     it('should return true when author owns dimension', async () => {
-      service.findByKey.mockResolvedValue(mockDimension);
+      service.findById.mockResolvedValue(mockDimension);
 
       const result = await controller.canManageDimension(
-        'dimension-key',
+        'dimension-id',
         mockAuthor as any,
       );
 
@@ -170,10 +169,10 @@ describe('DimensionController', () => {
 
     it('should throw ForbiddenException when author does not own dimension', async () => {
       const otherAuthor = { ...mockAuthor, id: 'other-author-id' };
-      service.findByKey.mockResolvedValue(mockDimension);
+      service.findById.mockResolvedValue(mockDimension);
 
       await expect(
-        controller.canManageDimension('dimension-key', otherAuthor as any),
+        controller.canManageDimension('dimension-id', otherAuthor as any),
       ).rejects.toThrow(ForbiddenException);
     });
   });

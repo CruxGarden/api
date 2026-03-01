@@ -9,6 +9,7 @@ import { AuthorRepository } from './author.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { CruxService } from '../crux/crux.service';
+import { AttachmentService } from '../attachment/attachment.service';
 
 describe('AuthorService', () => {
   let service: AuthorService;
@@ -59,6 +60,13 @@ describe('AuthorService', () => {
       }),
     };
 
+    const mockAttachmentService = {
+      findBy: jest.fn(),
+      createWithFile: jest.fn(),
+      updateWithFile: jest.fn(),
+      deleteWithFile: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthorService,
@@ -66,6 +74,7 @@ describe('AuthorService', () => {
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: CruxService, useValue: mockCruxService },
         { provide: LoggerService, useValue: mockLoggerService },
+        { provide: AttachmentService, useValue: mockAttachmentService },
       ],
     }).compile();
 
