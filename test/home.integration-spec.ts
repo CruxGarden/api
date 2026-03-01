@@ -18,11 +18,9 @@ describe('Home Integration Tests', () => {
   const testAdminAccountId = 'admin-account-123';
   const testAuthorAccountId = 'author-account-123';
   const testHomeId = 'home-123';
-  const testHomeKey = 'home-key';
 
   const testHomeRaw: HomeRaw = {
     id: testHomeId,
-    key: testHomeKey,
     name: 'Primary Home',
     description: 'The main home for all entities',
     primary: true,
@@ -124,26 +122,22 @@ describe('Home Integration Tests', () => {
     });
   });
 
-  describe('GET /homes/:homeKey', () => {
+  describe('GET /homes/:homeId', () => {
     it('should return 200 and home data (happy path)', async () => {
       const token = generateToken(testAuthorAccountId);
       mockHomeRepository.findBy.mockResolvedValue(success(testHomeRaw));
 
       const response = await request(app.getHttpServer())
-        .get(`/homes/${testHomeKey}`)
+        .get(`/homes/${testHomeId}`)
         .set(authHeader(token))
         .expect(200);
 
       expect(response.body).toMatchObject({
         id: testHomeId,
-        key: testHomeKey,
         name: 'Primary Home',
         primary: true,
       });
-      expect(mockHomeRepository.findBy).toHaveBeenCalledWith(
-        'key',
-        testHomeKey,
-      );
+      expect(mockHomeRepository.findBy).toHaveBeenCalledWith('id', testHomeId);
     });
 
     it('should return 404 when home not found', async () => {
@@ -158,7 +152,7 @@ describe('Home Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/homes/${testHomeKey}`)
+        .get(`/homes/${testHomeId}`)
         .expect(401);
     });
   });
@@ -176,7 +170,6 @@ describe('Home Integration Tests', () => {
       const token = generateToken(testAdminAccountId, 'admin');
       const newHomeRaw: HomeRaw = {
         id: 'new-home-id',
-        key: 'new-home-key',
         name: createHomeDto.name,
         description: createHomeDto.description,
         primary: createHomeDto.primary,
@@ -231,7 +224,7 @@ describe('Home Integration Tests', () => {
     });
   });
 
-  describe('PATCH /homes/:homeKey', () => {
+  describe('PATCH /homes/:homeId', () => {
     const updateHomeDto = {
       name: 'Updated Primary Home',
       description: 'Updated description',
@@ -250,7 +243,7 @@ describe('Home Integration Tests', () => {
       mockHomeRepository.update.mockResolvedValue(success(updatedHomeRaw));
 
       const response = await request(app.getHttpServer())
-        .patch(`/homes/${testHomeKey}`)
+        .patch(`/homes/${testHomeId}`)
         .set(authHeader(token))
         .send(updateHomeDto)
         .expect(200);
@@ -274,7 +267,7 @@ describe('Home Integration Tests', () => {
       const token = generateToken(testAuthorAccountId, 'author');
 
       await request(app.getHttpServer())
-        .patch(`/homes/${testHomeKey}`)
+        .patch(`/homes/${testHomeId}`)
         .set(authHeader(token))
         .send(updateHomeDto)
         .expect(403);
@@ -282,13 +275,13 @@ describe('Home Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .patch(`/homes/${testHomeKey}`)
+        .patch(`/homes/${testHomeId}`)
         .send(updateHomeDto)
         .expect(401);
     });
   });
 
-  describe('DELETE /homes/:homeKey', () => {
+  describe('DELETE /homes/:homeId', () => {
     it('should return 204 and delete home when admin (happy path)', async () => {
       const token = generateToken(testAdminAccountId, 'admin');
 
@@ -296,7 +289,7 @@ describe('Home Integration Tests', () => {
       mockHomeRepository.delete.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete(`/homes/${testHomeKey}`)
+        .delete(`/homes/${testHomeId}`)
         .set(authHeader(token))
         .expect(204);
 
@@ -317,14 +310,14 @@ describe('Home Integration Tests', () => {
       const token = generateToken(testAuthorAccountId, 'author');
 
       await request(app.getHttpServer())
-        .delete(`/homes/${testHomeKey}`)
+        .delete(`/homes/${testHomeId}`)
         .set(authHeader(token))
         .expect(403);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .delete(`/homes/${testHomeKey}`)
+        .delete(`/homes/${testHomeId}`)
         .expect(401);
     });
   });

@@ -46,7 +46,6 @@ describe('Auth Integration Tests', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -259,7 +258,6 @@ describe('Auth Integration Tests', () => {
       mockAccountRepository.create.mockResolvedValue({
         data: {
           id: accountId,
-          key: 'test-key',
           email: testEmail.toLowerCase(),
           role: 'author',
           created: new Date().toISOString(),
@@ -273,7 +271,6 @@ describe('Auth Integration Tests', () => {
       mockAuthorRepository.create.mockResolvedValue({
         data: {
           id: authorId,
-          key: 'author-key',
           account_id: accountId,
           username: testEmail.split('@')[0],
           display_name: testEmail.split('@')[0],
@@ -288,7 +285,6 @@ describe('Auth Integration Tests', () => {
       mockAuthorRepository.update.mockResolvedValue({
         data: {
           id: authorId,
-          key: 'author-key',
           account_id: accountId,
           username: testEmail.split('@')[0],
           display_name: testEmail.split('@')[0],
@@ -336,7 +332,6 @@ describe('Auth Integration Tests', () => {
       mockAccountRepository.findByEmail.mockResolvedValue({
         data: {
           id: existingAccountId,
-          key: 'existing-key',
           email: testEmail.toLowerCase(),
           role: 'author',
           created: new Date().toISOString(),
@@ -405,7 +400,6 @@ describe('Auth Integration Tests', () => {
       mockAccountRepository.findByEmail.mockResolvedValue({
         data: {
           id: 'account-id',
-          key: 'account-key',
           email: testEmail,
           role: 'author',
           created: new Date().toISOString(),
@@ -486,7 +480,6 @@ describe('Auth Integration Tests', () => {
       mockAccountRepository.findByEmail.mockResolvedValue({
         data: {
           id: 'test-account-id',
-          key: 'account-key',
           email: testEmail,
           role: 'author',
           created: new Date().toISOString(),
@@ -576,11 +569,11 @@ describe('Auth Integration Tests', () => {
         .expect(200);
     });
 
-    it('should reject requests with invalid API version', async () => {
+    it('should allow requests with unsupported API version (logs warning only)', async () => {
       await request(app.getHttpServer())
         .get('/')
         .set('API-VERSION', '999.0.0')
-        .expect(400);
+        .expect(200);
     });
   });
 

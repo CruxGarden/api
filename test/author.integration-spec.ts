@@ -18,13 +18,11 @@ describe('Author Integration Tests', () => {
 
   const testAccountId = 'account-123';
   const testAuthorId = 'author-123';
-  const testAuthorKey = 'author-key';
   const testUsername = 'testuser';
   const testHomeCruxId = 'home-crux-123';
 
   const testAuthorRaw: AuthorRaw = {
     id: testAuthorId,
-    key: testAuthorKey,
     username: testUsername,
     display_name: 'Test User',
     account_id: testAccountId,
@@ -59,7 +57,6 @@ describe('Author Integration Tests', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -135,22 +132,21 @@ describe('Author Integration Tests', () => {
   });
 
   describe('GET /authors/:identifier', () => {
-    it('should return 200 and author data by key (happy path)', async () => {
+    it('should return 200 and author data by id (happy path)', async () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
 
       const response = await request(app.getHttpServer())
-        .get(`/authors/${testAuthorKey}`)
+        .get(`/authors/${testAuthorId}`)
         .expect(200);
 
       expect(response.body).toMatchObject({
         id: testAuthorId,
-        key: testAuthorKey,
         username: testUsername,
         displayName: 'Test User',
       });
       expect(mockAuthorRepository.findBy).toHaveBeenCalledWith(
-        'key',
-        testAuthorKey,
+        'id',
+        testAuthorId,
       );
     });
 
@@ -191,7 +187,6 @@ describe('Author Integration Tests', () => {
       const token = generateToken(testAccountId);
       const newAuthorRaw: AuthorRaw = {
         id: 'new-author-id',
-        key: 'new-author-key',
         username: createAuthorDto.username,
         display_name: createAuthorDto.displayName,
         account_id: testAccountId,
@@ -270,7 +265,7 @@ describe('Author Integration Tests', () => {
     });
   });
 
-  describe('PATCH /authors/:authorKey', () => {
+  describe('PATCH /authors/:authorId', () => {
     const updateAuthorDto = {
       displayName: 'Updated Name',
       bio: 'Updated bio',
@@ -289,7 +284,7 @@ describe('Author Integration Tests', () => {
       mockAuthorRepository.update.mockResolvedValue(success(updatedAuthorRaw));
 
       const response = await request(app.getHttpServer())
-        .patch(`/authors/${testAuthorKey}`)
+        .patch(`/authors/${testAuthorId}`)
         .set(authHeader(token))
         .send(updateAuthorDto)
         .expect(200);
@@ -320,7 +315,7 @@ describe('Author Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(otherAuthorRaw));
 
       await request(app.getHttpServer())
-        .patch(`/authors/${testAuthorKey}`)
+        .patch(`/authors/${testAuthorId}`)
         .set(authHeader(token))
         .send(updateAuthorDto)
         .expect(403);
@@ -328,13 +323,13 @@ describe('Author Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .patch(`/authors/${testAuthorKey}`)
+        .patch(`/authors/${testAuthorId}`)
         .send(updateAuthorDto)
         .expect(401);
     });
   });
 
-  describe('DELETE /authors/:authorKey', () => {
+  describe('DELETE /authors/:authorId', () => {
     it('should return 204 and delete author (happy path)', async () => {
       const token = generateToken(testAccountId);
 
@@ -342,7 +337,7 @@ describe('Author Integration Tests', () => {
       mockAuthorRepository.delete.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete(`/authors/${testAuthorKey}`)
+        .delete(`/authors/${testAuthorId}`)
         .set(authHeader(token))
         .expect(204);
 
@@ -369,14 +364,14 @@ describe('Author Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(otherAuthorRaw));
 
       await request(app.getHttpServer())
-        .delete(`/authors/${testAuthorKey}`)
+        .delete(`/authors/${testAuthorId}`)
         .set(authHeader(token))
         .expect(403);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .delete(`/authors/${testAuthorKey}`)
+        .delete(`/authors/${testAuthorId}`)
         .expect(401);
     });
   });

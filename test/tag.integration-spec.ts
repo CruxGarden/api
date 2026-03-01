@@ -21,12 +21,10 @@ describe('Tag Integration Tests', () => {
   const testAdminAccountId = 'admin-account-123';
   const testAuthorId = 'author-123';
   const testTagId = 'tag-123';
-  const testTagKey = 'tag-key';
   const testResourceId = 'resource-123';
 
   const testTagRaw: TagRaw = {
     id: testTagId,
-    key: testTagKey,
     resource_type: ResourceType.CRUX,
     resource_id: testResourceId,
     label: 'javascript',
@@ -63,7 +61,6 @@ describe('Tag Integration Tests', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -170,22 +167,21 @@ describe('Tag Integration Tests', () => {
     });
   });
 
-  describe('GET /tags/:tagKey', () => {
+  describe('GET /tags/:tagId', () => {
     it('should return 200 and tag data (happy path)', async () => {
       const token = generateToken(testAccountId);
       mockTagRepository.findBy.mockResolvedValue(success(testTagRaw));
 
       const response = await request(app.getHttpServer())
-        .get(`/tags/${testTagKey}`)
+        .get(`/tags/${testTagId}`)
         .set(authHeader(token))
         .expect(200);
 
       expect(response.body).toMatchObject({
         id: testTagId,
-        key: testTagKey,
         label: 'javascript',
       });
-      expect(mockTagRepository.findBy).toHaveBeenCalledWith('key', testTagKey);
+      expect(mockTagRepository.findBy).toHaveBeenCalledWith('id', testTagId);
     });
 
     it('should return 404 when tag not found', async () => {
@@ -199,11 +195,11 @@ describe('Tag Integration Tests', () => {
     });
 
     it('should return 401 when no token provided', async () => {
-      await request(app.getHttpServer()).get(`/tags/${testTagKey}`).expect(401);
+      await request(app.getHttpServer()).get(`/tags/${testTagId}`).expect(401);
     });
   });
 
-  describe('PATCH /tags/:tagKey', () => {
+  describe('PATCH /tags/:tagId', () => {
     const updateTagDto = {
       label: 'typescript',
     };
@@ -220,7 +216,7 @@ describe('Tag Integration Tests', () => {
       mockTagRepository.update.mockResolvedValue(success(updatedTagRaw));
 
       const response = await request(app.getHttpServer())
-        .patch(`/tags/${testTagKey}`)
+        .patch(`/tags/${testTagId}`)
         .set(authHeader(token))
         .send(updateTagDto)
         .expect(200);
@@ -244,7 +240,7 @@ describe('Tag Integration Tests', () => {
       const token = generateToken(testAccountId, 'author');
 
       await request(app.getHttpServer())
-        .patch(`/tags/${testTagKey}`)
+        .patch(`/tags/${testTagId}`)
         .set(authHeader(token))
         .send(updateTagDto)
         .expect(403);
@@ -252,7 +248,7 @@ describe('Tag Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .patch(`/tags/${testTagKey}`)
+        .patch(`/tags/${testTagId}`)
         .send(updateTagDto)
         .expect(401);
     });
@@ -261,7 +257,7 @@ describe('Tag Integration Tests', () => {
       const token = generateToken(testAdminAccountId, 'admin');
 
       await request(app.getHttpServer())
-        .patch(`/tags/${testTagKey}`)
+        .patch(`/tags/${testTagId}`)
         .set(authHeader(token))
         .send({ label: 'INVALID LABEL' })
         .expect(400);
@@ -271,14 +267,14 @@ describe('Tag Integration Tests', () => {
       const token = generateToken(testAdminAccountId, 'admin');
 
       await request(app.getHttpServer())
-        .patch(`/tags/${testTagKey}`)
+        .patch(`/tags/${testTagId}`)
         .set(authHeader(token))
         .send({ label: 'TypeScript' })
         .expect(400);
     });
   });
 
-  describe('DELETE /tags/:tagKey', () => {
+  describe('DELETE /tags/:tagId', () => {
     it('should return 204 and delete tag (happy path - admin)', async () => {
       const token = generateToken(testAdminAccountId, 'admin');
 
@@ -286,7 +282,7 @@ describe('Tag Integration Tests', () => {
       mockTagRepository.delete.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete(`/tags/${testTagKey}`)
+        .delete(`/tags/${testTagId}`)
         .set(authHeader(token))
         .expect(204);
 
@@ -307,14 +303,14 @@ describe('Tag Integration Tests', () => {
       const token = generateToken(testAccountId, 'author');
 
       await request(app.getHttpServer())
-        .delete(`/tags/${testTagKey}`)
+        .delete(`/tags/${testTagId}`)
         .set(authHeader(token))
         .expect(403);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .delete(`/tags/${testTagKey}`)
+        .delete(`/tags/${testTagId}`)
         .expect(401);
     });
   });

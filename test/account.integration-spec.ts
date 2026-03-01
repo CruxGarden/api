@@ -27,7 +27,6 @@ describe('Account Integration Tests', () => {
 
   const testAccountRaw: AccountRaw = {
     id: testAccountId,
-    key: 'account-key',
     email: testEmail,
     role: 'author',
     home_id: 'home-123',
@@ -72,7 +71,6 @@ describe('Account Integration Tests', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),

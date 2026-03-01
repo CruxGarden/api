@@ -24,11 +24,9 @@ describe('Attachment Integration Tests', () => {
   const testAccountId = 'account-123';
   const testAuthorId = 'author-123';
   const testAttachmentId = 'attachment-123';
-  const testAttachmentKey = 'attach-key-abc';
 
   const testAuthorRaw: AuthorRaw = {
     id: testAuthorId,
-    key: 'author-key',
     username: 'testuser',
     display_name: 'Test User',
     account_id: testAccountId,
@@ -40,7 +38,6 @@ describe('Attachment Integration Tests', () => {
 
   const testAttachmentRaw: AttachmentRaw = {
     id: testAttachmentId,
-    key: testAttachmentKey,
     type: 'image',
     kind: 'photo',
     meta: { caption: 'Test image' },
@@ -92,7 +89,6 @@ describe('Attachment Integration Tests', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -138,7 +134,7 @@ describe('Attachment Integration Tests', () => {
     jest.clearAllMocks();
   });
 
-  describe('PUT /attachments/:attachmentKey', () => {
+  describe('PUT /attachments/:attachmentId', () => {
     const updateDto = {
       type: 'document',
     };
@@ -156,7 +152,7 @@ describe('Attachment Integration Tests', () => {
       );
 
       const response = await request(app.getHttpServer())
-        .put(`/attachments/${testAttachmentKey}`)
+        .put(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .send(updateDto)
         .expect(200);
@@ -186,7 +182,7 @@ describe('Attachment Integration Tests', () => {
       );
 
       const response = await request(app.getHttpServer())
-        .put(`/attachments/${testAttachmentKey}`)
+        .put(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .field('type', 'document')
         .attach('file', Buffer.from('test file content'), 'newfile.jpg')
@@ -222,7 +218,7 @@ describe('Attachment Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(otherAuthorRaw));
 
       await request(app.getHttpServer())
-        .put(`/attachments/${testAttachmentKey}`)
+        .put(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .send(updateDto)
         .expect(403);
@@ -230,21 +226,21 @@ describe('Attachment Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .put(`/attachments/${testAttachmentKey}`)
+        .put(`/attachments/${testAttachmentId}`)
         .send(updateDto)
         .expect(401);
     });
 
     it('should return 401 when invalid token provided', async () => {
       await request(app.getHttpServer())
-        .put(`/attachments/${testAttachmentKey}`)
+        .put(`/attachments/${testAttachmentId}`)
         .set(authHeader('invalid-token'))
         .send(updateDto)
         .expect(401);
     });
   });
 
-  describe('DELETE /attachments/:attachmentKey', () => {
+  describe('DELETE /attachments/:attachmentId', () => {
     it('should return 204 and delete attachment with file (happy path)', async () => {
       const token = generateToken(testAccountId);
 
@@ -256,7 +252,7 @@ describe('Attachment Integration Tests', () => {
       mockAttachmentRepository.delete.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete(`/attachments/${testAttachmentKey}`)
+        .delete(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .expect(204);
 
@@ -277,7 +273,7 @@ describe('Attachment Integration Tests', () => {
       mockAttachmentRepository.delete.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete(`/attachments/${testAttachmentKey}`)
+        .delete(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .expect(204);
 
@@ -308,20 +304,20 @@ describe('Attachment Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(otherAuthorRaw));
 
       await request(app.getHttpServer())
-        .delete(`/attachments/${testAttachmentKey}`)
+        .delete(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .expect(403);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .delete(`/attachments/${testAttachmentKey}`)
+        .delete(`/attachments/${testAttachmentId}`)
         .expect(401);
     });
 
     it('should return 401 when invalid token provided', async () => {
       await request(app.getHttpServer())
-        .delete(`/attachments/${testAttachmentKey}`)
+        .delete(`/attachments/${testAttachmentId}`)
         .set(authHeader('invalid-token'))
         .expect(401);
     });
@@ -340,7 +336,7 @@ describe('Attachment Integration Tests', () => {
       const largeBuffer = Buffer.alloc(51 * 1024 * 1024);
 
       await request(app.getHttpServer())
-        .put(`/attachments/${testAttachmentKey}`)
+        .put(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .field('type', 'document')
         .attach('file', largeBuffer, 'large.jpg')
@@ -356,7 +352,7 @@ describe('Attachment Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .put(`/attachments/${testAttachmentKey}`)
+        .put(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .send({ type: 'document' })
         .expect(404);
@@ -372,7 +368,7 @@ describe('Attachment Integration Tests', () => {
       mockStoreService.upload.mockRejectedValue(new Error('Upload failed'));
 
       await request(app.getHttpServer())
-        .put(`/attachments/${testAttachmentKey}`)
+        .put(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .field('type', 'document')
         .attach('file', Buffer.from('test'), 'test.jpg')
@@ -392,7 +388,7 @@ describe('Attachment Integration Tests', () => {
       });
 
       await request(app.getHttpServer())
-        .put(`/attachments/${testAttachmentKey}`)
+        .put(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .send({ type: 'document' })
         .expect(500);
@@ -412,7 +408,7 @@ describe('Attachment Integration Tests', () => {
       });
 
       await request(app.getHttpServer())
-        .delete(`/attachments/${testAttachmentKey}`)
+        .delete(`/attachments/${testAttachmentId}`)
         .set(authHeader(token))
         .expect(500);
     });

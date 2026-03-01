@@ -26,11 +26,9 @@ describe('Theme Integration Tests', () => {
   const testAccountId = 'account-123';
   const testAuthorId = 'author-123';
   const testThemeId = 'theme-123';
-  const testThemeKey = 'theme-key';
 
   const testAuthorRaw: AuthorRaw = {
     id: testAuthorId,
-    key: 'author-key',
     username: 'testuser',
     display_name: 'Test User',
     account_id: testAccountId,
@@ -42,7 +40,6 @@ describe('Theme Integration Tests', () => {
 
   const testThemeRaw: ThemeRaw = {
     id: testThemeId,
-    key: testThemeKey,
     title: 'Ocean Blue',
     description: 'A blue theme',
     type: 'nature',
@@ -97,7 +94,6 @@ describe('Theme Integration Tests', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -176,24 +172,23 @@ describe('Theme Integration Tests', () => {
     });
   });
 
-  describe('GET /themes/:themeKey', () => {
+  describe('GET /themes/:themeId', () => {
     it('should return 200 and theme data (happy path)', async () => {
       const token = generateToken(testAccountId);
       mockThemeRepository.findBy.mockResolvedValue(success(testThemeRaw));
 
       const response = await request(app.getHttpServer())
-        .get(`/themes/${testThemeKey}`)
+        .get(`/themes/${testThemeId}`)
         .set(authHeader(token))
         .expect(200);
 
       expect(response.body).toMatchObject({
         id: testThemeId,
-        key: testThemeKey,
         title: 'Ocean Blue',
       });
       expect(mockThemeRepository.findBy).toHaveBeenCalledWith(
-        'key',
-        testThemeKey,
+        'id',
+        testThemeId,
       );
     });
 
@@ -209,7 +204,7 @@ describe('Theme Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/themes/${testThemeKey}`)
+        .get(`/themes/${testThemeId}`)
         .expect(401);
     });
   });
@@ -235,7 +230,6 @@ describe('Theme Integration Tests', () => {
       const token = generateToken(testAccountId);
       const newThemeRaw: ThemeRaw = {
         id: 'new-theme-id',
-        key: 'new-theme-key',
         title: createThemeDto.title,
         type: createThemeDto.type,
         kind: createThemeDto.kind,
@@ -309,7 +303,7 @@ describe('Theme Integration Tests', () => {
     });
   });
 
-  describe('PATCH /themes/:themeKey', () => {
+  describe('PATCH /themes/:themeId', () => {
     const updateThemeDto = {
       title: 'Updated Ocean Blue',
       meta: {
@@ -333,7 +327,7 @@ describe('Theme Integration Tests', () => {
       mockThemeRepository.update.mockResolvedValue(success(updatedThemeRaw));
 
       const response = await request(app.getHttpServer())
-        .patch(`/themes/${testThemeKey}`)
+        .patch(`/themes/${testThemeId}`)
         .set(authHeader(token))
         .send(updateThemeDto)
         .expect(200);
@@ -365,7 +359,7 @@ describe('Theme Integration Tests', () => {
       mockThemeRepository.findBy.mockResolvedValue(success(testThemeRaw));
 
       await request(app.getHttpServer())
-        .patch(`/themes/${testThemeKey}`)
+        .patch(`/themes/${testThemeId}`)
         .set(authHeader(token))
         .send(updateThemeDto)
         .expect(403);
@@ -373,13 +367,13 @@ describe('Theme Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .patch(`/themes/${testThemeKey}`)
+        .patch(`/themes/${testThemeId}`)
         .send(updateThemeDto)
         .expect(401);
     });
   });
 
-  describe('DELETE /themes/:themeKey', () => {
+  describe('DELETE /themes/:themeId', () => {
     it('should return 204 and delete theme (happy path)', async () => {
       const token = generateToken(testAccountId);
 
@@ -388,7 +382,7 @@ describe('Theme Integration Tests', () => {
       mockThemeRepository.delete.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete(`/themes/${testThemeKey}`)
+        .delete(`/themes/${testThemeId}`)
         .set(authHeader(token))
         .expect(204);
 
@@ -417,25 +411,25 @@ describe('Theme Integration Tests', () => {
       mockThemeRepository.findBy.mockResolvedValue(success(testThemeRaw));
 
       await request(app.getHttpServer())
-        .delete(`/themes/${testThemeKey}`)
+        .delete(`/themes/${testThemeId}`)
         .set(authHeader(token))
         .expect(403);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .delete(`/themes/${testThemeKey}`)
+        .delete(`/themes/${testThemeId}`)
         .expect(401);
     });
   });
 
-  describe('GET /themes/:themeKey/tags', () => {
+  describe('GET /themes/:themeId/tags', () => {
     it('should return 200 and list of tags (happy path)', async () => {
       const token = generateToken(testAccountId);
       const testTagsRaw: TagRaw[] = [
         {
           id: 'tag-1',
-          key: 'tagkey1',
+
           label: 'blue',
           resource_type: ResourceType.THEME,
           resource_id: testThemeId,
@@ -451,7 +445,7 @@ describe('Theme Integration Tests', () => {
       mockTagService.getTags.mockResolvedValue(
         testTagsRaw.map((tag) => ({
           id: tag.id,
-          key: tag.key,
+
           label: tag.label,
           resourceType: tag.resource_type,
           resourceId: tag.resource_id,
@@ -463,7 +457,7 @@ describe('Theme Integration Tests', () => {
       );
 
       const response = await request(app.getHttpServer())
-        .get(`/themes/${testThemeKey}/tags`)
+        .get(`/themes/${testThemeId}/tags`)
         .set(authHeader(token))
         .expect(200);
 
@@ -475,12 +469,12 @@ describe('Theme Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/themes/${testThemeKey}/tags`)
+        .get(`/themes/${testThemeId}/tags`)
         .expect(401);
     });
   });
 
-  describe('PUT /themes/:themeKey/tags', () => {
+  describe('PUT /themes/:themeId/tags', () => {
     const syncTagsDto = {
       labels: ['blue', 'ocean', 'calm'],
     };
@@ -489,7 +483,7 @@ describe('Theme Integration Tests', () => {
       const token = generateToken(testAccountId);
       const syncedTagsRaw: TagRaw[] = syncTagsDto.labels.map((label, idx) => ({
         id: `tag-${idx}`,
-        key: `tagkey${idx}`,
+
         label,
         resource_type: ResourceType.THEME,
         resource_id: testThemeId,
@@ -506,7 +500,7 @@ describe('Theme Integration Tests', () => {
       mockTagService.syncTags.mockResolvedValue(
         syncedTagsRaw.map((tag) => ({
           id: tag.id,
-          key: tag.key,
+
           label: tag.label,
           resourceType: tag.resource_type,
           resourceId: tag.resource_id,
@@ -518,7 +512,7 @@ describe('Theme Integration Tests', () => {
       );
 
       const response = await request(app.getHttpServer())
-        .put(`/themes/${testThemeKey}/tags`)
+        .put(`/themes/${testThemeId}/tags`)
         .set(authHeader(token))
         .send(syncTagsDto)
         .expect(200);
@@ -550,7 +544,7 @@ describe('Theme Integration Tests', () => {
       mockThemeRepository.findBy.mockResolvedValue(success(testThemeRaw));
 
       await request(app.getHttpServer())
-        .put(`/themes/${testThemeKey}/tags`)
+        .put(`/themes/${testThemeId}/tags`)
         .set(authHeader(token))
         .send(syncTagsDto)
         .expect(403);
@@ -558,7 +552,7 @@ describe('Theme Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .put(`/themes/${testThemeKey}/tags`)
+        .put(`/themes/${testThemeId}/tags`)
         .send(syncTagsDto)
         .expect(401);
     });

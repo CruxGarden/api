@@ -29,12 +29,10 @@ describe('Path Integration Tests', () => {
   const testAccountId = 'account-123';
   const testAuthorId = 'author-123';
   const testPathId = 'path-123';
-  const testPathKey = 'path-key';
   const testEntryMarkerId = '550e8400-e29b-41d4-a716-446655440000';
 
   const testAuthorRaw: AuthorRaw = {
     id: testAuthorId,
-    key: 'author-key',
     username: 'testuser',
     display_name: 'Test User',
     account_id: testAccountId,
@@ -46,7 +44,6 @@ describe('Path Integration Tests', () => {
 
   const testPathRaw: PathRaw = {
     id: testPathId,
-    key: testPathKey,
     slug: 'test-path',
     title: 'Test Path',
     description: 'Test path description',
@@ -94,13 +91,12 @@ describe('Path Integration Tests', () => {
     } as any;
 
     mockCruxService = {
-      findByKey: jest.fn(),
+      findById: jest.fn(),
     } as any;
 
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -181,25 +177,24 @@ describe('Path Integration Tests', () => {
     });
   });
 
-  describe('GET /paths/:pathKey', () => {
+  describe('GET /paths/:pathId', () => {
     it('should return 200 and path data (happy path)', async () => {
       const token = generateToken(testAccountId);
       mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
 
       const response = await request(app.getHttpServer())
-        .get(`/paths/${testPathKey}`)
+        .get(`/paths/${testPathId}`)
         .set(authHeader(token))
         .expect(200);
 
       expect(response.body).toMatchObject({
         id: testPathId,
-        key: testPathKey,
         slug: 'test-path',
         title: 'Test Path',
       });
       expect(mockPathRepository.findBy).toHaveBeenCalledWith(
-        'key',
-        testPathKey,
+        'slug',
+        testPathId,
       );
     });
 
@@ -215,7 +210,7 @@ describe('Path Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/paths/${testPathKey}`)
+        .get(`/paths/${testPathId}`)
         .expect(401);
     });
   });
@@ -233,7 +228,6 @@ describe('Path Integration Tests', () => {
       const token = generateToken(testAccountId);
       const newPathRaw: PathRaw = {
         id: 'new-path-id',
-        key: 'new-path-key',
         slug: createPathDto.slug,
         title: createPathDto.title,
         description: createPathDto.description,
@@ -294,7 +288,7 @@ describe('Path Integration Tests', () => {
     });
   });
 
-  describe('PATCH /paths/:pathKey', () => {
+  describe('PATCH /paths/:pathId', () => {
     const updatePathDto = {
       title: 'Updated Path Title',
       description: 'Updated description',
@@ -314,7 +308,7 @@ describe('Path Integration Tests', () => {
       mockPathRepository.update.mockResolvedValue(success(updatedPathRaw));
 
       const response = await request(app.getHttpServer())
-        .patch(`/paths/${testPathKey}`)
+        .patch(`/paths/${testPathId}`)
         .set(authHeader(token))
         .send(updatePathDto)
         .expect(200);
@@ -346,7 +340,7 @@ describe('Path Integration Tests', () => {
       mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
 
       await request(app.getHttpServer())
-        .patch(`/paths/${testPathKey}`)
+        .patch(`/paths/${testPathId}`)
         .set(authHeader(token))
         .send(updatePathDto)
         .expect(403);
@@ -354,13 +348,13 @@ describe('Path Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .patch(`/paths/${testPathKey}`)
+        .patch(`/paths/${testPathId}`)
         .send(updatePathDto)
         .expect(401);
     });
   });
 
-  describe('DELETE /paths/:pathKey', () => {
+  describe('DELETE /paths/:pathId', () => {
     it('should return 204 and delete path (happy path)', async () => {
       const token = generateToken(testAccountId);
 
@@ -369,7 +363,7 @@ describe('Path Integration Tests', () => {
       mockPathRepository.delete.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete(`/paths/${testPathKey}`)
+        .delete(`/paths/${testPathId}`)
         .set(authHeader(token))
         .expect(204);
 
@@ -398,25 +392,25 @@ describe('Path Integration Tests', () => {
       mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
 
       await request(app.getHttpServer())
-        .delete(`/paths/${testPathKey}`)
+        .delete(`/paths/${testPathId}`)
         .set(authHeader(token))
         .expect(403);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .delete(`/paths/${testPathKey}`)
+        .delete(`/paths/${testPathId}`)
         .expect(401);
     });
   });
 
-  describe('GET /paths/:pathKey/markers', () => {
+  describe('GET /paths/:pathId/markers', () => {
     it('should return 200 and list of markers (happy path)', async () => {
       const token = generateToken(testAccountId);
       const testMarkersRaw: MarkerRaw[] = [
         {
           id: 'marker-1',
-          key: 'marker-key-1',
+
           path_id: testPathId,
           crux_id: 'crux-1',
           order: 0,
@@ -435,7 +429,7 @@ describe('Path Integration Tests', () => {
       );
 
       const response = await request(app.getHttpServer())
-        .get(`/paths/${testPathKey}/markers`)
+        .get(`/paths/${testPathId}/markers`)
         .set(authHeader(token))
         .expect(200);
 
@@ -458,16 +452,24 @@ describe('Path Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/paths/${testPathKey}/markers`)
+        .get(`/paths/${testPathId}/markers`)
         .expect(401);
     });
   });
 
-  describe('PUT /paths/:pathKey/markers', () => {
+  describe('PUT /paths/:pathId/markers', () => {
     const syncMarkersDto = {
       markers: [
-        { cruxKey: 'crux-key-1', order: 0, note: 'First' },
-        { cruxKey: 'crux-key-2', order: 1, note: 'Second' },
+        {
+          cruxId: '550e8400-e29b-41d4-a716-446655440001',
+          order: 0,
+          note: 'First',
+        },
+        {
+          cruxId: '550e8400-e29b-41d4-a716-446655440002',
+          order: 1,
+          note: 'Second',
+        },
       ],
     };
 
@@ -476,9 +478,9 @@ describe('Path Integration Tests', () => {
       const syncedMarkersRaw: MarkerRaw[] = [
         {
           id: 'marker-0',
-          key: 'marker-key-0',
+
           path_id: testPathId,
-          crux_id: 'crux-id-1',
+          crux_id: '550e8400-e29b-41d4-a716-446655440001',
           order: 0,
           note: 'First',
           author_id: testAuthorId,
@@ -489,9 +491,9 @@ describe('Path Integration Tests', () => {
         },
         {
           id: 'marker-1',
-          key: 'marker-key-1',
+
           path_id: testPathId,
-          crux_id: 'crux-id-2',
+          crux_id: '550e8400-e29b-41d4-a716-446655440002',
           order: 1,
           note: 'Second',
           author_id: testAuthorId,
@@ -507,9 +509,13 @@ describe('Path Integration Tests', () => {
       mockPathRepository.deleteMarkersByPathId.mockResolvedValue(success(null));
 
       // Mock crux lookups for markers
-      mockCruxService.findByKey
-        .mockResolvedValueOnce({ id: 'crux-id-1' } as any)
-        .mockResolvedValueOnce({ id: 'crux-id-2' } as any);
+      mockCruxService.findById
+        .mockResolvedValueOnce({
+          id: '550e8400-e29b-41d4-a716-446655440001',
+        } as any)
+        .mockResolvedValueOnce({
+          id: '550e8400-e29b-41d4-a716-446655440002',
+        } as any);
 
       // Mock marker creation for each marker in the sync
       mockPathRepository.createMarker
@@ -517,7 +523,7 @@ describe('Path Integration Tests', () => {
         .mockResolvedValueOnce(success(syncedMarkersRaw[1]));
 
       const response = await request(app.getHttpServer())
-        .put(`/paths/${testPathKey}/markers`)
+        .put(`/paths/${testPathId}/markers`)
         .set(authHeader(token))
         .send(syncMarkersDto)
         .expect(200);
@@ -549,7 +555,7 @@ describe('Path Integration Tests', () => {
       mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
 
       await request(app.getHttpServer())
-        .put(`/paths/${testPathKey}/markers`)
+        .put(`/paths/${testPathId}/markers`)
         .set(authHeader(token))
         .send(syncMarkersDto)
         .expect(403);
@@ -557,19 +563,19 @@ describe('Path Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .put(`/paths/${testPathKey}/markers`)
+        .put(`/paths/${testPathId}/markers`)
         .send(syncMarkersDto)
         .expect(401);
     });
   });
 
-  describe('GET /paths/:pathKey/tags', () => {
+  describe('GET /paths/:pathId/tags', () => {
     it('should return 200 and list of tags (happy path)', async () => {
       const token = generateToken(testAccountId);
       const testTagsRaw: TagRaw[] = [
         {
           id: 'tag-1',
-          key: 'tagkey1',
+
           label: 'javascript',
           resource_type: ResourceType.PATH,
           resource_id: testPathId,
@@ -585,7 +591,7 @@ describe('Path Integration Tests', () => {
       mockTagService.getTags.mockResolvedValue(
         testTagsRaw.map((tag) => ({
           id: tag.id,
-          key: tag.key,
+
           label: tag.label,
           resourceType: tag.resource_type,
           resourceId: tag.resource_id,
@@ -597,7 +603,7 @@ describe('Path Integration Tests', () => {
       );
 
       const response = await request(app.getHttpServer())
-        .get(`/paths/${testPathKey}/tags`)
+        .get(`/paths/${testPathId}/tags`)
         .set(authHeader(token))
         .expect(200);
 
@@ -619,12 +625,12 @@ describe('Path Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/paths/${testPathKey}/tags`)
+        .get(`/paths/${testPathId}/tags`)
         .expect(401);
     });
   });
 
-  describe('PUT /paths/:pathKey/tags', () => {
+  describe('PUT /paths/:pathId/tags', () => {
     const syncTagsDto = {
       labels: ['javascript', 'typescript', 'nodejs'],
     };
@@ -633,7 +639,7 @@ describe('Path Integration Tests', () => {
       const token = generateToken(testAccountId);
       const syncedTagsRaw: TagRaw[] = syncTagsDto.labels.map((label, idx) => ({
         id: `tag-${idx}`,
-        key: `tagkey${idx}`,
+
         label,
         resource_type: ResourceType.PATH,
         resource_id: testPathId,
@@ -650,7 +656,7 @@ describe('Path Integration Tests', () => {
       mockTagService.syncTags.mockResolvedValue(
         syncedTagsRaw.map((tag) => ({
           id: tag.id,
-          key: tag.key,
+
           label: tag.label,
           resourceType: tag.resource_type,
           resourceId: tag.resource_id,
@@ -662,7 +668,7 @@ describe('Path Integration Tests', () => {
       );
 
       const response = await request(app.getHttpServer())
-        .put(`/paths/${testPathKey}/tags`)
+        .put(`/paths/${testPathId}/tags`)
         .set(authHeader(token))
         .send(syncTagsDto)
         .expect(200);
@@ -694,7 +700,7 @@ describe('Path Integration Tests', () => {
       mockPathRepository.findBy.mockResolvedValue(success(testPathRaw));
 
       await request(app.getHttpServer())
-        .put(`/paths/${testPathKey}/tags`)
+        .put(`/paths/${testPathId}/tags`)
         .set(authHeader(token))
         .send(syncTagsDto)
         .expect(403);
@@ -702,7 +708,7 @@ describe('Path Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .put(`/paths/${testPathKey}/tags`)
+        .put(`/paths/${testPathId}/tags`)
         .send(syncTagsDto)
         .expect(401);
     });

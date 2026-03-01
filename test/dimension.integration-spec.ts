@@ -22,13 +22,11 @@ describe('Dimension Integration Tests', () => {
   const testAccountId = 'account-123';
   const testAuthorId = 'author-123';
   const testDimensionId = 'dimension-123';
-  const testDimensionKey = 'dim-key';
   const testSourceCruxId = 'source-crux-123';
   const testTargetCruxId = 'target-crux-123';
 
   const testAuthorRaw: AuthorRaw = {
     id: testAuthorId,
-    key: 'author-key',
     username: 'testuser',
     display_name: 'Test User',
     account_id: testAccountId,
@@ -40,7 +38,6 @@ describe('Dimension Integration Tests', () => {
 
   const testDimensionRaw: DimensionRaw = {
     id: testDimensionId,
-    key: testDimensionKey,
     source_id: testSourceCruxId,
     target_id: testTargetCruxId,
     type: 'gate',
@@ -78,7 +75,6 @@ describe('Dimension Integration Tests', () => {
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-123',
-        key: 'home-key',
         name: 'Test Home',
         primary: true,
       }),
@@ -122,7 +118,7 @@ describe('Dimension Integration Tests', () => {
     jest.clearAllMocks();
   });
 
-  describe('GET /dimensions/:dimensionKey', () => {
+  describe('GET /dimensions/:dimensionId', () => {
     it('should return 200 and dimension data (happy path)', async () => {
       const token = generateToken(testAccountId);
       mockDimensionRepository.findBy.mockResolvedValue(
@@ -130,19 +126,18 @@ describe('Dimension Integration Tests', () => {
       );
 
       const response = await request(app.getHttpServer())
-        .get(`/dimensions/${testDimensionKey}`)
+        .get(`/dimensions/${testDimensionId}`)
         .set(authHeader(token))
         .expect(200);
 
       expect(response.body).toMatchObject({
         id: testDimensionId,
-        key: testDimensionKey,
         type: 'gate',
         weight: 1,
       });
       expect(mockDimensionRepository.findBy).toHaveBeenCalledWith(
-        'key',
-        testDimensionKey,
+        'id',
+        testDimensionId,
       );
     });
 
@@ -158,19 +153,19 @@ describe('Dimension Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/dimensions/${testDimensionKey}`)
+        .get(`/dimensions/${testDimensionId}`)
         .expect(401);
     });
 
     it('should return 401 when invalid token provided', async () => {
       await request(app.getHttpServer())
-        .get(`/dimensions/${testDimensionKey}`)
+        .get(`/dimensions/${testDimensionId}`)
         .set(authHeader('invalid-token'))
         .expect(401);
     });
   });
 
-  describe('PATCH /dimensions/:dimensionKey', () => {
+  describe('PATCH /dimensions/:dimensionId', () => {
     const updateDimensionDto = {
       type: 'garden',
       weight: 5,
@@ -196,7 +191,7 @@ describe('Dimension Integration Tests', () => {
       );
 
       const response = await request(app.getHttpServer())
-        .patch(`/dimensions/${testDimensionKey}`)
+        .patch(`/dimensions/${testDimensionId}`)
         .set(authHeader(token))
         .send(updateDimensionDto)
         .expect(200);
@@ -232,7 +227,7 @@ describe('Dimension Integration Tests', () => {
       );
 
       await request(app.getHttpServer())
-        .patch(`/dimensions/${testDimensionKey}`)
+        .patch(`/dimensions/${testDimensionId}`)
         .set(authHeader(token))
         .send(updateDimensionDto)
         .expect(403);
@@ -240,7 +235,7 @@ describe('Dimension Integration Tests', () => {
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .patch(`/dimensions/${testDimensionKey}`)
+        .patch(`/dimensions/${testDimensionId}`)
         .send(updateDimensionDto)
         .expect(401);
     });
@@ -250,7 +245,7 @@ describe('Dimension Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .patch(`/dimensions/${testDimensionKey}`)
+        .patch(`/dimensions/${testDimensionId}`)
         .set(authHeader(token))
         .send(updateDimensionDto)
         .expect(404);
@@ -261,7 +256,7 @@ describe('Dimension Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
 
       await request(app.getHttpServer())
-        .patch(`/dimensions/${testDimensionKey}`)
+        .patch(`/dimensions/${testDimensionId}`)
         .set(authHeader(token))
         .send({ type: 'invalid-type' })
         .expect(400);
@@ -272,7 +267,7 @@ describe('Dimension Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
 
       await request(app.getHttpServer())
-        .patch(`/dimensions/${testDimensionKey}`)
+        .patch(`/dimensions/${testDimensionId}`)
         .set(authHeader(token))
         .send({ weight: -1 })
         .expect(400);
@@ -283,7 +278,7 @@ describe('Dimension Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
 
       await request(app.getHttpServer())
-        .patch(`/dimensions/${testDimensionKey}`)
+        .patch(`/dimensions/${testDimensionId}`)
         .set(authHeader(token))
         .send({
           type: 'garden',
@@ -293,7 +288,7 @@ describe('Dimension Integration Tests', () => {
     });
   });
 
-  describe('DELETE /dimensions/:dimensionKey', () => {
+  describe('DELETE /dimensions/:dimensionId', () => {
     it('should return 204 and delete dimension (happy path)', async () => {
       const token = generateToken(testAccountId);
 
@@ -304,7 +299,7 @@ describe('Dimension Integration Tests', () => {
       mockDimensionRepository.delete.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete(`/dimensions/${testDimensionKey}`)
+        .delete(`/dimensions/${testDimensionId}`)
         .set(authHeader(token))
         .expect(204);
 
@@ -337,14 +332,14 @@ describe('Dimension Integration Tests', () => {
       );
 
       await request(app.getHttpServer())
-        .delete(`/dimensions/${testDimensionKey}`)
+        .delete(`/dimensions/${testDimensionId}`)
         .set(authHeader(token))
         .expect(403);
     });
 
     it('should return 401 when no token provided', async () => {
       await request(app.getHttpServer())
-        .delete(`/dimensions/${testDimensionKey}`)
+        .delete(`/dimensions/${testDimensionId}`)
         .expect(401);
     });
 
@@ -353,7 +348,7 @@ describe('Dimension Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
-        .delete(`/dimensions/${testDimensionKey}`)
+        .delete(`/dimensions/${testDimensionId}`)
         .set(authHeader(token))
         .expect(404);
     });
