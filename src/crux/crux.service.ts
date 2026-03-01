@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  ConflictException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
@@ -128,7 +129,20 @@ export class CruxService {
     // 1) fetch crux
     const cruxToUpdate = await this.findById(cruxId);
 
-    // 2) update crux
+    // 2) check slug uniqueness (per author, excluding this crux)
+    if (updateCruxDto.slug && updateCruxDto.slug !== cruxToUpdate.slug) {
+      const existing = await this.cruxRepository.findByAuthorAndSlug(
+        cruxToUpdate.authorId,
+        updateCruxDto.slug,
+      );
+      if (existing.data) {
+        throw new ConflictException(
+          `Slug "${updateCruxDto.slug}" is already in use`,
+        );
+      }
+    }
+
+    // 3) update crux
     const updated = await this.cruxRepository.update(
       cruxToUpdate.id,
       updateCruxDto,

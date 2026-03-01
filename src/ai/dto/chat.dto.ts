@@ -7,7 +7,10 @@ export class ChatDto {
   @IsString()
   cruxId: string;
 
-  @ApiProperty({ description: 'Conversation messages (content may be string or content blocks)' })
+  @ApiProperty({
+    description:
+      'Conversation messages (content may be string or content blocks)',
+  })
   @IsArray()
   messages: { role: 'user' | 'assistant'; content: unknown }[];
 

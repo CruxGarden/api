@@ -8,13 +8,11 @@ import { AuthorService } from './author.service';
 import { AuthorRepository } from './author.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
-import { CruxService } from '../crux/crux.service';
 import { AttachmentService } from '../attachment/attachment.service';
 
 describe('AuthorService', () => {
   let service: AuthorService;
   let repository: jest.Mocked<AuthorRepository>;
-  let cruxService: jest.Mocked<CruxService>;
 
   const mockAuthorRaw = {
     id: 'author-id-123',
@@ -42,15 +40,6 @@ describe('AuthorService', () => {
       generateId: jest.fn().mockReturnValue('generated-id'),
     };
 
-    const mockCruxService = {
-      create: jest.fn().mockResolvedValue({
-        id: 'root-crux-id',
-        slug: 'test-root',
-        title: 'Welcome to Crux Garden!',
-        data: 'What are you thinking?',
-      }),
-    };
-
     const mockLoggerService = {
       createChildLogger: jest.fn().mockReturnValue({
         debug: jest.fn(),
@@ -72,7 +61,6 @@ describe('AuthorService', () => {
         AuthorService,
         { provide: AuthorRepository, useValue: mockRepository },
         { provide: KeyMaster, useValue: mockKeyMaster },
-        { provide: CruxService, useValue: mockCruxService },
         { provide: LoggerService, useValue: mockLoggerService },
         { provide: AttachmentService, useValue: mockAttachmentService },
       ],
@@ -80,7 +68,6 @@ describe('AuthorService', () => {
 
     service = module.get<AuthorService>(AuthorService);
     repository = module.get(AuthorRepository);
-    cruxService = module.get(CruxService);
   });
 
   describe('findById', () => {
@@ -178,19 +165,11 @@ describe('AuthorService', () => {
         data: mockAuthorRaw,
         error: null,
       });
-      repository.update.mockResolvedValue({
-        data: { ...mockAuthorRaw, root_id: 'root-crux-id' },
-        error: null,
-      });
 
       const result = await service.create(createDto);
 
       expect(result.id).toBe('author-id-123');
-      expect(cruxService.create).toHaveBeenCalled();
       expect(repository.create).toHaveBeenCalled();
-      expect(repository.update).toHaveBeenCalledWith('author-id-123', {
-        rootId: 'root-crux-id',
-      });
     });
 
     it('should throw ConflictException when username already exists', async () => {

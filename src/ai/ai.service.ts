@@ -110,7 +110,6 @@ export class AiService {
         anthropicClient,
       );
 
-
       // If no tool use, we're done
       if (response.stopReason !== 'tool_use') break;
 

@@ -4,6 +4,14 @@ import { CruxStatus, CruxVisibility } from '../../common/types/enums';
 
 export class UpdateCruxDto {
   @ApiPropertyOptional({
+    description: 'Updated slug (URL-safe identifier)',
+    example: 'my-updated-slug',
+  })
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
+  @ApiPropertyOptional({
     description: 'Updated title for the crux',
     example: 'My Updated Crux Title',
   })
