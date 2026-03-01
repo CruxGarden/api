@@ -14,10 +14,7 @@ import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import AuthorRaw from './entities/author-raw.entity';
 import Author from './entities/author.entity';
-import { CruxService } from '../crux/crux.service';
 import { AttachmentService } from '../attachment/attachment.service';
-import { CreateCruxDto } from '../crux/dto/create-crux.dto';
-import { CruxStatus, CruxVisibility } from '../common/types/enums';
 
 @Injectable()
 export class AuthorService {
@@ -28,7 +25,6 @@ export class AuthorService {
     private readonly authorRepository: AuthorRepository,
     private readonly keyMaster: KeyMaster,
     private readonly loggerService: LoggerService,
-    private readonly cruxService: CruxService,
     private readonly attachmentService: AttachmentService,
   ) {
     this.logger = this.loggerService.createChildLogger('AuthorService');
@@ -110,35 +106,6 @@ export class AuthorService {
     return this.asAuthor(author);
   }
 
-  private createRootCruxSlug(username: string): string {
-    const now = new Date();
-
-    // YYYYMMDDHHMMSS
-    const timestamp = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
-
-    return `${username}-root-${timestamp}`;
-  }
-
-  private async createRootCrux(
-    username: string,
-    authorId: string,
-    homeId: string,
-  ): Promise<string> {
-    const rootCruxDto: CreateCruxDto = {
-      slug: this.createRootCruxSlug(username),
-      title: 'Welcome to Crux Garden!',
-      data: '## What are you thinking today?',
-      type: 'markdown',
-      authorId,
-      homeId,
-      status: CruxStatus.LIVING,
-      visibility: CruxVisibility.UNLISTED,
-    };
-
-    const rootCrux = await this.cruxService.create(rootCruxDto);
-    return rootCrux.id;
-  }
-
   async create(createAuthorDto: CreateAuthorDto): Promise<Author> {
     createAuthorDto.id = this.keyMaster.generateId();
 
@@ -156,30 +123,14 @@ export class AuthorService {
     if (existingByAccount)
       throw new ConflictException('Account already has an author profile');
 
-    // 4) create author first (without root_id)
+    // 4) create author
     const created = await this.authorRepository.create(createAuthorDto);
     if (created.error)
       throw new InternalServerErrorException(
         `Author creation error: ${created.error}`,
       );
 
-    // 5) create root crux for the author (now author exists, FK is satisfied)
-    const rootCruxId = await this.createRootCrux(
-      createAuthorDto.username,
-      createAuthorDto.id,
-      createAuthorDto.homeId,
-    );
-
-    // 6) update author with root_id
-    const updated = await this.authorRepository.update(created.data.id, {
-      rootId: rootCruxId,
-    });
-    if (updated.error)
-      throw new InternalServerErrorException(
-        `Author update error: ${updated.error}`,
-      );
-
-    return this.asAuthor(updated.data);
+    return this.asAuthor(created.data);
   }
 
   async update(

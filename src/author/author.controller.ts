@@ -325,7 +325,7 @@ export class AuthorController {
     return new StreamableFile(file.data);
   }
 
-  private async resolvePublicCrux(identifier: string, slug: string) {
+  private async resolvePublicCrux(identifier: string, slugOrId: string) {
     const { hasPrefix, value } = stripPathPrefix(
       identifier,
       PathPrefix.USERNAME,
@@ -334,7 +334,14 @@ export class AuthorController {
       ? await this.authorService.findByUsername(value)
       : await this.authorService.findById(value);
 
-    const crux = await this.cruxService.findByAuthorAndSlug(author.id, slug);
+    // Accept UUID (for stable attachment URLs) or slug (for human-friendly URLs)
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        slugOrId,
+      );
+    const crux = isUuid
+      ? await this.cruxService.findById(slugOrId)
+      : await this.cruxService.findByAuthorAndSlug(author.id, slugOrId);
 
     if (crux.visibility === 'private') {
       throw new NotFoundException('Crux not found');

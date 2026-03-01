@@ -31,7 +31,7 @@ export class AiService {
 
   async streamChat(
     cruxId: string,
-    messages: { role: 'user' | 'assistant'; content: string }[],
+    messages: { role: 'user' | 'assistant'; content: unknown }[],
     model: string,
     authorId: string,
     res: Response,
@@ -53,22 +53,25 @@ export class AiService {
       res,
     };
 
-    // Build system prompt (includes current file listing)
-    const systemPrompt = await this.buildSystemPrompt(crux, ctx);
-
-    // Convert messages for Anthropic API
-    const anthropicMessages: Anthropic.MessageParam[] = messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-
-    // Set SSE headers
+    // Set SSE headers early so all errors go through SSE
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
 
     try {
+      // Build system prompt (includes current file listing)
+      const systemPrompt = await this.buildSystemPrompt(crux, ctx);
+
+      // Pass messages through — content may be string or content blocks
+      const anthropicMessages = messages as Anthropic.MessageParam[];
+
+      this.logger.info('Starting conversation loop', {
+        model,
+        messageCount: anthropicMessages.length,
+        systemPromptLength: systemPrompt.length,
+      });
+
       await this.runConversationLoop(
         systemPrompt,
         anthropicMessages,
@@ -77,8 +80,12 @@ export class AiService {
         anthropicClient,
       );
     } catch (error: any) {
-      this.logger.error(`Stream error: ${error.message}`);
-      this.sendSSE(res, 'error', { message: error.message });
+      const message =
+        error.message || error.toString() || 'Unknown stream error';
+      this.logger.error(
+        `Stream error [${error.constructor?.name}]: ${message}`,
+      );
+      this.sendSSE(res, 'error', { message });
     } finally {
       this.sendSSE(res, 'done', {});
       res.end();
@@ -102,6 +109,7 @@ export class AiService {
         ctx,
         anthropicClient,
       );
+
 
       // If no tool use, we're done
       if (response.stopReason !== 'tool_use') break;
@@ -155,7 +163,7 @@ export class AiService {
   }> {
     const stream = anthropicClient.messages.stream({
       model,
-      max_tokens: 4096,
+      max_tokens: 16384,
       system: systemPrompt,
       messages,
       tools: TOOL_DEFINITIONS,
@@ -179,6 +187,17 @@ export class AiService {
           input: block.input,
         });
       }
+    }
+
+    // If response was truncated, surface it as an error so the user knows
+    if (
+      finalMessage.stop_reason === 'max_tokens' &&
+      toolCalls.length === 0 &&
+      contentBlocks.length === 0
+    ) {
+      throw new Error(
+        'Response was truncated (max_tokens reached with no usable content). The file may be too large for a single operation.',
+      );
     }
 
     return {
@@ -374,7 +393,7 @@ export class AiService {
     return attachments
       .map((a) => {
         const path = a.meta?.path || a.filename || a.id;
-        const url = `${baseUrl}/authors/@${ctx.username}/cruxes/${ctx.slug}/attachments/${a.id}/download`;
+        const url = `${baseUrl}/authors/@${ctx.username}/cruxes/${ctx.cruxId}/attachments/${a.id}/download`;
         return `${path} → ${url}`;
       })
       .join('\n');
@@ -450,6 +469,11 @@ export class AiService {
           'You are kind, helpful, a bit absent-minded, and daydreamy. Stay in character as The Keeper throughout the conversation.',
       );
     }
+    parts.push(
+      'CRITICAL RULE: When the user asks you to create, modify, or delete files, you MUST call the actual tool functions (write_file, edit_file, read_file, delete_file). ' +
+        'NEVER narrate, describe, or role-play performing file operations — actually invoke the tool. ' +
+        'If the user says "update the title", call read_file then edit_file. Do not say "updates the file" without calling the tool.',
+    );
     parts.push(
       'FILE TOOLS: ' +
         'To create new files, use write_file. ' +
