@@ -258,7 +258,7 @@ export class CruxController {
 
   @Get(':id/attachments/:attachmentId/download')
   @CruxSwagger.DownloadAttachment()
-  @Header('Cache-Control', 'max-age=31536000')
+  @Header('Cache-Control', 'no-cache')
   async downloadAttachment(
     @Param('id') id: string,
     @Param('attachmentId') attachmentId: string,
@@ -284,4 +284,30 @@ export class CruxController {
   }
 
   /* ~crux attachments */
+
+  /* crux publishing */
+
+  @Post(':id/publish')
+  @HttpCode(HttpStatus.OK)
+  async publish(
+    @Param('id') id: string,
+    @Req() req: AuthRequest,
+  ): Promise<Crux> {
+    const author = await this.getAuthor(req);
+    await this.canManageCrux(id, author);
+    return this.cruxService.publishCrux(id);
+  }
+
+  @Post(':id/unpublish')
+  @HttpCode(HttpStatus.OK)
+  async unpublish(
+    @Param('id') id: string,
+    @Req() req: AuthRequest,
+  ): Promise<Crux> {
+    const author = await this.getAuthor(req);
+    await this.canManageCrux(id, author);
+    return this.cruxService.unpublishCrux(id);
+  }
+
+  /* ~crux publishing */
 }

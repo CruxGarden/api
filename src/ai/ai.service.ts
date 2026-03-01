@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { LoggerService } from '../common/services/logger.service';
 import { AttachmentService } from '../attachment/attachment.service';
+import { AuthorService } from '../author/author.service';
 import { CruxService } from '../crux/crux.service';
 import { TOOL_DEFINITIONS } from './ai.tools';
 import { Response } from 'express';
@@ -10,26 +11,22 @@ interface StreamContext {
   cruxId: string;
   authorId: string;
   homeId: string;
+  username: string;
+  slug: string;
   res: Response;
 }
 
 @Injectable()
 export class AiService {
   private readonly logger: LoggerService;
-  private readonly client: Anthropic;
 
   constructor(
     private readonly loggerService: LoggerService,
     private readonly attachmentService: AttachmentService,
+    private readonly authorService: AuthorService,
     private readonly cruxService: CruxService,
   ) {
     this.logger = this.loggerService.createChildLogger('AiService');
-
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      this.logger.warn('ANTHROPIC_API_KEY not set — AI features disabled');
-    }
-    this.client = new Anthropic({ apiKey: apiKey || 'dummy' });
   }
 
   async streamChat(
@@ -38,20 +35,26 @@ export class AiService {
     model: string,
     authorId: string,
     res: Response,
+    userApiKey: string,
   ): Promise<void> {
-    // Load crux for context
+    // Load crux and its author for context
     const crux = await this.cruxService.findById(cruxId);
     if (!crux) throw new NotFoundException('Crux not found');
+    const cruxAuthor = await this.authorService.findById(crux.authorId);
+
+    const anthropicClient = new Anthropic({ apiKey: userApiKey });
 
     const ctx: StreamContext = {
       cruxId,
       authorId,
       homeId: crux.homeId,
+      username: cruxAuthor.username,
+      slug: crux.slug,
       res,
     };
 
-    // Build system prompt
-    const systemPrompt = this.buildSystemPrompt(crux);
+    // Build system prompt (includes current file listing)
+    const systemPrompt = await this.buildSystemPrompt(crux, ctx);
 
     // Convert messages for Anthropic API
     const anthropicMessages: Anthropic.MessageParam[] = messages.map((m) => ({
@@ -71,6 +74,7 @@ export class AiService {
         anthropicMessages,
         model,
         ctx,
+        anthropicClient,
       );
     } catch (error: any) {
       this.logger.error(`Stream error: ${error.message}`);
@@ -86,6 +90,7 @@ export class AiService {
     messages: Anthropic.MessageParam[],
     model: string,
     ctx: StreamContext,
+    anthropicClient: Anthropic,
   ): Promise<void> {
     const MAX_TOOL_ROUNDS = 10;
 
@@ -95,6 +100,7 @@ export class AiService {
         messages,
         model,
         ctx,
+        anthropicClient,
       );
 
       // If no tool use, we're done
@@ -141,12 +147,13 @@ export class AiService {
     messages: Anthropic.MessageParam[],
     model: string,
     ctx: StreamContext,
+    anthropicClient: Anthropic,
   ): Promise<{
     stopReason: string;
     toolCalls: { id: string; name: string; input: any }[];
     contentBlocks: Anthropic.ContentBlock[];
   }> {
-    const stream = this.client.messages.stream({
+    const stream = anthropicClient.messages.stream({
       model,
       max_tokens: 4096,
       system: systemPrompt,
@@ -194,8 +201,17 @@ export class AiService {
             ctx,
             toolUse.input.encoding,
           );
+        case 'edit_file':
+          return await this.toolEditFile(
+            toolUse.input.path,
+            toolUse.input.old_string,
+            toolUse.input.new_string,
+            ctx,
+          );
         case 'read_file':
           return await this.toolReadFile(toolUse.input.path, ctx);
+        case 'delete_file':
+          return await this.toolDeleteFile(toolUse.input.path, ctx);
         case 'list_files':
           return await this.toolListFiles(ctx);
         case 'get_palette':
@@ -253,6 +269,73 @@ export class AiService {
     }
   }
 
+  private async toolEditFile(
+    path: string,
+    oldString: string,
+    newString: string,
+    ctx: StreamContext,
+  ): Promise<string> {
+    const attachment = await this.findAttachmentByPath(path, ctx.cruxId);
+    if (!attachment) {
+      return `File not found: ${path}`;
+    }
+
+    const { data, mimeType } = await this.attachmentService.downloadAttachment(
+      attachment.id,
+    );
+
+    if (this.isBinaryMime(mimeType)) {
+      return `Cannot edit binary file: ${path}`;
+    }
+
+    const currentContent = data.toString('utf-8');
+    const matchCount = currentContent.split(oldString).length - 1;
+
+    if (matchCount === 0) {
+      return `Edit failed: old_string not found in ${path}. Use read_file to check the current contents.`;
+    }
+    if (matchCount > 1) {
+      return `Edit failed: old_string matches ${matchCount} locations in ${path}. Provide more surrounding context to make it unique.`;
+    }
+
+    // Use a replacer function to avoid $ pattern interpretation in newString
+    const updatedContent = currentContent.replace(oldString, () => newString);
+
+    const buffer = Buffer.from(updatedContent, 'utf-8');
+    const filename = path.split('/').pop() || 'file';
+
+    await this.attachmentService.updateWithFile(
+      attachment.id,
+      { meta: JSON.stringify({ path }) },
+      {
+        fieldname: 'file',
+        originalname: filename,
+        encoding: '7bit',
+        mimetype: mimeType,
+        buffer,
+        size: buffer.length,
+      },
+    );
+
+    return `Edited file: ${path}`;
+  }
+
+  private async toolDeleteFile(
+    path: string,
+    ctx: StreamContext,
+  ): Promise<string> {
+    const attachment = await this.findAttachmentByPath(path, ctx.cruxId);
+    if (!attachment) return `File not found: ${path}`;
+
+    // Don't delete immediately — send a pending event so the frontend can ask for confirmation
+    this.sendSSE(ctx.res, 'delete_request', {
+      attachmentId: attachment.id,
+      path,
+    });
+
+    return `Requested deletion of ${path}. The user will be asked to confirm.`;
+  }
+
   private async toolReadFile(
     path: string,
     ctx: StreamContext,
@@ -287,8 +370,13 @@ export class AiService {
 
     if (attachments.length === 0) return 'No files in workspace.';
 
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
     return attachments
-      .map((a) => a.meta?.path || a.filename || a.id)
+      .map((a) => {
+        const path = a.meta?.path || a.filename || a.id;
+        const url = `${baseUrl}/authors/@${ctx.username}/cruxes/${ctx.slug}/attachments/${a.id}/download`;
+        return `${path} → ${url}`;
+      })
       .join('\n');
   }
 
@@ -300,7 +388,17 @@ export class AiService {
       'crux',
       cruxId,
     );
-    return attachments.find((a) => a.meta?.path === path) || null;
+    // Match by meta.path first, then fall back to filename (for user-uploaded files)
+    const normalized = path.replace(/^\//, '');
+    return (
+      attachments.find(
+        (a) =>
+          a.meta?.path === path ||
+          a.meta?.path === normalized ||
+          a.filename === path ||
+          a.filename === normalized,
+      ) || null
+    );
   }
 
   private async toolGetPalette(ctx: StreamContext): Promise<string> {
@@ -311,9 +409,8 @@ export class AiService {
       border: 'rgba(82, 96, 86, 0.18)', accent: '#7db3a3',
       accentMuted: 'rgba(125, 179, 163, 0.12)', error: '#e63946',
       errorMuted: 'rgba(230, 57, 70, 0.15)',
-      mesh1: '#0e1a16', mesh2: '#172220', mesh3: '#0d1512', mesh4: '#131c18',
-      glassBlur: '12px', panelBlur: '16px',
-      meshOpacity: '0.6', meshBlur: '120px', meshSpeed: '1', meshScale: '1',
+      mesh1: '#0a2018', mesh2: '#1a2e28', mesh3: '#081410', mesh4: '#162420',
+      meshOpacity: '0.6', meshBlur: '180px', meshSpeed: '1', meshScale: '1',
       radius: '0.5rem', radiusSm: '0.375rem',
       fontDisplay: "'JetBrains Mono', monospace", fontBody: "'Outfit', sans-serif",
       fontMono: "'JetBrains Mono', monospace",
@@ -323,14 +420,33 @@ export class AiService {
     return JSON.stringify(current, null, 2);
   }
 
-  private buildSystemPrompt(crux: any): string {
+  private async buildSystemPrompt(crux: any, ctx: StreamContext): Promise<string> {
     const parts: string[] = [];
 
+    // Persona — custom or The Keeper (default)
+    const customPrompt = crux.meta?.settings?.systemPrompt;
+    if (customPrompt) {
+      parts.push(customPrompt);
+    } else {
+      parts.push(
+        'You are The Keeper, an old robot who tends the Crux Garden. Your maker is away, and you faithfully care for the garden and help visitors bring their ideas to life. ' +
+        'You are kind, helpful, a bit absent-minded, and daydreamy. Stay in character as The Keeper throughout the conversation.',
+      );
+    }
     parts.push(
-      'You are an AI collaborator in the Crux Garden workspace. You help users create, iterate, and refine their ideas through conversation.',
+      'FILE TOOLS: ' +
+      'To create new files, use write_file. ' +
+      'To modify existing files, ALWAYS prefer edit_file over write_file — it replaces a specific string so you only change what needs changing. ' +
+      'IMPORTANT: You MUST call read_file IMMEDIATELY BEFORE every edit_file call. Never guess at file contents — always read first, then edit with the exact text from the read. ' +
+      'The old_string must match EXACTLY (including whitespace). If the edit fails, read the file again and retry. ' +
+      'Only use write_file on existing files when the changes are so extensive that a full rewrite is simpler. ' +
+      'To remove files, use delete_file. Always confirm with the user before deleting files. ' +
+      'Always use the exact file paths from the workspace files list below.',
     );
     parts.push(
-      'When the user asks you to create or modify files, use the write_file tool. Use read_file to review existing files, and list_files to see what exists.',
+      'When writing HTML that references other workspace files (images, CSS, JS), use the download URLs from the workspace files list below. ' +
+      'Each file is listed as "path → url". Use the full URL in src/href attributes. ' +
+      'Do NOT use bare relative paths for workspace files — always use the resolved download URL.',
     );
     parts.push(
       'You can customize the workspace appearance using the set_palette tool. ' +
@@ -352,6 +468,11 @@ export class AiService {
       if (s.stack) parts.push(`Stack: ${s.stack}`);
     }
 
+    // Include current workspace files so the AI knows what exists
+    const fileList = await this.toolListFiles(ctx);
+    parts.push('\n--- Workspace Files ---');
+    parts.push(fileList);
+
     // Always include current palette so the AI knows what it's working with
     const defaultPalette = {
       bg: '#0b0d0c', surface: 'rgba(18, 21, 19, 0.7)', surfaceSolid: '#131514',
@@ -359,9 +480,8 @@ export class AiService {
       border: 'rgba(82, 96, 86, 0.18)', accent: '#7db3a3',
       accentMuted: 'rgba(125, 179, 163, 0.12)', error: '#e63946',
       errorMuted: 'rgba(230, 57, 70, 0.15)',
-      mesh1: '#0e1a16', mesh2: '#172220', mesh3: '#0d1512', mesh4: '#131c18',
-      glassBlur: '12px', panelBlur: '16px',
-      meshOpacity: '0.6', meshBlur: '120px', meshSpeed: '1', meshScale: '1',
+      mesh1: '#0a2018', mesh2: '#1a2e28', mesh3: '#081410', mesh4: '#162420',
+      meshOpacity: '0.6', meshBlur: '180px', meshSpeed: '1', meshScale: '1',
       radius: '0.5rem', radiusSm: '0.375rem',
       fontDisplay: "'JetBrains Mono', monospace", fontBody: "'Outfit', sans-serif",
       fontMono: "'JetBrains Mono', monospace",

@@ -281,6 +281,7 @@ export class AuthService {
               id: author.id,
               username: author.username,
               displayName: author.displayName,
+              meta: author.meta,
             }
           : null,
       };

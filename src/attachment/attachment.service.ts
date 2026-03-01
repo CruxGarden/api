@@ -321,6 +321,95 @@ export class AttachmentService {
     return null;
   }
 
+  async findByResourceAndKind(
+    resourceType: string,
+    resourceId: string,
+    kind: string,
+  ): Promise<Attachment[]> {
+    const { data, error } =
+      await this.attachmentRepository.findByResourceAndKind(
+        resourceType,
+        resourceId,
+        kind,
+      );
+
+    if (error) {
+      throw new InternalServerErrorException(
+        `Error fetching attachments: ${error}`,
+      );
+    }
+
+    return this.asAttachments(data || []);
+  }
+
+  async copyAttachmentToSnapshot(
+    source: Attachment,
+    cruxId: string,
+  ): Promise<Attachment> {
+    const newId = this.keyMaster.generateId();
+
+    // Build S3 paths
+    const sourcePath = this.getStoragePath(source);
+    const destPath = this.getStoragePath({
+      resourceType: source.resourceType,
+      resourceId: cruxId,
+      id: newId,
+      mimeType: source.mimeType,
+    });
+
+    // Copy S3 file
+    await this.storeService.copy({ sourcePath, destPath });
+
+    // Create snapshot attachment record
+    const createDto: CreateAttachmentDto = {
+      id: newId,
+      type: source.type,
+      kind: 'published-snapshot',
+      meta: {
+        ...source.meta,
+        sourceAttachmentId: source.id,
+      },
+      resourceId: cruxId,
+      resourceType: source.resourceType,
+      authorId: source.authorId,
+      homeId: source.homeId,
+      encoding: source.encoding,
+      mimeType: source.mimeType,
+      filename: source.filename,
+      size: source.size,
+    };
+
+    const created = await this.attachmentRepository.create(createDto);
+    if (created.error) {
+      // Cleanup S3 if DB fails
+      try {
+        await this.storeService.delete({ path: destPath });
+      } catch (cleanupError) {
+        this.logger.error(`Snapshot cleanup failed: ${cleanupError.message}`);
+      }
+      throw new InternalServerErrorException(
+        `Snapshot attachment creation error: ${created.error}`,
+      );
+    }
+
+    return this.asAttachment(created.data);
+  }
+
+  async deleteSnapshotAttachments(
+    resourceType: string,
+    resourceId: string,
+  ): Promise<void> {
+    const snapshots = await this.findByResourceAndKind(
+      resourceType,
+      resourceId,
+      'published-snapshot',
+    );
+
+    for (const snapshot of snapshots) {
+      await this.deleteWithFile(snapshot.id);
+    }
+  }
+
   getAttachmentsByResourceQuery(
     resourceType: string,
     resourceId: string,

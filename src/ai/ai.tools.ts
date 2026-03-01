@@ -28,6 +28,33 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'edit_file',
+    description:
+      'Edit an existing file by replacing a specific string with new content. ' +
+      'This is the preferred way to modify existing files — use it instead of write_file when making targeted changes. ' +
+      'The old_string must match EXACTLY (including whitespace and indentation). ' +
+      'Provide enough surrounding context in old_string to make the match unique.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        path: {
+          type: 'string',
+          description: 'File path of the existing file to edit',
+        },
+        old_string: {
+          type: 'string',
+          description:
+            'The exact string to find and replace. Must match the file content exactly, including whitespace and indentation. Include enough lines for a unique match.',
+        },
+        new_string: {
+          type: 'string',
+          description: 'The replacement string. Can be empty to delete the matched text.',
+        },
+      },
+      required: ['path', 'old_string', 'new_string'],
+    },
+  },
+  {
     name: 'read_file',
     description: 'Read the contents of a file in the workspace.',
     input_schema: {
@@ -36,6 +63,20 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         path: {
           type: 'string',
           description: 'File path to read',
+        },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'delete_file',
+    description: 'Delete a file from the workspace.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        path: {
+          type: 'string',
+          description: 'File path to delete',
         },
       },
       required: ['path'],
@@ -65,7 +106,6 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     description:
       'Customize the workspace appearance in real-time. Provide any subset of keys. The UI updates instantly. ' +
       'COLORS: bg, surface (with opacity), surfaceSolid, panel (with opacity), text, textMuted, border, accent, accentMuted, error, errorMuted, mesh1-mesh4 (gradient colors). ' +
-      'GLASS: glassBlur (backdrop blur, e.g. "12px", "0px" for flat), panelBlur (heavier blur for cards). ' +
       'MESH BACKGROUND: meshOpacity ("0" hides it, "1" full), meshBlur (blob softness), meshSpeed (multiplier: "0.3" slow, "3" fast), meshScale (blob size: "0.5" small, "2" huge). ' +
       'SHAPE: radius (panels/cards, "0" sharp, "1rem" round), radiusSm (buttons/inputs). ' +
       'FONTS: fontDisplay (headings), fontBody (body text), fontMono (code). Use CSS font stacks like "Georgia, serif" or "system-ui, sans-serif".',
@@ -88,12 +128,9 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         mesh2: { type: 'string', description: 'Mesh gradient color 2' },
         mesh3: { type: 'string', description: 'Mesh gradient color 3' },
         mesh4: { type: 'string', description: 'Mesh gradient color 4' },
-        // Glass
-        glassBlur: { type: 'string', description: 'Backdrop blur for panels (e.g., "12px", "0px" for no blur, "24px" heavy)' },
-        panelBlur: { type: 'string', description: 'Stronger blur for cards/panels (e.g., "16px")' },
         // Mesh
         meshOpacity: { type: 'string', description: 'Mesh blob opacity ("0" hidden, "0.6" default, "1" full)' },
-        meshBlur: { type: 'string', description: 'Blob softness ("60px" sharp, "120px" default, "200px" very soft)' },
+        meshBlur: { type: 'string', description: 'Blob softness ("60px" sharp, "180px" default, "250px" very soft)' },
         meshSpeed: { type: 'string', description: 'Animation speed ("0.3" slow, "1" normal, "3" fast)' },
         meshScale: { type: 'string', description: 'Blob size ("0.5" small, "1" default, "2" huge)' },
         // Shape

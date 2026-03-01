@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
+  IsObject,
   IsOptional,
   IsString,
   IsUrl,
@@ -71,4 +72,11 @@ export class UpdateAuthorDto {
   @IsOptional()
   @IsUrl()
   avatarUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'Metadata JSON object',
+  })
+  @IsOptional()
+  @IsObject()
+  meta?: Record<string, unknown>;
 }

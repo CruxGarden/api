@@ -1,5 +1,6 @@
 import {
   S3Client,
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
@@ -122,6 +123,31 @@ export class StoreService {
         Bucket: s3Opts.bucket,
         Key: s3Opts.key,
         Body: s3Opts.data,
+      }),
+    );
+  }
+
+  async copy(opts: {
+    sourcePath: string;
+    destPath: string;
+    namespace?: string;
+  }): Promise<void> {
+    const bucket = opts.namespace || this.defaultNamespace;
+
+    if (this.mockMode) {
+      this.logger.info('File copied', {
+        bucket,
+        source: opts.sourcePath,
+        dest: opts.destPath,
+      });
+      return;
+    }
+
+    await this.s3Client.send(
+      new CopyObjectCommand({
+        Bucket: bucket,
+        CopySource: `${bucket}/${opts.sourcePath}`,
+        Key: opts.destPath,
       }),
     );
   }

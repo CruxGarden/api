@@ -15,6 +15,7 @@ import { LoggerService } from '../common/services/logger.service';
 import AuthorRaw from './entities/author-raw.entity';
 import Author from './entities/author.entity';
 import { CruxService } from '../crux/crux.service';
+import { AttachmentService } from '../attachment/attachment.service';
 import { CreateCruxDto } from '../crux/dto/create-crux.dto';
 import { CruxStatus, CruxVisibility } from '../common/types/enums';
 
@@ -28,6 +29,7 @@ export class AuthorService {
     private readonly keyMaster: KeyMaster,
     private readonly loggerService: LoggerService,
     private readonly cruxService: CruxService,
+    private readonly attachmentService: AttachmentService,
   ) {
     this.logger = this.loggerService.createChildLogger('AuthorService');
   }
@@ -227,6 +229,84 @@ export class AuthorService {
     }
 
     return null;
+  }
+
+  async uploadAvatar(
+    authorId: string,
+    file: Express.Multer.File,
+  ): Promise<Author> {
+    const author = await this.findById(authorId);
+
+    // Delete any existing avatar attachment
+    try {
+      const existing = await this.attachmentService.findByResourceAndKind(
+        'author',
+        authorId,
+        'avatar',
+      );
+      for (const att of existing) {
+        await this.attachmentService.deleteWithFile(att.id);
+      }
+    } catch {
+      // No existing avatar, that's fine
+    }
+
+    // Create new avatar attachment
+    await this.attachmentService.createWithFile(
+      'author',
+      authorId,
+      author.homeId,
+      authorId,
+      { type: 'image', kind: 'avatar' },
+      file,
+    );
+
+    // Update author meta with avatar URL
+    const meta = { ...(author.meta || {}), avatarUrl: `/authors/${authorId}/avatar` };
+    const updated = await this.authorRepository.update(authorId, { meta });
+    if (updated.error) {
+      throw new InternalServerErrorException(`Avatar update error: ${updated.error}`);
+    }
+
+    return this.asAuthor(updated.data);
+  }
+
+  async removeAvatar(authorId: string): Promise<Author> {
+    await this.findById(authorId);
+
+    // Delete avatar attachments
+    try {
+      const existing = await this.attachmentService.findByResourceAndKind(
+        'author',
+        authorId,
+        'avatar',
+      );
+      for (const att of existing) {
+        await this.attachmentService.deleteWithFile(att.id);
+      }
+    } catch {
+      // No existing avatar
+    }
+
+    // Clear avatarUrl from meta
+    const author = await this.findById(authorId);
+    const { avatarUrl: _, ...restMeta } = (author.meta || {}) as Record<string, unknown>;
+    const updated = await this.authorRepository.update(authorId, { meta: restMeta });
+    if (updated.error) {
+      throw new InternalServerErrorException(`Avatar remove error: ${updated.error}`);
+    }
+
+    return this.asAuthor(updated.data);
+  }
+
+  async getAvatarAttachment(authorId: string) {
+    const attachments = await this.attachmentService.findByResourceAndKind(
+      'author',
+      authorId,
+      'avatar',
+    );
+    if (attachments.length === 0) return null;
+    return this.attachmentService.downloadAttachment(attachments[0].id);
   }
 
   async getGraph(authorId: string): Promise<GraphResponseDto> {

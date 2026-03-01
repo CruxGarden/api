@@ -9,13 +9,19 @@ import {
   Patch,
   Body,
   NotFoundException,
+  BadRequestException,
   Req,
   Res,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   ForbiddenException,
   Query,
+  Header,
+  StreamableFile,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Request, Response } from 'express';
 import { AuthRequest } from '../common/types/interfaces';
 import { PathPrefix, AuthorEmbed } from '../common/types/enums';
 import { AuthorService } from './author.service';
@@ -29,6 +35,8 @@ import { stripPathPrefix } from '../common/helpers/path-helpers';
 import Author from './entities/author.entity';
 import AuthorRaw from './entities/author-raw.entity';
 import { CruxService } from '../crux/crux.service';
+import Crux from '../crux/entities/crux.entity';
+import CruxRaw from '../crux/entities/crux-raw.entity';
 
 @Controller('authors')
 @AuthorSwagger.Controller()
@@ -159,6 +167,82 @@ export class AuthorController {
     return this.authorService.delete(id);
   }
 
+  @Post(':id/avatar')
+  @UseGuards(AuthGuard)
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAvatar(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: AuthRequest,
+  ): Promise<Author> {
+    await this.canManageAuthor(id, req);
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+    if (!file.mimetype.startsWith('image/')) {
+      throw new BadRequestException('File must be an image');
+    }
+    return this.authorService.uploadAvatar(id, file);
+  }
+
+  @Delete(':id/avatar')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async removeAvatar(
+    @Param('id') id: string,
+    @Req() req: AuthRequest,
+  ): Promise<Author> {
+    await this.canManageAuthor(id, req);
+    return this.authorService.removeAvatar(id);
+  }
+
+  @Get(':identifier/avatar')
+  async getAvatar(
+    @Param('identifier') identifier: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { hasPrefix, value } = stripPathPrefix(
+      identifier,
+      PathPrefix.USERNAME,
+    );
+    const author = hasPrefix
+      ? await this.authorService.findByUsername(value)
+      : await this.authorService.findById(value);
+
+    const file = await this.authorService.getAvatarAttachment(author.id);
+    if (!file) {
+      throw new NotFoundException('No avatar found');
+    }
+
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Cache-Control', 'max-age=3600');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    return new StreamableFile(file.data);
+  }
+
+  @Get(':identifier/cruxes')
+  async getPublicCruxes(
+    @Param('identifier') identifier: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<Crux[]> {
+    const { hasPrefix, value } = stripPathPrefix(
+      identifier,
+      PathPrefix.USERNAME,
+    );
+    const author = hasPrefix
+      ? await this.authorService.findByUsername(value)
+      : await this.authorService.findById(value);
+
+    const query = this.cruxService.findPublicByAuthorQuery(author.id);
+    return this.dbService.paginate<CruxRaw, Crux>({
+      model: Crux,
+      query,
+      request: req,
+      response: res,
+    }) as Promise<Crux[]>;
+  }
+
   @Get(':identifier/cruxes/:slug')
   async getCruxBySlug(
     @Param('identifier') identifier: string,
@@ -190,5 +274,72 @@ export class AuthorController {
 
     // Get graph data for this author
     return this.authorService.getGraph(author.id);
+  }
+
+  /* Public attachment endpoints for display mode */
+
+  @Get(':identifier/cruxes/:slug/attachments')
+  async getPublicAttachments(
+    @Param('identifier') identifier: string,
+    @Param('slug') slug: string,
+  ) {
+    const crux = await this.resolvePublicCrux(identifier, slug);
+    return this.cruxService.getPublishedAttachments(crux.id);
+  }
+
+  @Get(':identifier/cruxes/:slug/attachments/:attachmentId/download')
+  @Header('Cache-Control', 'no-cache')
+  async downloadPublicAttachment(
+    @Param('identifier') identifier: string,
+    @Param('slug') slug: string,
+    @Param('attachmentId') attachmentId: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const crux = await this.resolvePublicCrux(identifier, slug);
+    const file = await this.cruxService.downloadAttachment(
+      crux.id,
+      attachmentId,
+    );
+
+    if (!file) {
+      throw new NotFoundException('Attachment file not found');
+    }
+
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+    // Serve renderable types inline for display mode
+    const inline =
+      file.mimeType.startsWith('text/') ||
+      file.mimeType.startsWith('image/') ||
+      file.mimeType === 'application/javascript' ||
+      file.mimeType === 'application/json';
+
+    res.setHeader(
+      'Content-Disposition',
+      inline
+        ? `inline; filename="${file.filename}"`
+        : `attachment; filename="${file.filename}"`,
+    );
+
+    return new StreamableFile(file.data);
+  }
+
+  private async resolvePublicCrux(identifier: string, slug: string) {
+    const { hasPrefix, value } = stripPathPrefix(
+      identifier,
+      PathPrefix.USERNAME,
+    );
+    const author = hasPrefix
+      ? await this.authorService.findByUsername(value)
+      : await this.authorService.findById(value);
+
+    const crux = await this.cruxService.findByAuthorAndSlug(author.id, slug);
+
+    if (crux.visibility === 'private') {
+      throw new NotFoundException('Crux not found');
+    }
+
+    return crux;
   }
 }

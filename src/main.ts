@@ -2,6 +2,7 @@ require('dotenv').config({ quiet: true });
 
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { json } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { setupRedoc } from './redoc.middleware';
@@ -17,12 +18,15 @@ const API_VERSION = version;
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Increase JSON body limit for large meta payloads (chat history)
+  app.use(json({ limit: '5mb' }));
+
   // CORS
   app.enableCors({
     origin: process.env.CORS_ORIGIN || '*',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'api-version'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'api-version', 'X-Anthropic-Key'],
   });
 
   // Security headers

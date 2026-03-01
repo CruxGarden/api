@@ -75,6 +75,28 @@ export class AttachmentRepository {
     }
   }
 
+  async findByResourceAndKind(
+    resourceType: string,
+    resourceId: string,
+    kind: string,
+  ): Promise<RepositoryResponse<AttachmentRaw[]>> {
+    try {
+      const data = await this.dbService
+        .query()
+        .from<AttachmentRaw>(AttachmentRepository.TABLE_NAME)
+        .select(AttachmentRepository.BASE_SELECT)
+        .where('resource_type', resourceType)
+        .where('resource_id', resourceId)
+        .where('kind', kind)
+        .whereNull('deleted')
+        .orderBy('created', 'desc');
+
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
   async create(
     createData: CreateAttachmentDto,
   ): Promise<RepositoryResponse<AttachmentRaw>> {

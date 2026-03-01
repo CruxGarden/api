@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Headers, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
@@ -19,7 +19,12 @@ export class AiController {
     @Body() chatDto: ChatDto,
     @Req() req: AuthRequest,
     @Res() res: Response,
+    @Headers('x-anthropic-key') userApiKey?: string,
   ): Promise<void> {
+    if (!userApiKey) {
+      throw new BadRequestException('x-anthropic-key header is required');
+    }
+
     const model = chatDto.model || 'claude-sonnet-4-20250514';
     const author = await this.authorService.findByAccountId(req.account.id);
 
@@ -29,6 +34,7 @@ export class AiController {
       model,
       author.id,
       res,
+      userApiKey,
     );
   }
 }

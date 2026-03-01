@@ -59,6 +59,10 @@ export class CruxService {
     return this.cruxRepository.findAllQuery();
   }
 
+  findPublicByAuthorQuery(authorId: string): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
+    return this.cruxRepository.findPublicByAuthorQuery(authorId);
+  }
+
   async findById(id: string): Promise<Crux> {
     const { data, error } = await this.cruxRepository.findBy('id', id);
 
@@ -219,7 +223,12 @@ export class CruxService {
 
   async getAttachments(cruxId: string): Promise<Attachment[]> {
     const crux = await this.findById(cruxId);
-    return this.attachmentService.findByResource(ResourceType.CRUX, crux.id);
+    const all = await this.attachmentService.findByResource(
+      ResourceType.CRUX,
+      crux.id,
+    );
+    // Filter out published snapshots — workspace should only see working files
+    return all.filter((a) => a.kind !== 'published-snapshot');
   }
 
   async createAttachment(
@@ -255,6 +264,108 @@ export class CruxService {
   }
 
   /* ~crux attachments */
+
+  /* crux publishing */
+
+  async publishCrux(cruxId: string): Promise<Crux> {
+    const crux = await this.findById(cruxId);
+
+    // 1. Clean up any existing snapshot attachments
+    await this.attachmentService.deleteSnapshotAttachments(
+      ResourceType.CRUX,
+      crux.id,
+    );
+
+    // 2. Get current working attachments (exclude old snapshots)
+    const all = await this.attachmentService.findByResource(
+      ResourceType.CRUX,
+      crux.id,
+    );
+    const workingAttachments = all.filter(
+      (a) => a.kind !== 'published-snapshot',
+    );
+
+    // 3. Copy each working attachment to a snapshot
+    for (const attachment of workingAttachments) {
+      await this.attachmentService.copyAttachmentToSnapshot(
+        attachment,
+        crux.id,
+      );
+    }
+
+    // 4. Update crux meta with publish info
+    const publishedVersion = (crux.meta?.publishedVersion || 0) + 1;
+    const publishedAt = new Date().toISOString();
+
+    const updatedMeta = {
+      ...crux.meta,
+      publishedAt,
+      publishedVersion,
+    };
+
+    // 5. Set visibility to public and update meta
+    const updated = await this.cruxRepository.update(crux.id, {
+      meta: updatedMeta,
+      visibility: CruxVisibility.PUBLIC,
+    });
+
+    if (updated.error) {
+      throw new InternalServerErrorException(
+        `Publish error: ${updated.error}`,
+      );
+    }
+
+    return this.asCrux(updated.data);
+  }
+
+  async unpublishCrux(cruxId: string): Promise<Crux> {
+    const crux = await this.findById(cruxId);
+
+    // Clean up snapshot attachments
+    await this.attachmentService.deleteSnapshotAttachments(
+      ResourceType.CRUX,
+      crux.id,
+    );
+
+    // Remove publish metadata and set to private
+    const updatedMeta = { ...crux.meta };
+    delete updatedMeta.publishedAt;
+    delete updatedMeta.publishedVersion;
+
+    const updated = await this.cruxRepository.update(crux.id, {
+      meta: updatedMeta,
+      visibility: CruxVisibility.PRIVATE,
+    });
+
+    if (updated.error) {
+      throw new InternalServerErrorException(
+        `Unpublish error: ${updated.error}`,
+      );
+    }
+
+    return this.asCrux(updated.data);
+  }
+
+  async getPublishedAttachments(cruxId: string): Promise<Attachment[]> {
+    const crux = await this.findById(cruxId);
+
+    // If crux has been published, return snapshot attachments
+    if (crux.meta?.publishedAt) {
+      const snapshots = await this.attachmentService.findByResourceAndKind(
+        ResourceType.CRUX,
+        crux.id,
+        'published-snapshot',
+      );
+      if (snapshots.length > 0) {
+        return snapshots;
+      }
+    }
+
+    // Fallback: return working attachments (backward compat for pre-snapshot cruxes)
+    return this.attachmentService.findByResource(ResourceType.CRUX, crux.id);
+  }
+
+  /* ~crux publishing */
 
   private applyDefaults(dto: CreateCruxDto): void {
     if (!dto.type) dto.type = CruxType.MARKDOWN;
