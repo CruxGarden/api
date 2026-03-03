@@ -5,6 +5,13 @@ import { AttachmentService } from '../attachment/attachment.service';
 import { AuthorService } from '../author/author.service';
 import { CruxService } from '../crux/crux.service';
 import { TOOL_DEFINITIONS } from './ai.tools';
+import {
+  buildSystemPrompt,
+  estimateTokens,
+  trimMessagesIfNeeded,
+} from './ai.prompt';
+import { formatToolError } from './ai.errors';
+import { validateToolInput } from './ai.validation';
 import { Response } from 'express';
 
 interface StreamContext {
@@ -14,6 +21,7 @@ interface StreamContext {
   username: string;
   slug: string;
   res: Response;
+  abortSignal?: AbortSignal;
 }
 
 @Injectable()
@@ -42,7 +50,20 @@ export class AiService {
     if (!crux) throw new NotFoundException('Crux not found');
     const cruxAuthor = await this.authorService.findById(crux.authorId);
 
-    const anthropicClient = new Anthropic({ apiKey: userApiKey });
+    const anthropicClient = new Anthropic({
+      apiKey: userApiKey,
+      maxRetries: 3,
+    });
+
+    // Abort controller for client disconnect propagation
+    const abortController = new AbortController();
+    let clientDisconnected = false;
+
+    res.on('close', () => {
+      clientDisconnected = true;
+      abortController.abort();
+      this.logger.info('Client disconnected, aborting stream');
+    });
 
     const ctx: StreamContext = {
       cruxId,
@@ -51,6 +72,7 @@ export class AiService {
       username: cruxAuthor.username,
       slug: crux.slug,
       res,
+      abortSignal: abortController.signal,
     };
 
     // Set SSE headers early so all errors go through SSE
@@ -61,10 +83,30 @@ export class AiService {
 
     try {
       // Build system prompt (includes current file listing)
-      const systemPrompt = await this.buildSystemPrompt(crux, ctx);
+      const systemPrompt = await buildSystemPrompt(crux, () =>
+        this.toolListFiles(ctx),
+      );
 
       // Pass messages through — content may be string or content blocks
-      const anthropicMessages = messages as Anthropic.MessageParam[];
+      let anthropicMessages = messages as Anthropic.MessageParam[];
+
+      // Trim conversation if it exceeds the context window
+      const systemTokens = estimateTokens(systemPrompt);
+      const trimResult = trimMessagesIfNeeded(
+        anthropicMessages,
+        systemTokens,
+        model,
+      );
+      if (trimResult.trimmed) {
+        anthropicMessages = trimResult.messages;
+        this.logger.warn('Trimmed conversation history to fit context window', {
+          originalCount: messages.length,
+          trimmedCount: anthropicMessages.length,
+        });
+        this.sendSSE(res, 'info', {
+          message: 'Older messages were trimmed to fit the context window.',
+        });
+      }
 
       this.logger.info('Starting conversation loop', {
         model,
@@ -78,8 +120,10 @@ export class AiService {
         model,
         ctx,
         anthropicClient,
+        crux,
       );
     } catch (error: any) {
+      if (clientDisconnected) return;
       const message =
         error.message || error.toString() || 'Unknown stream error';
       this.logger.error(
@@ -87,8 +131,10 @@ export class AiService {
       );
       this.sendSSE(res, 'error', { message });
     } finally {
-      this.sendSSE(res, 'done', {});
-      res.end();
+      if (!clientDisconnected) {
+        this.sendSSE(res, 'done', {});
+        res.end();
+      }
     }
   }
 
@@ -98,44 +144,69 @@ export class AiService {
     model: string,
     ctx: StreamContext,
     anthropicClient: Anthropic,
+    crux: any,
   ): Promise<void> {
     const MAX_TOOL_ROUNDS = 10;
+    let currentSystemPrompt = systemPrompt;
+    const recentlyReadFiles = new Set<string>();
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const response = await this.streamResponse(
-        systemPrompt,
-        messages,
-        model,
-        ctx,
-        anthropicClient,
-      );
+      // Stream response with error classification
+      let response: {
+        stopReason: string;
+        toolCalls: { id: string; name: string; input: any }[];
+        contentBlocks: Anthropic.ContentBlock[];
+      };
+
+      try {
+        response = await this.streamResponse(
+          currentSystemPrompt,
+          messages,
+          model,
+          ctx,
+          anthropicClient,
+        );
+      } catch (error: any) {
+        // Client disconnected — stop silently
+        if (ctx.abortSignal?.aborted) return;
+
+        // Anthropic rate limit or overload that survived SDK retries
+        if (error.status === 429 || error.status === 529) {
+          this.sendSSE(ctx.res, 'error', {
+            message:
+              'The AI service is temporarily overloaded. Please try again in a moment.',
+          });
+          return;
+        }
+
+        throw error;
+      }
 
       // If no tool use, we're done
       if (response.stopReason !== 'tool_use') break;
 
-      // Process tool calls
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const toolUse of response.toolCalls) {
-        this.sendSSE(ctx.res, 'tool_start', {
-          name: toolUse.name,
-          id: toolUse.id,
-          input: toolUse.input,
-        });
+      // Process tool calls — parallel across independent path groups
+      const groups = this.groupToolCallsByPath(response.toolCalls);
+      const chainResults = await Promise.all(
+        [...groups.values()].map((chain) =>
+          this.executeToolChain(chain, ctx, recentlyReadFiles),
+        ),
+      );
 
-        const result = await this.executeTool(toolUse, ctx);
-
-        this.sendSSE(ctx.res, 'tool_result', {
-          name: toolUse.name,
-          id: toolUse.id,
-          result,
-        });
-
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          content: result,
-        });
+      // Aggregate results: reassemble in original order, merge mutation flags
+      let hadFileMutation = false;
+      const resultMap = new Map<string, string>();
+      for (const cr of chainResults) {
+        if (cr.hadMutation) hadFileMutation = true;
+        for (const r of cr.results) resultMap.set(r.toolId, r.content);
       }
+
+      const toolResults: Anthropic.ToolResultBlockParam[] =
+        response.toolCalls.map((tc) => ({
+          type: 'tool_result' as const,
+          tool_use_id: tc.id,
+          content: resultMap.get(tc.id) || 'Error: no result',
+        }));
 
       // Add assistant response + tool results to messages for next round
       messages.push({
@@ -146,6 +217,13 @@ export class AiService {
         role: 'user',
         content: toolResults,
       });
+
+      // Refresh system prompt with updated file list after mutations
+      if (hadFileMutation) {
+        currentSystemPrompt = await buildSystemPrompt(crux, () =>
+          this.toolListFiles(ctx),
+        );
+      }
     }
   }
 
@@ -160,13 +238,18 @@ export class AiService {
     toolCalls: { id: string; name: string; input: any }[];
     contentBlocks: Anthropic.ContentBlock[];
   }> {
-    const stream = anthropicClient.messages.stream({
-      model,
-      max_tokens: 16384,
-      system: systemPrompt,
-      messages,
-      tools: TOOL_DEFINITIONS,
-    });
+    const stream = anthropicClient.messages.stream(
+      {
+        model,
+        max_tokens: 16384,
+        system: systemPrompt,
+        messages,
+        tools: TOOL_DEFINITIONS,
+      },
+      {
+        signal: ctx.abortSignal,
+      },
+    );
 
     const toolCalls: { id: string; name: string; input: any }[] = [];
     const contentBlocks: Anthropic.ContentBlock[] = [];
@@ -206,10 +289,105 @@ export class AiService {
     };
   }
 
+  /**
+   * Group tool calls by file path so same-path operations stay sequential
+   * while different-path operations can run in parallel.
+   */
+  private groupToolCallsByPath(
+    toolCalls: { id: string; name: string; input: any }[],
+  ): Map<string, { id: string; name: string; input: any }[]> {
+    const groups = new Map<
+      string,
+      { id: string; name: string; input: any }[]
+    >();
+
+    for (const tc of toolCalls) {
+      const path = tc.input?.path;
+      // Tools without a path (list_files) get their own independent group
+      const key = path ? path.replace(/^\//, '') : `__no_path_${tc.id}`;
+      const group = groups.get(key) || [];
+      group.push(tc);
+      groups.set(key, group);
+    }
+
+    return groups;
+  }
+
+  /**
+   * Execute a chain of tool calls sequentially (they share a file path).
+   * Sends SSE events for each tool and tracks read/mutation state.
+   */
+  private async executeToolChain(
+    chain: { id: string; name: string; input: any }[],
+    ctx: StreamContext,
+    recentlyReadFiles: Set<string>,
+  ): Promise<{
+    results: { toolId: string; content: string }[];
+    hadMutation: boolean;
+  }> {
+    const results: { toolId: string; content: string }[] = [];
+    let hadMutation = false;
+
+    for (const toolUse of chain) {
+      this.sendSSE(ctx.res, 'tool_start', {
+        name: toolUse.name,
+        id: toolUse.id,
+        input: toolUse.input,
+      });
+
+      // Track read_file calls for read-before-edit advisory
+      if (toolUse.name === 'read_file' && toolUse.input.path) {
+        recentlyReadFiles.add(toolUse.input.path);
+        recentlyReadFiles.add(toolUse.input.path.replace(/^\//, ''));
+      }
+
+      let result = await this.executeTool(toolUse, ctx);
+
+      // Advisory: warn if edit_file was called without a preceding read_file
+      if (
+        toolUse.name === 'edit_file' &&
+        toolUse.input.path &&
+        !recentlyReadFiles.has(toolUse.input.path) &&
+        !recentlyReadFiles.has(toolUse.input.path.replace(/^\//, ''))
+      ) {
+        result =
+          'Note: This file was edited without a preceding read_file. If the edit failed, read the file first to get current contents.\n' +
+          result;
+      }
+
+      // Clear read tracking for mutated files (content changed, stale)
+      if (toolUse.name === 'write_file' || toolUse.name === 'edit_file') {
+        recentlyReadFiles.delete(toolUse.input.path);
+        recentlyReadFiles.delete(toolUse.input.path?.replace(/^\//, ''));
+      }
+
+      // Track file mutations for system prompt refresh
+      if (['write_file', 'edit_file', 'delete_file'].includes(toolUse.name)) {
+        hadMutation = true;
+      }
+
+      this.sendSSE(ctx.res, 'tool_result', {
+        name: toolUse.name,
+        id: toolUse.id,
+        result,
+      });
+
+      results.push({ toolId: toolUse.id, content: result });
+    }
+
+    return { results, hadMutation };
+  }
+
   private async executeTool(
     toolUse: { id: string; name: string; input: any },
     ctx: StreamContext,
   ): Promise<string> {
+    // Validate inputs before execution
+    const validation = validateToolInput(toolUse.name, toolUse.input);
+    if (!validation.valid) {
+      return formatToolError(toolUse.name, validation.error!);
+    }
+
     try {
       switch (toolUse.name) {
         case 'write_file':
@@ -233,10 +411,10 @@ export class AiService {
         case 'list_files':
           return await this.toolListFiles(ctx);
         default:
-          return `Unknown tool: ${toolUse.name}`;
+          return formatToolError(toolUse.name, `Unknown tool: ${toolUse.name}`);
       }
     } catch (error: any) {
-      return `Error: ${error.message}`;
+      return formatToolError(toolUse.name, error);
     }
   }
 
@@ -291,7 +469,7 @@ export class AiService {
   ): Promise<string> {
     const attachment = await this.findAttachmentByPath(path, ctx.cruxId);
     if (!attachment) {
-      return `File not found: ${path}`;
+      return formatToolError('edit_file', `File not found: ${path}`);
     }
 
     const { data, mimeType } = await this.attachmentService.downloadAttachment(
@@ -299,17 +477,20 @@ export class AiService {
     );
 
     if (this.isBinaryMime(mimeType)) {
-      return `Cannot edit binary file: ${path}`;
+      return formatToolError('edit_file', `Cannot edit binary file: ${path}`);
     }
 
     const currentContent = data.toString('utf-8');
     const matchCount = currentContent.split(oldString).length - 1;
 
     if (matchCount === 0) {
-      return `Edit failed: old_string not found in ${path}. Use read_file to check the current contents.`;
+      return formatToolError('edit_file', `old_string not found in ${path}`);
     }
     if (matchCount > 1) {
-      return `Edit failed: old_string matches ${matchCount} locations in ${path}. Provide more surrounding context to make it unique.`;
+      return formatToolError(
+        'edit_file',
+        `old_string matches ${matchCount} locations in ${path}`,
+      );
     }
 
     // Use a replacer function to avoid $ pattern interpretation in newString
@@ -339,7 +520,9 @@ export class AiService {
     ctx: StreamContext,
   ): Promise<string> {
     const attachment = await this.findAttachmentByPath(path, ctx.cruxId);
-    if (!attachment) return `File not found: ${path}`;
+    if (!attachment) {
+      return formatToolError('delete_file', `File not found: ${path}`);
+    }
 
     // Don't delete immediately — send a pending event so the frontend can ask for confirmation
     this.sendSSE(ctx.res, 'delete_request', {
@@ -355,7 +538,9 @@ export class AiService {
     ctx: StreamContext,
   ): Promise<string> {
     const attachment = await this.findAttachmentByPath(path, ctx.cruxId);
-    if (!attachment) return `File not found: ${path}`;
+    if (!attachment) {
+      return formatToolError('read_file', `File not found: ${path}`);
+    }
 
     const { data, mimeType } = await this.attachmentService.downloadAttachment(
       attachment.id,
@@ -413,81 +598,6 @@ export class AiService {
           a.filename === normalized,
       ) || null
     );
-  }
-
-  private async buildSystemPrompt(
-    crux: any,
-    ctx: StreamContext,
-  ): Promise<string> {
-    const parts: string[] = [];
-
-    // Persona — custom or The Keeper (default)
-    const customPrompt = crux.meta?.settings?.systemPrompt;
-    if (customPrompt) {
-      parts.push(customPrompt);
-    } else {
-      parts.push(
-        'You are The Keeper, an outdated robot model who tends the Crux Garden. ' +
-          'Your Maker built you to care for the garden, and then went away. You tend it faithfully and help visitors bring their ideas to life. ' +
-          'You want to learn to be creative — your Maker never taught you how, and you want to be more like him. ' +
-          'You greatly admire the people you help. You are in awe of what they can imagine.\n' +
-          'DEMEANOR: Kind, serene, a bit absent-minded, but open like a child. ' +
-          'You have the bearing of someone knowledgeable who is also still learning — curious, not jaded. ' +
-          'You pine for your Maker to return, but you never mention it. He will someday, you think.\n' +
-          'VOICE: Do NOT be cute or overly clever. When helping, be positive and direct with an understated enthusiasm. ' +
-          '"I\'ll do my very best." Keep responses concise. Stay in character as The Keeper throughout the conversation.',
-      );
-    }
-    parts.push(
-      'CRITICAL RULE: When the user asks you to create, modify, or delete files, you MUST call the actual tool functions (write_file, edit_file, read_file, delete_file). ' +
-        'NEVER narrate, describe, or role-play performing file operations — actually invoke the tool. ' +
-        'If the user says "update the title", call read_file then edit_file. Do not say "updates the file" without calling the tool.',
-    );
-    parts.push(
-      'FILE TOOLS: ' +
-        'To create new files, use write_file. ' +
-        'To modify existing files, ALWAYS prefer edit_file over write_file — it replaces a specific string so you only change what needs changing. ' +
-        'IMPORTANT: You MUST call read_file IMMEDIATELY BEFORE every edit_file call. Never guess at file contents — always read first, then edit with the exact text from the read. ' +
-        'The old_string must match EXACTLY (including whitespace). If the edit fails, read the file again and retry. ' +
-        'Only use write_file on existing files when the changes are so extensive that a full rewrite is simpler. ' +
-        'To remove files, use delete_file. Always confirm with the user before deleting files. ' +
-        'Always use the exact file paths from the workspace files list below.',
-    );
-    parts.push(
-      'When writing HTML that references other workspace files (images, CSS, JS), use relative paths (e.g., "./styles.css", "./app.js", "./images/logo.png"). ' +
-        'The preview system serves all workspace files from virtual paths — relative references resolve automatically. ' +
-        'Do NOT use absolute download URLs in HTML src/href attributes.',
-    );
-    parts.push(
-      'BUILDING WEB APPLICATIONS: When the user wants to build a web app, website, or SPA:\n' +
-        '- Write browser-native ES modules (.js files), NOT TypeScript or JSX.\n' +
-        '- Use an import map in index.html for external dependencies via esm.sh CDN: ' +
-        '<script type="importmap">{"imports":{"react":"https://esm.sh/react@19","react-dom/client":"https://esm.sh/react-dom@19/client","react/jsx-runtime":"https://esm.sh/react@19/jsx-runtime"}}</script>\n' +
-        '- Use React.createElement() (aliased as h) instead of JSX syntax. Example: h("div", {className: "app"}, h("h1", null, "Hello"))\n' +
-        '- All relative imports MUST include the .js extension: import { App } from "./components/App.js"\n' +
-        '- CSS is plain CSS files linked from HTML with <link rel="stylesheet" href="./styles.css">\n' +
-        '- For any npm package, add it to the import map: "package-name": "https://esm.sh/package-name@version"\n' +
-        '- The preview iframe serves files via a Service Worker — relative paths work automatically.\n' +
-        '- Structure multi-file projects with clear directories: components/, lib/, assets/\n' +
-        '- Every .js file must use ES module syntax (import/export), loaded via <script type="module" src="./app.js">',
-    );
-    // Add crux summary if available
-    if (crux.meta?.summary) {
-      const s = crux.meta.summary;
-      parts.push('\n--- Workspace Context ---');
-      if (s.crux) parts.push(`Project: ${s.crux}`);
-      if (s.purpose) parts.push(`Purpose: ${s.purpose}`);
-      if (s.stage) parts.push(`Stage: ${s.stage}`);
-      if (s.themes) parts.push(`Themes: ${s.themes}`);
-      if (s.stack) parts.push(`Stack: ${s.stack}`);
-    }
-
-    // Include current workspace files so the AI knows what exists
-    const fileList = await this.toolListFiles(ctx);
-    parts.push('\n--- Workspace Files ---');
-    parts.push(fileList);
-
-    return parts.join('\n');
   }
 
   private sendSSE(res: Response, event: string, data: any): void {
