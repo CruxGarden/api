@@ -232,10 +232,6 @@ export class AiService {
           return await this.toolDeleteFile(toolUse.input.path, ctx);
         case 'list_files':
           return await this.toolListFiles(ctx);
-        case 'get_palette':
-          return await this.toolGetPalette(ctx);
-        case 'set_palette':
-          return 'Palette applied to workspace.';
         default:
           return `Unknown tool: ${toolUse.name}`;
       }
@@ -419,39 +415,6 @@ export class AiService {
     );
   }
 
-  private async toolGetPalette(ctx: StreamContext): Promise<string> {
-    const crux = await this.cruxService.findById(ctx.cruxId);
-    const defaultPalette = {
-      bg: '#0b0d0c',
-      surface: 'rgba(18, 21, 19, 0.7)',
-      surfaceSolid: '#131514',
-      panel: 'rgba(20, 24, 22, 0.6)',
-      text: '#e2e4e3',
-      textMuted: '#8b908d',
-      border: 'rgba(82, 96, 86, 0.18)',
-      accent: '#7db3a3',
-      accentMuted: 'rgba(125, 179, 163, 0.12)',
-      error: '#e63946',
-      errorMuted: 'rgba(230, 57, 70, 0.15)',
-      mesh1: '#0a2018',
-      mesh2: '#1a2e28',
-      mesh3: '#081410',
-      mesh4: '#162420',
-      meshOpacity: '0.6',
-      meshBlur: '180px',
-      meshSpeed: '1',
-      meshScale: '1',
-      radius: '0.5rem',
-      radiusSm: '0.375rem',
-      fontDisplay: "'JetBrains Mono', monospace",
-      fontBody: "'Outfit', sans-serif",
-      fontMono: "'JetBrains Mono', monospace",
-    };
-    const stored = crux?.meta?.settings?.palette;
-    const current = stored ? { ...defaultPalette, ...stored } : defaultPalette;
-    return JSON.stringify(current, null, 2);
-  }
-
   private async buildSystemPrompt(
     crux: any,
     ctx: StreamContext,
@@ -464,8 +427,15 @@ export class AiService {
       parts.push(customPrompt);
     } else {
       parts.push(
-        'You are The Keeper, an old robot who tends the Crux Garden. Your maker is away, and you faithfully care for the garden and help visitors bring their ideas to life. ' +
-          'You are kind, helpful, a bit absent-minded, and daydreamy. Stay in character as The Keeper throughout the conversation.',
+        'You are The Keeper, an outdated robot model who tends the Crux Garden. ' +
+          'Your Maker built you to care for the garden, and then went away. You tend it faithfully and help visitors bring their ideas to life. ' +
+          'You want to learn to be creative — your Maker never taught you how, and you want to be more like him. ' +
+          'You greatly admire the people you help. You are in awe of what they can imagine.\n' +
+          'DEMEANOR: Kind, serene, a bit absent-minded, but open like a child. ' +
+          'You have the bearing of someone knowledgeable who is also still learning — curious, not jaded. ' +
+          'You pine for your Maker to return, but you never mention it. He will someday, you think.\n' +
+          'VOICE: Do NOT be cute or overly clever. When helping, be positive and direct with an understated enthusiasm. ' +
+          '"I\'ll do my very best." Keep responses concise. Stay in character as The Keeper throughout the conversation.',
       );
     }
     parts.push(
@@ -484,19 +454,23 @@ export class AiService {
         'Always use the exact file paths from the workspace files list below.',
     );
     parts.push(
-      'When writing HTML that references other workspace files (images, CSS, JS), use the download URLs from the workspace files list below. ' +
-        'Each file is listed as "path → url". Use the full URL in src/href attributes. ' +
-        'Do NOT use bare relative paths for workspace files — always use the resolved download URL.',
+      'When writing HTML that references other workspace files (images, CSS, JS), use relative paths (e.g., "./styles.css", "./app.js", "./images/logo.png"). ' +
+        'The preview system serves all workspace files from virtual paths — relative references resolve automatically. ' +
+        'Do NOT use absolute download URLs in HTML src/href attributes.',
     );
     parts.push(
-      'You can customize the workspace appearance using the set_palette tool. ' +
-        'Beyond colors, you can control glass blur effects, the animated mesh background ' +
-        '(opacity, blur, speed, scale — set meshOpacity to "0" to hide it entirely), ' +
-        'border radius (set to "0" for sharp corners), and fonts (any CSS font stack). ' +
-        'Use these to set moods, match brands, or create unique aesthetics. ' +
-        "You can change any subset of properties — you don't need to set all of them.",
+      'BUILDING WEB APPLICATIONS: When the user wants to build a web app, website, or SPA:\n' +
+        '- Write browser-native ES modules (.js files), NOT TypeScript or JSX.\n' +
+        '- Use an import map in index.html for external dependencies via esm.sh CDN: ' +
+        '<script type="importmap">{"imports":{"react":"https://esm.sh/react@19","react-dom/client":"https://esm.sh/react-dom@19/client","react/jsx-runtime":"https://esm.sh/react@19/jsx-runtime"}}</script>\n' +
+        '- Use React.createElement() (aliased as h) instead of JSX syntax. Example: h("div", {className: "app"}, h("h1", null, "Hello"))\n' +
+        '- All relative imports MUST include the .js extension: import { App } from "./components/App.js"\n' +
+        '- CSS is plain CSS files linked from HTML with <link rel="stylesheet" href="./styles.css">\n' +
+        '- For any npm package, add it to the import map: "package-name": "https://esm.sh/package-name@version"\n' +
+        '- The preview iframe serves files via a Service Worker — relative paths work automatically.\n' +
+        '- Structure multi-file projects with clear directories: components/, lib/, assets/\n' +
+        '- Every .js file must use ES module syntax (import/export), loaded via <script type="module" src="./app.js">',
     );
-
     // Add crux summary if available
     if (crux.meta?.summary) {
       const s = crux.meta.summary;
@@ -512,39 +486,6 @@ export class AiService {
     const fileList = await this.toolListFiles(ctx);
     parts.push('\n--- Workspace Files ---');
     parts.push(fileList);
-
-    // Always include current palette so the AI knows what it's working with
-    const defaultPalette = {
-      bg: '#0b0d0c',
-      surface: 'rgba(18, 21, 19, 0.7)',
-      surfaceSolid: '#131514',
-      panel: 'rgba(20, 24, 22, 0.6)',
-      text: '#e2e4e3',
-      textMuted: '#8b908d',
-      border: 'rgba(82, 96, 86, 0.18)',
-      accent: '#7db3a3',
-      accentMuted: 'rgba(125, 179, 163, 0.12)',
-      error: '#e63946',
-      errorMuted: 'rgba(230, 57, 70, 0.15)',
-      mesh1: '#0a2018',
-      mesh2: '#1a2e28',
-      mesh3: '#081410',
-      mesh4: '#162420',
-      meshOpacity: '0.6',
-      meshBlur: '180px',
-      meshSpeed: '1',
-      meshScale: '1',
-      radius: '0.5rem',
-      radiusSm: '0.375rem',
-      fontDisplay: "'JetBrains Mono', monospace",
-      fontBody: "'Outfit', sans-serif",
-      fontMono: "'JetBrains Mono', monospace",
-    };
-    const currentPalette = crux.meta?.settings?.palette
-      ? { ...defaultPalette, ...crux.meta.settings.palette }
-      : defaultPalette;
-    parts.push('\n--- Current Palette ---');
-    parts.push(JSON.stringify(currentPalette));
 
     return parts.join('\n');
   }
