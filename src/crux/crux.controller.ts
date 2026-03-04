@@ -86,7 +86,8 @@ export class CruxController {
     @Req() req: AuthRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<Crux[]> {
-    const query = this.cruxService.findAllQuery();
+    const author = await this.getAuthor(req);
+    const query = this.cruxService.findAllByAuthorQuery(author.id);
     return this.dbService.paginate<CruxRaw, Crux>({
       model: Crux,
       query,

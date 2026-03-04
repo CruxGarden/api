@@ -56,8 +56,10 @@ export class CruxService {
     return rows.map((data) => this.asCrux(data));
   }
 
-  findAllQuery(): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
-    return this.cruxRepository.findAllQuery();
+  findAllByAuthorQuery(
+    authorId: string,
+  ): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
+    return this.cruxRepository.findAllByAuthorQuery(authorId);
   }
 
   findPublicByAuthorQuery(

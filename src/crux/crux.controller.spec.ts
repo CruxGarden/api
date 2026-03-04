@@ -59,7 +59,7 @@ describe('CruxController', () => {
     const mockService = {
       findById: jest.fn(),
       findByIdentifier: jest.fn(),
-      findAllQuery: jest.fn(),
+      findAllByAuthorQuery: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -107,13 +107,14 @@ describe('CruxController', () => {
   describe('findAll', () => {
     it('should return paginated cruxes', async () => {
       const query = {} as any;
-      service.findAllQuery.mockReturnValue(query);
+      authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
+      service.findAllByAuthorQuery.mockReturnValue(query);
       dbService.paginate.mockResolvedValue([mockCrux]);
 
       const result = await controller.findAll(mockRequest, mockResponse);
 
       expect(result).toEqual([mockCrux]);
-      expect(service.findAllQuery).toHaveBeenCalled();
+      expect(service.findAllByAuthorQuery).toHaveBeenCalledWith(mockAuthor.id);
       expect(dbService.paginate).toHaveBeenCalled();
     });
   });

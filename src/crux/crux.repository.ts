@@ -24,11 +24,14 @@ export class CruxRepository {
   private static readonly TABLE_NAME = 'cruxes';
   private static readonly BASE_SELECT = '*';
 
-  findAllQuery(): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
+  findAllByAuthorQuery(
+    authorId: string,
+  ): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
     return this.dbService
       .query()
       .from<CruxRaw>(CruxRepository.TABLE_NAME)
       .select<CruxRaw[]>(CruxRepository.BASE_SELECT)
+      .where('author_id', authorId)
       .whereNull('deleted')
       .orderBy('created', 'desc') as Knex.QueryBuilder<CruxRaw, CruxRaw[]>;
   }

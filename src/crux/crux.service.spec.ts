@@ -40,7 +40,7 @@ describe('CruxService', () => {
     const mockRepository = {
       findBy: jest.fn(),
       findByAuthorAndSlug: jest.fn(),
-      findAllQuery: jest.fn(),
+      findAllByAuthorQuery: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),

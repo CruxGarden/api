@@ -70,7 +70,7 @@ describe('Crux Integration Tests', () => {
     // Create mock repositories
     mockCruxRepository = {
       findAll: jest.fn(),
-      findAllQuery: jest.fn(),
+      findAllByAuthorQuery: jest.fn(),
       findBy: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -151,7 +151,8 @@ describe('Crux Integration Tests', () => {
     it('should return 200 and list of cruxes (happy path)', async () => {
       const token = generateToken(testAccountId);
 
-      mockCruxRepository.findAllQuery.mockReturnValue({
+      mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
+      mockCruxRepository.findAllByAuthorQuery.mockReturnValue({
         select: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         limit: jest.fn().mockReturnThis(),
@@ -166,7 +167,7 @@ describe('Crux Integration Tests', () => {
         .expect(200);
 
       expect(Array.isArray(response.body)).toBe(true);
-      expect(mockCruxRepository.findAllQuery).toHaveBeenCalled();
+      expect(mockCruxRepository.findAllByAuthorQuery).toHaveBeenCalledWith(testAuthorId);
     });
 
     it('should return 401 when no token provided', async () => {
