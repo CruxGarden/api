@@ -341,24 +341,54 @@ export class AiService {
         recentlyReadFiles.add(toolUse.input.path.replace(/^\//, ''));
       }
 
-      let result = await this.executeTool(toolUse, ctx);
-
-      // Advisory: warn if edit_file was called without a preceding read_file
-      if (
-        toolUse.name === 'edit_file' &&
+      // Hard-enforce read-before-edit: error if file not read first
+      const normPath = toolUse.input.path?.replace(/^\//, '');
+      const hasBeenRead =
         toolUse.input.path &&
-        !recentlyReadFiles.has(toolUse.input.path) &&
-        !recentlyReadFiles.has(toolUse.input.path.replace(/^\//, ''))
-      ) {
-        result =
-          'Note: This file was edited without a preceding read_file. If the edit failed, read the file first to get current contents.\n' +
-          result;
+        (recentlyReadFiles.has(toolUse.input.path) ||
+          recentlyReadFiles.has(normPath));
+
+      if (toolUse.name === 'edit_file' && toolUse.input.path && !hasBeenRead) {
+        const result = formatToolError(
+          'edit_file',
+          `You must call read_file on "${normPath}" before editing it. Read the file first to get its current contents, then retry.`,
+        );
+        this.sendSSE(ctx.res, 'tool_result', {
+          name: toolUse.name,
+          id: toolUse.id,
+          result,
+        });
+        results.push({ toolId: toolUse.id, content: result });
+        continue;
       }
+
+      // Hard-enforce read-before-write for existing files
+      if (toolUse.name === 'write_file' && toolUse.input.path && !hasBeenRead) {
+        const existing = await this.findAttachmentByPath(
+          toolUse.input.path,
+          ctx.cruxId,
+        );
+        if (existing) {
+          const result = formatToolError(
+            'write_file',
+            `File "${normPath}" already exists. You must call read_file before overwriting an existing file. Read it first, then use edit_file for targeted changes or write_file for a full rewrite.`,
+          );
+          this.sendSSE(ctx.res, 'tool_result', {
+            name: toolUse.name,
+            id: toolUse.id,
+            result,
+          });
+          results.push({ toolId: toolUse.id, content: result });
+          continue;
+        }
+      }
+
+      let result = await this.executeTool(toolUse, ctx);
 
       // Clear read tracking for mutated files (content changed, stale)
       if (toolUse.name === 'write_file' || toolUse.name === 'edit_file') {
         recentlyReadFiles.delete(toolUse.input.path);
-        recentlyReadFiles.delete(toolUse.input.path?.replace(/^\//, ''));
+        recentlyReadFiles.delete(normPath);
       }
 
       // Track file mutations for system prompt refresh
@@ -403,6 +433,7 @@ export class AiService {
             toolUse.input.old_string,
             toolUse.input.new_string,
             ctx,
+            toolUse.input.replace_all ?? false,
           );
         case 'read_file':
           return await this.toolReadFile(toolUse.input.path, ctx);
@@ -466,6 +497,7 @@ export class AiService {
     oldString: string,
     newString: string,
     ctx: StreamContext,
+    replaceAll = false,
   ): Promise<string> {
     const attachment = await this.findAttachmentByPath(path, ctx.cruxId);
     if (!attachment) {
@@ -480,21 +512,71 @@ export class AiService {
       return formatToolError('edit_file', `Cannot edit binary file: ${path}`);
     }
 
-    const currentContent = data.toString('utf-8');
-    const matchCount = currentContent.split(oldString).length - 1;
+    // Normalize line endings to \n for reliable matching
+    const currentContent = data.toString('utf-8').replace(/\r\n/g, '\n');
+    const normalizedOld = oldString.replace(/\r\n/g, '\n');
+
+    let matchCount = currentContent.split(normalizedOld).length - 1;
+
+    // Fallback: try with trailing whitespace trimmed per line
+    let effectiveOld = normalizedOld;
+    if (matchCount === 0) {
+      const trimmedOld = normalizedOld
+        .split('\n')
+        .map((line) => line.trimEnd())
+        .join('\n');
+      const trimmedContent = currentContent
+        .split('\n')
+        .map((line) => line.trimEnd())
+        .join('\n');
+      const trimmedCount = trimmedContent.split(trimmedOld).length - 1;
+      if (trimmedCount === 1) {
+        // Find the actual substring in the original content by matching line-by-line
+        const oldLines = trimmedOld.split('\n');
+        const contentLines = currentContent.split('\n');
+        for (let i = 0; i <= contentLines.length - oldLines.length; i++) {
+          const slice = contentLines.slice(i, i + oldLines.length);
+          const sliceTrimmed = slice.map((l) => l.trimEnd()).join('\n');
+          if (sliceTrimmed === trimmedOld) {
+            effectiveOld = slice.join('\n');
+            matchCount = 1;
+            break;
+          }
+        }
+      }
+    }
 
     if (matchCount === 0) {
-      return formatToolError('edit_file', `old_string not found in ${path}`);
+      // Include a snippet of the actual file so the model can retry without another read_file
+      const preview =
+        currentContent.length <= 800
+          ? currentContent
+          : currentContent.slice(0, 400) + '\n…\n' + currentContent.slice(-400);
+      return (
+        formatToolError('edit_file', `old_string not found in ${path}`) +
+        `\n\nCurrent file contents:\n\`\`\`\n${preview}\n\`\`\``
+      );
     }
-    if (matchCount > 1) {
+    if (matchCount > 1 && !replaceAll) {
       return formatToolError(
         'edit_file',
-        `old_string matches ${matchCount} locations in ${path}`,
+        `old_string matches ${matchCount} locations in ${path}. Either include more surrounding context to make it unique, or set replace_all to true.`,
       );
     }
 
     // Use a replacer function to avoid $ pattern interpretation in newString
-    const updatedContent = currentContent.replace(oldString, () => newString);
+    const normalizedNew = newString.replace(/\r\n/g, '\n');
+    let updatedContent: string;
+    if (replaceAll) {
+      // Replace all occurrences using split + join (safe from regex special chars)
+      updatedContent = currentContent.split(effectiveOld).join(normalizedNew);
+    } else {
+      // Replace exactly one occurrence
+      updatedContent = currentContent.replace(
+        effectiveOld,
+        () => normalizedNew,
+      );
+    }
 
     const buffer = Buffer.from(updatedContent, 'utf-8');
     const filename = path.split('/').pop() || 'file';
@@ -512,6 +594,9 @@ export class AiService {
       },
     );
 
+    if (replaceAll && matchCount > 1) {
+      return `Edited file: ${path} (replaced ${matchCount} occurrences)`;
+    }
     return `Edited file: ${path}`;
   }
 

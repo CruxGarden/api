@@ -72,6 +72,15 @@ function validateEditFile(input: Record<string, any>): ValidationResult {
       error: 'old_string and new_string are identical. No change needed.',
     };
   }
+  if (
+    input.replace_all !== undefined &&
+    typeof input.replace_all !== 'boolean'
+  ) {
+    return {
+      valid: false,
+      error: 'replace_all must be a boolean (true or false).',
+    };
+  }
 
   const pathIssue = validatePath(input.path);
   if (pathIssue) return pathIssue;

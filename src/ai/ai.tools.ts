@@ -7,7 +7,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       'Create a new file or completely replace an existing file in the workspace. ' +
       'USE WHEN: Creating new files, or rewriting a file where the majority of content changes. ' +
       'DO NOT USE WHEN: Making small targeted edits to existing files — use edit_file instead. ' +
-      'NOTE: This will silently overwrite existing files. Check the workspace files list or call list_files first if unsure whether the file already exists. ' +
+      'PREREQUISITE: If the file already exists, you MUST call read_file first. This tool will ERROR if you overwrite an existing file without reading it first. ' +
+      'Prefer edit_file for modifying existing files — it only changes what needs changing. Only use write_file on existing files when changes are so extensive that a full rewrite is simpler. ' +
       'For binary files (images, fonts, PDFs), set encoding to "base64" and provide base64-encoded content.',
     input_schema: {
       type: 'object' as const,
@@ -37,10 +38,11 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     name: 'edit_file',
     description:
       'Replace a specific string in an existing file with new content. This is the PREFERRED way to modify files — use instead of write_file for targeted changes. ' +
-      'PREREQUISITE: Always call read_file on this file immediately before calling edit_file. Never guess at file contents. ' +
-      'The old_string must match EXACTLY one location in the file (including whitespace and indentation). ' +
+      'PREREQUISITE: You MUST call read_file on this file immediately before calling edit_file. This tool will ERROR if you have not read the file first. ' +
+      'The old_string must match EXACTLY one location in the file (including whitespace and indentation), unless replace_all is true. ' +
       'FAILURE MODES: If old_string matches 0 times, the text does not exist — call read_file to check current contents. ' +
-      'If old_string matches more than 1 time, include more surrounding lines to disambiguate.',
+      'If old_string matches more than 1 time, either include more surrounding lines to disambiguate, or set replace_all to true. ' +
+      'Use replace_all for renaming variables or changing repeated strings across the file.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -57,7 +59,12 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         new_string: {
           type: 'string',
           description:
-            'The replacement string. Use empty string to delete the matched text.',
+            'The replacement string. Must be different from old_string. Use empty string to delete the matched text.',
+        },
+        replace_all: {
+          type: 'boolean',
+          description:
+            'Replace ALL occurrences of old_string in the file. Default: false (requires exactly one match). Set to true when renaming a variable or changing a repeated string.',
         },
       },
       required: ['path', 'old_string', 'new_string'],
