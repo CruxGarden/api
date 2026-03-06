@@ -13,6 +13,13 @@ export enum CruxType {
   MARKDOWN = 'markdown',
 }
 
+export enum CruxKind {
+  WEBAPP = 'webapp',
+  PAGE = 'page',
+  DOCUMENT = 'document',
+  IMAGE = 'image',
+}
+
 export enum CruxVisibility {
   PUBLIC = 'public',
   PRIVATE = 'private',

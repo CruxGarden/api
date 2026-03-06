@@ -17,6 +17,7 @@ import AttachmentRaw from './entities/attachment-raw.entity';
 import Attachment from './entities/attachment.entity';
 import { UploadAttachmentDto } from './dto/upload-attachment.dto';
 import * as mime from 'mime-types';
+import { applyInjections } from '../common/publish/publish-injections';
 
 interface UploadedFile {
   fieldname: string;
@@ -408,6 +409,59 @@ export class AttachmentService {
     for (const snapshot of snapshots) {
       await this.deleteWithFile(snapshot.id);
     }
+  }
+
+  async publishToStaticBucket(
+    attachments: Attachment[],
+    pathPrefix: string,
+    cruxKind?: string,
+  ): Promise<void> {
+    const publishedBucket =
+      process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published';
+
+    await Promise.all(
+      attachments.map(async (attachment) => {
+        const virtualPath =
+          attachment.meta?.path || attachment.filename || attachment.id;
+
+        const storagePath = this.getStoragePath(attachment);
+        let { data } = await this.storeService.download({ path: storagePath });
+
+        // Apply publish injections to HTML files (SPA support, navigation sync, etc.)
+        if (attachment.mimeType === 'text/html') {
+          const result = applyInjections(
+            data,
+            attachment,
+            attachments,
+            cruxKind,
+          );
+          data = result.data;
+          if (result.applied.length > 0) {
+            this.logger.info(`Publish injections applied to ${virtualPath}`, {
+              injections: result.applied,
+            });
+          }
+        }
+
+        const publishedPath = `${pathPrefix}/${virtualPath}`;
+        await this.storeService.upload({
+          path: publishedPath,
+          data,
+          namespace: publishedBucket,
+          contentType: attachment.mimeType,
+        });
+      }),
+    );
+  }
+
+  async deleteFromStaticBucket(pathPrefix: string): Promise<void> {
+    const publishedBucket =
+      process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published';
+
+    await this.storeService.deleteByPrefix({
+      prefix: `${pathPrefix}/`,
+      namespace: publishedBucket,
+    });
   }
 
   getAttachmentsByResourceQuery(

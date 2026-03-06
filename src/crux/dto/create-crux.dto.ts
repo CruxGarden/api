@@ -7,7 +7,7 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
-import { CruxStatus, CruxVisibility } from '../../common/types/enums';
+import { CruxKind, CruxStatus, CruxVisibility } from '../../common/types/enums';
 
 export class CreateCruxDto {
   @ApiProperty({
@@ -51,6 +51,15 @@ export class CreateCruxDto {
   @IsOptional()
   @IsString()
   type?: string;
+
+  @ApiPropertyOptional({
+    description: 'Kind of crux (subcategory)',
+    enum: CruxKind,
+    example: CruxKind.WEBAPP,
+  })
+  @IsOptional()
+  @IsEnum(CruxKind)
+  kind?: CruxKind;
 
   @ApiPropertyOptional({
     description: 'Theme ID for styling the crux',

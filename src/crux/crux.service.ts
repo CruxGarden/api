@@ -28,12 +28,12 @@ import { UpdateDimensionDto } from '../dimension/dto/update-dimension.dto';
 import { TagService } from '../tag/tag.service';
 import Tag from '../tag/entities/tag.entity';
 import { AttachmentService } from '../attachment/attachment.service';
+import { StoreService } from '../common/services/store.service';
 import Attachment from '../attachment/entities/attachment.entity';
 import { UploadAttachmentDto } from '../attachment/dto/upload-attachment.dto';
 
 @Injectable()
 export class CruxService {
-  // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
@@ -43,6 +43,7 @@ export class CruxService {
     private readonly dimensionService: DimensionService,
     private readonly tagService: TagService,
     private readonly attachmentService: AttachmentService,
+    private readonly storeService: StoreService,
   ) {
     this.logger = this.loggerService.createChildLogger('CruxService');
   }
@@ -311,7 +312,23 @@ export class CruxService {
       );
     }
 
-    // 4. Update crux meta with publish info
+    // 4. Publish files to static S3 bucket (use authorId — immutable, unlike username)
+    const pathPrefix = `${crux.authorId}/${crux.slug}`;
+    await this.attachmentService.deleteFromStaticBucket(pathPrefix);
+    await this.attachmentService.publishToStaticBucket(
+      workingAttachments,
+      pathPrefix,
+      crux.kind,
+    );
+
+    // 5. Invalidate CloudFront cache (best-effort, don't block publish)
+    this.storeService
+      .invalidateCache({ paths: [`/${pathPrefix}/*`] })
+      .catch((err) =>
+        this.logger.error(`CloudFront invalidation failed: ${err.message}`),
+      );
+
+    // 6. Update crux meta with publish info
     const publishedVersion = (crux.meta?.publishedVersion || 0) + 1;
     const publishedAt = new Date().toISOString();
 
@@ -321,7 +338,7 @@ export class CruxService {
       publishedVersion,
     };
 
-    // 5. Set visibility to public and update meta
+    // 7. Set visibility to public and update meta
     const updated = await this.cruxRepository.update(crux.id, {
       meta: updatedMeta,
       visibility: CruxVisibility.PUBLIC,
@@ -342,6 +359,15 @@ export class CruxService {
       ResourceType.CRUX,
       crux.id,
     );
+
+    // Delete from static S3 bucket and invalidate cache (best-effort)
+    const pathPrefix = `${crux.authorId}/${crux.slug}`;
+    await this.attachmentService.deleteFromStaticBucket(pathPrefix);
+    this.storeService
+      .invalidateCache({ paths: [`/${pathPrefix}/*`] })
+      .catch((err) =>
+        this.logger.error(`CloudFront invalidation failed: ${err.message}`),
+      );
 
     // Remove publish metadata and set to private
     const updatedMeta = { ...crux.meta };

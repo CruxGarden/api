@@ -2,9 +2,15 @@ import {
   S3Client,
   CopyObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
+import {
+  CloudFrontClient,
+  CreateInvalidationCommand,
+} from '@aws-sdk/client-cloudfront';
 import { Injectable } from '@nestjs/common';
 import { LoggerService } from './logger.service';
 interface S3Options {
@@ -17,6 +23,7 @@ export interface StoreOptions {
   path: string;
   data?: Buffer;
   namespace?: string;
+  contentType?: string;
 }
 
 export interface DownloadResult {
@@ -29,6 +36,7 @@ export class StoreService {
   private readonly logger: LoggerService;
   private readonly mockMode: boolean;
   private readonly s3Client: S3Client;
+  private readonly cfClient: CloudFrontClient;
   private readonly defaultNamespace =
     process.env.AWS_S3_ATTACHMENTS_BUCKET || 'crux-garden-attachments';
 
@@ -41,12 +49,17 @@ export class StoreService {
         'AWS credentials not found - StoreService running in mock mode (logging only)',
       );
     } else {
+      const credentials = {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      };
       this.s3Client = new S3Client({
         region: process.env.AWS_REGION,
-        credentials: {
-          accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-        },
+        credentials,
+      });
+      this.cfClient = new CloudFrontClient({
+        region: process.env.AWS_REGION,
+        credentials,
       });
     }
   }
@@ -123,6 +136,7 @@ export class StoreService {
         Bucket: s3Opts.bucket,
         Key: s3Opts.key,
         Body: s3Opts.data,
+        ...(opts.contentType ? { ContentType: opts.contentType } : {}),
       }),
     );
   }
@@ -172,5 +186,157 @@ export class StoreService {
         Key: s3Opts.key,
       }),
     );
+  }
+
+  async deleteByPrefix(opts: {
+    prefix: string;
+    namespace?: string;
+  }): Promise<number> {
+    const bucket = opts.namespace || this.defaultNamespace;
+
+    if (this.mockMode) {
+      this.logger.info('Files deleted by prefix', {
+        bucket,
+        prefix: opts.prefix,
+      });
+      return 0;
+    }
+
+    let deleted = 0;
+    let continuationToken: string | undefined;
+
+    do {
+      const list = await this.s3Client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: opts.prefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+
+      const objects = list.Contents;
+      if (!objects || objects.length === 0) break;
+
+      await this.s3Client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: {
+            Objects: objects.map((o) => ({ Key: o.Key })),
+            Quiet: true,
+          },
+        }),
+      );
+
+      deleted += objects.length;
+      continuationToken = list.IsTruncated
+        ? list.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+
+    return deleted;
+  }
+
+  async movePrefix(opts: {
+    oldPrefix: string;
+    newPrefix: string;
+    namespace?: string;
+  }): Promise<number> {
+    const bucket = opts.namespace || this.defaultNamespace;
+
+    if (this.mockMode) {
+      this.logger.info('Files moved by prefix', {
+        bucket,
+        oldPrefix: opts.oldPrefix,
+        newPrefix: opts.newPrefix,
+      });
+      return 0;
+    }
+
+    let moved = 0;
+    let continuationToken: string | undefined;
+
+    do {
+      const list = await this.s3Client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: opts.oldPrefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+
+      const objects = list.Contents;
+      if (!objects || objects.length === 0) break;
+
+      // Copy each object to new prefix
+      for (const obj of objects) {
+        const newKey = obj.Key!.replace(opts.oldPrefix, opts.newPrefix);
+        await this.s3Client.send(
+          new CopyObjectCommand({
+            Bucket: bucket,
+            CopySource: `${bucket}/${obj.Key}`,
+            Key: newKey,
+          }),
+        );
+      }
+
+      // Delete old objects
+      await this.s3Client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: {
+            Objects: objects.map((o) => ({ Key: o.Key })),
+            Quiet: true,
+          },
+        }),
+      );
+
+      moved += objects.length;
+      continuationToken = list.IsTruncated
+        ? list.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+
+    return moved;
+  }
+
+  async invalidateCache(opts: {
+    paths: string[];
+    distributionId?: string;
+  }): Promise<void> {
+    const distributionId =
+      opts.distributionId || process.env.AWS_CLOUDFRONT_DISTRIBUTION_ID;
+
+    if (!distributionId) {
+      this.logger.warn(
+        'CloudFront distribution ID not configured — skipping cache invalidation',
+      );
+      return;
+    }
+
+    if (this.mockMode) {
+      this.logger.info('CloudFront invalidation (mock)', {
+        distributionId,
+        paths: opts.paths,
+      });
+      return;
+    }
+
+    await this.cfClient.send(
+      new CreateInvalidationCommand({
+        DistributionId: distributionId,
+        InvalidationBatch: {
+          CallerReference: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          Paths: {
+            Quantity: opts.paths.length,
+            Items: opts.paths,
+          },
+        },
+      }),
+    );
+
+    this.logger.info('CloudFront cache invalidation submitted', {
+      distributionId,
+      paths: opts.paths,
+    });
   }
 }

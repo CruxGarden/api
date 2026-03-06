@@ -167,7 +167,9 @@ describe('Crux Integration Tests', () => {
         .expect(200);
 
       expect(Array.isArray(response.body)).toBe(true);
-      expect(mockCruxRepository.findAllByAuthorQuery).toHaveBeenCalledWith(testAuthorId);
+      expect(mockCruxRepository.findAllByAuthorQuery).toHaveBeenCalledWith(
+        testAuthorId,
+      );
     });
 
     it('should return 401 when no token provided', async () => {

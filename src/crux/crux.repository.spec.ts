@@ -123,7 +123,10 @@ describe('CruxRepository', () => {
     it('should build query for all cruxes by author', () => {
       const result = repository.findAllByAuthorQuery('author-id');
 
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('author_id', 'author-id');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        'author_id',
+        'author-id',
+      );
       expect(mockQueryBuilder.whereNull).toHaveBeenCalledWith('deleted');
       expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('created', 'desc');
       expect(result).toBe(mockQueryBuilder);

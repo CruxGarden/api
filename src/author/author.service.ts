@@ -11,24 +11,17 @@ import { UpdateAuthorDto } from './dto/update-author.dto';
 import { GraphResponseDto } from './dto/graph-response.dto';
 import { AuthorRepository } from './author.repository';
 import { KeyMaster } from '../common/services/key.master';
-import { LoggerService } from '../common/services/logger.service';
 import AuthorRaw from './entities/author-raw.entity';
 import Author from './entities/author.entity';
 import { AttachmentService } from '../attachment/attachment.service';
 
 @Injectable()
 export class AuthorService {
-  // @ts-expect-error - logger
-  private readonly logger: LoggerService;
-
   constructor(
     private readonly authorRepository: AuthorRepository,
     private readonly keyMaster: KeyMaster,
-    private readonly loggerService: LoggerService,
     private readonly attachmentService: AttachmentService,
-  ) {
-    this.logger = this.loggerService.createChildLogger('AuthorService');
-  }
+  ) {}
 
   asAuthor(data: AuthorRaw): Author {
     const entityFields = toEntityFields(data);

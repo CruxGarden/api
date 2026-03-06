@@ -10,6 +10,7 @@ import { LoggerService } from '../common/services/logger.service';
 import { DimensionService } from '../dimension/dimension.service';
 import { TagService } from '../tag/tag.service';
 import { AttachmentService } from '../attachment/attachment.service';
+import { StoreService } from '../common/services/store.service';
 import { DimensionType, ResourceType } from '../common/types/enums';
 
 describe('CruxService', () => {
@@ -77,6 +78,13 @@ describe('CruxService', () => {
       }),
     };
 
+    const mockStoreService = {
+      upload: jest.fn(),
+      download: jest.fn(),
+      delete: jest.fn(),
+      invalidateCache: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CruxService,
@@ -86,6 +94,7 @@ describe('CruxService', () => {
         { provide: AttachmentService, useValue: mockAttachmentService },
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
+        { provide: StoreService, useValue: mockStoreService },
       ],
     }).compile();
 

@@ -1,6 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsEnum, IsArray } from 'class-validator';
-import { CruxStatus, CruxVisibility } from '../../common/types/enums';
+import {
+  IsOptional,
+  IsString,
+  IsEnum,
+  IsArray,
+  ValidateIf,
+} from 'class-validator';
+import { CruxKind, CruxStatus, CruxVisibility } from '../../common/types/enums';
 
 export class UpdateCruxDto {
   @ApiPropertyOptional({
@@ -42,6 +48,17 @@ export class UpdateCruxDto {
   @IsOptional()
   @IsString()
   type?: string;
+
+  @ApiPropertyOptional({
+    description: 'Updated kind of crux (subcategory). Set to null to clear.',
+    enum: CruxKind,
+    example: CruxKind.WEBAPP,
+    nullable: true,
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsEnum(CruxKind)
+  kind?: CruxKind | null;
 
   @ApiPropertyOptional({
     description: 'Updated theme ID for styling the crux',
