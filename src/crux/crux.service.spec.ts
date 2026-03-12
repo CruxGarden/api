@@ -9,7 +9,7 @@ import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { DimensionService } from '../dimension/dimension.service';
 import { TagService } from '../tag/tag.service';
-import { AttachmentService } from '../attachment/attachment.service';
+import { ArtifactService } from '../artifact/artifact.service';
 import { StoreService } from '../common/services/store.service';
 import { DimensionType, ResourceType } from '../common/types/enums';
 
@@ -58,11 +58,11 @@ describe('CruxService', () => {
       syncTags: jest.fn(),
     };
 
-    const mockAttachmentService = {
+    const mockArtifactService = {
       findByResource: jest.fn(),
       createWithFile: jest.fn(),
       findById: jest.fn(),
-      downloadAttachment: jest.fn(),
+      downloadArtifact: jest.fn(),
     };
 
     const mockKeyMaster = {
@@ -91,7 +91,7 @@ describe('CruxService', () => {
         { provide: CruxRepository, useValue: mockRepository },
         { provide: DimensionService, useValue: mockDimensionService },
         { provide: TagService, useValue: mockTagService },
-        { provide: AttachmentService, useValue: mockAttachmentService },
+        { provide: ArtifactService, useValue: mockArtifactService },
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
         { provide: StoreService, useValue: mockStoreService },

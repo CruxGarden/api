@@ -1,9 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
 
-export class CreateAttachmentDto {
+export class CreateArtifactDto {
   @ApiPropertyOptional({
-    description: 'Unique identifier for the attachment (auto-generated)',
+    description: 'Unique identifier for the artifact (auto-generated)',
     example: '550e8400-e29b-41d4-a716-446655440000',
     format: 'uuid',
   })
@@ -12,7 +12,7 @@ export class CreateAttachmentDto {
   id?: string;
 
   @ApiProperty({
-    description: 'Type of the attachment',
+    description: 'Type of the artifact',
     example: 'image',
   })
   @IsNotEmpty()
@@ -20,7 +20,7 @@ export class CreateAttachmentDto {
   type: string;
 
   @ApiProperty({
-    description: 'Kind of the attachment',
+    description: 'Kind of the artifact',
     example: 'photo',
   })
   @IsNotEmpty()
@@ -28,14 +28,14 @@ export class CreateAttachmentDto {
   kind: string;
 
   @ApiPropertyOptional({
-    description: 'Metadata for the attachment',
+    description: 'Metadata for the artifact',
     example: { width: 1920, height: 1080 },
   })
   @IsOptional()
   meta?: any;
 
   @ApiProperty({
-    description: 'Resource ID the attachment belongs to',
+    description: 'Resource ID the artifact belongs to',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @IsNotEmpty()
@@ -43,7 +43,7 @@ export class CreateAttachmentDto {
   resourceId: string;
 
   @ApiProperty({
-    description: 'Type of resource the attachment belongs to',
+    description: 'Type of resource the artifact belongs to',
     example: 'crux',
   })
   @IsNotEmpty()
@@ -83,7 +83,7 @@ export class CreateAttachmentDto {
   mimeType: string;
 
   @ApiProperty({
-    description: 'Filename of the attachment',
+    description: 'Filename of the artifact',
     example: 'screenshot.png',
   })
   @IsNotEmpty()

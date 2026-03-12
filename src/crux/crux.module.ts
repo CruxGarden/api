@@ -6,7 +6,7 @@ import { AuthorModule } from '../author/author.module';
 import { TagModule } from '../tag/tag.module';
 import { DimensionModule } from '../dimension/dimension.module';
 import { HomeModule } from '../home/home.module';
-import { AttachmentModule } from '../attachment/attachment.module';
+import { ArtifactModule } from '../artifact/artifact.module';
 
 @Module({
   imports: [
@@ -14,7 +14,7 @@ import { AttachmentModule } from '../attachment/attachment.module';
     forwardRef(() => TagModule),
     forwardRef(() => DimensionModule),
     forwardRef(() => HomeModule),
-    forwardRef(() => AttachmentModule),
+    forwardRef(() => ArtifactModule),
   ],
   controllers: [CruxController],
   providers: [CruxService, CruxRepository],

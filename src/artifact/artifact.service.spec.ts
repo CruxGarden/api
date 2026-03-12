@@ -4,19 +4,19 @@ import {
   InternalServerErrorException,
   BadRequestException,
 } from '@nestjs/common';
-import { AttachmentService } from './attachment.service';
-import { AttachmentRepository } from './attachment.repository';
+import { ArtifactService } from './artifact.service';
+import { ArtifactRepository } from './artifact.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { StoreService } from '../common/services/store.service';
 
-describe('AttachmentService', () => {
-  let service: AttachmentService;
-  let repository: jest.Mocked<AttachmentRepository>;
+describe('ArtifactService', () => {
+  let service: ArtifactService;
+  let repository: jest.Mocked<ArtifactRepository>;
   let storeService: jest.Mocked<StoreService>;
 
-  const mockAttachmentRaw = {
-    id: 'attachment-id-123',
+  const mockArtifactRaw = {
+    id: 'artifact-id-123',
     type: 'image',
     kind: 'photo',
     meta: { caption: 'Test image' },
@@ -73,33 +73,33 @@ describe('AttachmentService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        AttachmentService,
-        { provide: AttachmentRepository, useValue: mockRepository },
+        ArtifactService,
+        { provide: ArtifactRepository, useValue: mockRepository },
         { provide: StoreService, useValue: mockStoreService },
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
       ],
     }).compile();
 
-    service = module.get<AttachmentService>(AttachmentService);
-    repository = module.get(AttachmentRepository);
+    service = module.get<ArtifactService>(ArtifactService);
+    repository = module.get(ArtifactRepository);
     storeService = module.get(StoreService);
   });
 
   describe('findById', () => {
-    it('should return an attachment when found', async () => {
+    it('should return an artifact when found', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
 
-      const result = await service.findById('attachment-id-123');
+      const result = await service.findById('artifact-id-123');
 
-      expect(result.id).toBe('attachment-id-123');
-      expect(repository.findBy).toHaveBeenCalledWith('id', 'attachment-id-123');
+      expect(result.id).toBe('artifact-id-123');
+      expect(repository.findBy).toHaveBeenCalledWith('id', 'artifact-id-123');
     });
 
-    it('should throw NotFoundException when attachment not found', async () => {
+    it('should throw NotFoundException when artifact not found', async () => {
       repository.findBy.mockResolvedValue({ data: null, error: null });
 
       await expect(service.findById('invalid-id')).rejects.toThrow(
@@ -113,23 +113,23 @@ describe('AttachmentService', () => {
         error: new Error('DB Error'),
       });
 
-      await expect(service.findById('attachment-id')).rejects.toThrow(
+      await expect(service.findById('artifact-id')).rejects.toThrow(
         NotFoundException,
       );
     });
   });
 
   describe('findByResource', () => {
-    it('should return attachments for a resource', async () => {
+    it('should return artifacts for a resource', async () => {
       repository.findByResource.mockResolvedValue({
-        data: [mockAttachmentRaw],
+        data: [mockArtifactRaw],
         error: null,
       });
 
       const result = await service.findByResource('crux', 'resource-123');
 
       expect(result).toHaveLength(1);
-      expect(result[0].id).toBe('attachment-id-123');
+      expect(result[0].id).toBe('artifact-id-123');
       expect(repository.findByResource).toHaveBeenCalledWith(
         'crux',
         'resource-123',
@@ -162,15 +162,15 @@ describe('AttachmentService', () => {
       size: 1024,
     };
 
-    it('should create an attachment successfully', async () => {
+    it('should create an artifact successfully', async () => {
       repository.create.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
 
       const result = await service.create(createDto);
 
-      expect(result.id).toBe('attachment-id-123');
+      expect(result.id).toBe('artifact-id-123');
       expect(repository.create).toHaveBeenCalledWith({
         ...createDto,
         id: 'generated-id',
@@ -192,32 +192,32 @@ describe('AttachmentService', () => {
   describe('update', () => {
     const updateDto = { filename: 'updated.jpg' };
 
-    it('should update an attachment successfully', async () => {
-      const updatedAttachment = {
-        ...mockAttachmentRaw,
+    it('should update an artifact successfully', async () => {
+      const updatedArtifact = {
+        ...mockArtifactRaw,
         filename: 'updated.jpg',
       };
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       repository.update.mockResolvedValue({
-        data: updatedAttachment,
+        data: updatedArtifact,
         error: null,
       });
 
-      const result = await service.update('attachment-id-123', updateDto);
+      const result = await service.update('artifact-id-123', updateDto);
 
       expect(result.filename).toBe('updated.jpg');
       expect(repository.update).toHaveBeenCalledWith(
-        mockAttachmentRaw.id,
+        mockArtifactRaw.id,
         updateDto,
       );
     });
 
     it('should throw InternalServerErrorException on update error', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       repository.update.mockResolvedValue({
@@ -226,28 +226,28 @@ describe('AttachmentService', () => {
       });
 
       await expect(
-        service.update('attachment-id-123', updateDto),
+        service.update('artifact-id-123', updateDto),
       ).rejects.toThrow(InternalServerErrorException);
     });
   });
 
   describe('delete', () => {
-    it('should delete an attachment successfully', async () => {
+    it('should delete an artifact successfully', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.delete('attachment-id-123');
+      const result = await service.delete('artifact-id-123');
 
       expect(result).toBeNull();
-      expect(repository.delete).toHaveBeenCalledWith(mockAttachmentRaw.id);
+      expect(repository.delete).toHaveBeenCalledWith(mockArtifactRaw.id);
     });
 
     it('should throw InternalServerErrorException on delete error', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       repository.delete.mockResolvedValue({
@@ -255,7 +255,7 @@ describe('AttachmentService', () => {
         error: new Error('Delete failed'),
       });
 
-      await expect(service.delete('attachment-id-123')).rejects.toThrow(
+      await expect(service.delete('artifact-id-123')).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -291,29 +291,29 @@ describe('AttachmentService', () => {
 
   describe('getStoragePath', () => {
     it('should generate correct storage path with extension', () => {
-      const attachment = {
+      const artifact = {
         resourceType: 'crux',
         resourceId: 'resource-123',
-        id: 'attachment-123',
+        id: 'artifact-123',
         mimeType: 'image/jpeg',
       };
 
-      const path = service.getStoragePath(attachment);
+      const path = service.getStoragePath(artifact);
 
-      expect(path).toBe('crux/resource-123/attachment-123.jpg');
+      expect(path).toBe('crux/resource-123/artifact-123.jpg');
     });
 
     it('should generate path without extension for unknown mime type', () => {
-      const attachment = {
+      const artifact = {
         resourceType: 'crux',
         resourceId: 'resource-123',
-        id: 'attachment-123',
+        id: 'artifact-123',
         mimeType: 'application/unknown',
       };
 
-      const path = service.getStoragePath(attachment);
+      const path = service.getStoragePath(artifact);
 
-      expect(path).toBe('crux/resource-123/attachment-123');
+      expect(path).toBe('crux/resource-123/artifact-123');
     });
   });
 
@@ -323,10 +323,10 @@ describe('AttachmentService', () => {
       kind: 'photo',
     };
 
-    it('should create attachment with file successfully', async () => {
+    it('should create artifact with file successfully', async () => {
       storeService.upload.mockResolvedValue(undefined);
       repository.create.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
 
@@ -339,7 +339,7 @@ describe('AttachmentService', () => {
         mockFile,
       );
 
-      expect(result.id).toBe('attachment-id-123');
+      expect(result.id).toBe('artifact-id-123');
       expect(storeService.upload).toHaveBeenCalled();
       expect(repository.create).toHaveBeenCalled();
     });
@@ -385,19 +385,19 @@ describe('AttachmentService', () => {
   describe('updateWithFile', () => {
     const updateDto: any = { type: 'document' };
 
-    it('should update attachment without file', async () => {
-      const updatedAttachment = { ...mockAttachmentRaw, type: 'document' };
+    it('should update artifact without file', async () => {
+      const updatedArtifact = { ...mockArtifactRaw, type: 'document' };
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       repository.update.mockResolvedValue({
-        data: updatedAttachment,
+        data: updatedArtifact,
         error: null,
       });
 
       const result = await service.updateWithFile(
-        'attachment-id-123',
+        'artifact-id-123',
         updateDto,
         undefined,
       );
@@ -406,20 +406,20 @@ describe('AttachmentService', () => {
       expect(storeService.upload).not.toHaveBeenCalled();
     });
 
-    it('should update attachment with new file', async () => {
-      const updatedAttachment = { ...mockAttachmentRaw, filename: 'new.jpg' };
+    it('should update artifact with new file', async () => {
+      const updatedArtifact = { ...mockArtifactRaw, filename: 'new.jpg' };
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       repository.update.mockResolvedValue({
-        data: updatedAttachment,
+        data: updatedArtifact,
         error: null,
       });
       storeService.upload.mockResolvedValue(undefined);
 
       const result = await service.updateWithFile(
-        'attachment-id-123',
+        'artifact-id-123',
         updateDto,
         mockFile,
       );
@@ -430,27 +430,27 @@ describe('AttachmentService', () => {
 
     it('should throw InternalServerErrorException when upload fails', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       storeService.upload.mockRejectedValue(new Error('Upload failed'));
 
       await expect(
-        service.updateWithFile('attachment-id-123', updateDto, mockFile),
+        service.updateWithFile('artifact-id-123', updateDto, mockFile),
       ).rejects.toThrow(InternalServerErrorException);
     });
   });
 
   describe('deleteWithFile', () => {
-    it('should delete attachment and file successfully', async () => {
+    it('should delete artifact and file successfully', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       storeService.delete.mockResolvedValue(undefined);
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.deleteWithFile('attachment-id-123');
+      const result = await service.deleteWithFile('artifact-id-123');
 
       expect(result).toBeNull();
       expect(storeService.delete).toHaveBeenCalled();
@@ -459,30 +459,30 @@ describe('AttachmentService', () => {
 
     it('should continue with database deletion even if storage fails', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       storeService.delete.mockRejectedValue(new Error('Storage error'));
       repository.delete.mockResolvedValue({ data: null, error: null });
 
-      const result = await service.deleteWithFile('attachment-id-123');
+      const result = await service.deleteWithFile('artifact-id-123');
 
       expect(result).toBeNull();
       expect(repository.delete).toHaveBeenCalled();
     });
   });
 
-  describe('downloadAttachment', () => {
-    it('should download attachment successfully', async () => {
+  describe('downloadArtifact', () => {
+    it('should download artifact successfully', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       storeService.download.mockResolvedValue({
         data: Buffer.from('file content'),
       });
 
-      const result = await service.downloadAttachment('attachment-id-123');
+      const result = await service.downloadArtifact('artifact-id-123');
 
       expect(result.data).toBeDefined();
       expect(result.filename).toBe('test.jpg');
@@ -492,33 +492,33 @@ describe('AttachmentService', () => {
 
     it('should throw NotFoundException when storage download fails', async () => {
       repository.findBy.mockResolvedValue({
-        data: mockAttachmentRaw,
+        data: mockArtifactRaw,
         error: null,
       });
       storeService.download.mockRejectedValue(new Error('Not found'));
 
       await expect(
-        service.downloadAttachment('attachment-id-123'),
+        service.downloadArtifact('artifact-id-123'),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
-  describe('asAttachment', () => {
-    it('should transform raw attachment to entity', () => {
-      const result = service.asAttachment(mockAttachmentRaw);
+  describe('asArtifact', () => {
+    it('should transform raw artifact to entity', () => {
+      const result = service.asArtifact(mockArtifactRaw);
 
-      expect(result.id).toBe(mockAttachmentRaw.id);
-      expect(result.resourceId).toBe(mockAttachmentRaw.resource_id);
-      expect(result.mimeType).toBe(mockAttachmentRaw.mime_type);
+      expect(result.id).toBe(mockArtifactRaw.id);
+      expect(result.resourceId).toBe(mockArtifactRaw.resource_id);
+      expect(result.mimeType).toBe(mockArtifactRaw.mime_type);
     });
   });
 
-  describe('asAttachments', () => {
-    it('should transform array of raw attachments to entities', () => {
-      const result = service.asAttachments([mockAttachmentRaw]);
+  describe('asArtifacts', () => {
+    it('should transform array of raw artifacts to entities', () => {
+      const result = service.asArtifacts([mockArtifactRaw]);
 
       expect(result).toHaveLength(1);
-      expect(result[0].id).toBe(mockAttachmentRaw.id);
+      expect(result[0].id).toBe(mockArtifactRaw.id);
     });
   });
 });

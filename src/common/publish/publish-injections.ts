@@ -1,4 +1,4 @@
-import Attachment from '../../attachment/entities/attachment.entity';
+import Artifact from '../../artifact/entities/artifact.entity';
 import { CruxKind } from '../types/enums';
 
 /**
@@ -22,8 +22,8 @@ export interface PublishInjection {
 }
 
 export interface InjectionContext {
-  attachment: Attachment;
-  allAttachments: Attachment[];
+  artifact: Artifact;
+  allArtifacts: Artifact[];
   cruxKind?: string;
 }
 
@@ -31,9 +31,9 @@ export interface InjectionContext {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** True when the attachment is the root index.html entry point */
-function isIndexHtml(attachment: Attachment): boolean {
-  const p = (attachment.meta?.path || attachment.filename || '')
+/** True when the artifact is the root index.html entry point */
+function isIndexHtml(artifact: Artifact): boolean {
+  const p = (artifact.meta?.path || artifact.filename || '')
     .toLowerCase()
     .replace(/^\//, '');
   return p === 'index.html';
@@ -46,7 +46,7 @@ function isWebApp(ctx: InjectionContext): boolean {
   if (ctx.cruxKind && ctx.cruxKind !== CruxKind.WEBAPP) return false;
 
   // Auto-detect: any crux with an index.html is treated as a web app
-  return ctx.allAttachments.some((a) => isIndexHtml(a));
+  return ctx.allArtifacts.some((a) => isIndexHtml(a));
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ function isWebApp(ctx: InjectionContext): boolean {
 
 const SPA_INDEX_STRIP: PublishInjection = {
   id: 'spa-index-strip',
-  shouldApply: (ctx) => isIndexHtml(ctx.attachment) && isWebApp(ctx),
+  shouldApply: (ctx) => isIndexHtml(ctx.artifact) && isWebApp(ctx),
   script: `(function(){
   if(location.pathname.endsWith('/index.html')){
     history.replaceState(null,'',location.pathname.replace(/\\/index\\.html$/,'/'));
@@ -74,7 +74,7 @@ const SPA_INDEX_STRIP: PublishInjection = {
 
 const SPA_BASENAME: PublishInjection = {
   id: 'spa-basename',
-  shouldApply: (ctx) => isIndexHtml(ctx.attachment) && isWebApp(ctx),
+  shouldApply: (ctx) => isIndexHtml(ctx.artifact) && isWebApp(ctx),
   script: `(function(){
   var p=location.pathname.split('/').filter(Boolean);
   window.__CRUX_BASENAME__=p.length>=2?'/'+p[0]+'/'+p[1]:'/';
@@ -90,7 +90,7 @@ const SPA_BASENAME: PublishInjection = {
 
 const SPA_NAVIGATE_SYNC: PublishInjection = {
   id: 'spa-navigate-sync',
-  shouldApply: (ctx) => isIndexHtml(ctx.attachment) && isWebApp(ctx),
+  shouldApply: (ctx) => isIndexHtml(ctx.artifact) && isWebApp(ctx),
   script: `(function(){
   if(window.parent===window)return;
   var p=location.pathname.split('/').filter(Boolean);
@@ -124,11 +124,11 @@ export const PUBLISH_INJECTIONS: PublishInjection[] = [
  */
 export function applyInjections(
   content: Buffer,
-  attachment: Attachment,
-  allAttachments: Attachment[],
+  artifact: Artifact,
+  allArtifacts: Artifact[],
   cruxKind?: string,
 ): { data: Buffer; applied: string[] } {
-  const ctx: InjectionContext = { attachment, allAttachments, cruxKind };
+  const ctx: InjectionContext = { artifact, allArtifacts, cruxKind };
   const matching = PUBLISH_INJECTIONS.filter((inj) => inj.shouldApply(ctx));
 
   if (matching.length === 0) {

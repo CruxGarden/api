@@ -38,7 +38,7 @@ export class StoreService {
   private readonly s3Client: S3Client;
   private readonly cfClient: CloudFrontClient;
   private readonly defaultNamespace =
-    process.env.AWS_S3_ATTACHMENTS_BUCKET || 'crux-garden-attachments';
+    process.env.AWS_S3_ARTIFACTS_BUCKET || 'artifacts.crux.garden';
 
   constructor(private readonly loggerService: LoggerService) {
     this.logger = this.loggerService.createChildLogger('StoreService');
@@ -69,7 +69,7 @@ export class StoreService {
       process.env.AWS_ACCESS_KEY_ID &&
       process.env.AWS_SECRET_ACCESS_KEY &&
       process.env.AWS_REGION &&
-      process.env.AWS_S3_ATTACHMENTS_BUCKET
+      process.env.AWS_S3_ARTIFACTS_BUCKET
     );
   }
 

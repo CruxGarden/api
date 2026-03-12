@@ -1,4 +1,4 @@
-export default interface AttachmentRaw {
+export default interface ArtifactRaw {
   id: string;
   type: string;
   kind: string;

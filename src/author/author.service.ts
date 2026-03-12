@@ -13,14 +13,14 @@ import { AuthorRepository } from './author.repository';
 import { KeyMaster } from '../common/services/key.master';
 import AuthorRaw from './entities/author-raw.entity';
 import Author from './entities/author.entity';
-import { AttachmentService } from '../attachment/attachment.service';
+import { ArtifactService } from '../artifact/artifact.service';
 
 @Injectable()
 export class AuthorService {
   constructor(
     private readonly authorRepository: AuthorRepository,
     private readonly keyMaster: KeyMaster,
-    private readonly attachmentService: AttachmentService,
+    private readonly artifactService: ArtifactService,
   ) {}
 
   asAuthor(data: AuthorRaw): Author {
@@ -181,22 +181,22 @@ export class AuthorService {
   ): Promise<Author> {
     const author = await this.findById(authorId);
 
-    // Delete any existing avatar attachment
+    // Delete any existing avatar artifact
     try {
-      const existing = await this.attachmentService.findByResourceAndKind(
+      const existing = await this.artifactService.findByResourceAndKind(
         'author',
         authorId,
         'avatar',
       );
       for (const att of existing) {
-        await this.attachmentService.deleteWithFile(att.id);
+        await this.artifactService.deleteWithFile(att.id);
       }
     } catch {
       // No existing avatar, that's fine
     }
 
-    // Create new avatar attachment
-    await this.attachmentService.createWithFile(
+    // Create new avatar artifact
+    await this.artifactService.createWithFile(
       'author',
       authorId,
       author.homeId,
@@ -223,15 +223,15 @@ export class AuthorService {
   async removeAvatar(authorId: string): Promise<Author> {
     await this.findById(authorId);
 
-    // Delete avatar attachments
+    // Delete avatar artifacts
     try {
-      const existing = await this.attachmentService.findByResourceAndKind(
+      const existing = await this.artifactService.findByResourceAndKind(
         'author',
         authorId,
         'avatar',
       );
       for (const att of existing) {
-        await this.attachmentService.deleteWithFile(att.id);
+        await this.artifactService.deleteWithFile(att.id);
       }
     } catch {
       // No existing avatar
@@ -251,14 +251,14 @@ export class AuthorService {
     return this.asAuthor(updated.data);
   }
 
-  async getAvatarAttachment(authorId: string) {
-    const attachments = await this.attachmentService.findByResourceAndKind(
+  async getAvatarArtifact(authorId: string) {
+    const artifacts = await this.artifactService.findByResourceAndKind(
       'author',
       authorId,
       'avatar',
     );
-    if (attachments.length === 0) return null;
-    return this.attachmentService.downloadAttachment(attachments[0].id);
+    if (artifacts.length === 0) return null;
+    return this.artifactService.downloadArtifact(artifacts[0].id);
   }
 
   async getGraph(authorId: string): Promise<GraphResponseDto> {

@@ -1,9 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
-export class UploadAttachmentDto {
+export class UploadArtifactDto {
   @ApiProperty({
-    description: 'Type of the attachment',
+    description: 'Type of the artifact',
     example: 'image',
   })
   @IsNotEmpty()
@@ -11,7 +11,7 @@ export class UploadAttachmentDto {
   type: string;
 
   @ApiProperty({
-    description: 'Kind of the attachment',
+    description: 'Kind of the artifact',
     example: 'photo',
   })
   @IsNotEmpty()
@@ -19,7 +19,7 @@ export class UploadAttachmentDto {
   kind: string;
 
   @ApiPropertyOptional({
-    description: 'Metadata for the attachment',
+    description: 'Metadata for the artifact',
     example: { width: 1920, height: 1080 },
   })
   @IsOptional()

@@ -18,7 +18,7 @@ import { PathModule } from './path/path.module';
 import { TagModule } from './tag/tag.module';
 import { ThemeModule } from './theme/theme.module';
 import { HomeModule } from './home/home.module';
-import { AttachmentModule } from './attachment/attachment.module';
+import { ArtifactModule } from './artifact/artifact.module';
 import { AiModule } from './ai/ai.module';
 
 @Module({
@@ -40,7 +40,7 @@ import { AiModule } from './ai/ai.module';
     TagModule,
     ThemeModule,
     HomeModule,
-    AttachmentModule,
+    ArtifactModule,
     AiModule,
   ],
   controllers: [AppController],

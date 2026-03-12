@@ -14,64 +14,64 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { AttachmentService } from './attachment.service';
+import { ArtifactService } from './artifact.service';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
-import { AttachmentSwagger } from './attachment.swagger';
+import { ArtifactSwagger } from './artifact.swagger';
 import { LoggerService } from '../common/services/logger.service';
 import { AuthorService } from '../author/author.service';
-import { UpdateAttachmentDto } from './dto/update-attachment.dto';
-import Attachment from './entities/attachment.entity';
+import { UpdateArtifactDto } from './dto/update-artifact.dto';
+import Artifact from './entities/artifact.entity';
 
-@Controller('attachments')
+@Controller('artifacts')
 @UseGuards(AuthGuard)
-@AttachmentSwagger.Controller()
-export class AttachmentController {
+@ArtifactSwagger.Controller()
+export class ArtifactController {
   // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
   constructor(
     private readonly authorService: AuthorService,
-    private readonly attachmentService: AttachmentService,
+    private readonly artifactService: ArtifactService,
     private readonly loggerService: LoggerService,
   ) {
-    this.logger = this.loggerService.createChildLogger('AttachmentController');
+    this.logger = this.loggerService.createChildLogger('ArtifactController');
   }
 
-  async canManageAttachment(id: string, req: AuthRequest): Promise<void> {
-    const attachment = await this.attachmentService.findById(id);
+  async canManageArtifact(id: string, req: AuthRequest): Promise<void> {
+    const artifact = await this.artifactService.findById(id);
     const author = await this.authorService.findByAccountId(req.account.id);
-    if (!attachment || !author) {
-      throw new NotFoundException('Attachment or Author not found');
+    if (!artifact || !author) {
+      throw new NotFoundException('Artifact or Author not found');
     }
-    if (attachment.authorId !== author.id) {
+    if (artifact.authorId !== author.id) {
       throw new ForbiddenException(
-        'You do not have permission to manage this attachment',
+        'You do not have permission to manage this artifact',
       );
     }
   }
 
   @Put(':id')
-  @AttachmentSwagger.Update()
+  @ArtifactSwagger.Update()
   @UseInterceptors(FileInterceptor('file'))
   async update(
     @Param('id') id: string,
-    @Body() updateDto: UpdateAttachmentDto,
+    @Body() updateDto: UpdateArtifactDto,
     @UploadedFile() file: Express.Multer.File,
     @Req() req: AuthRequest,
-  ): Promise<Attachment> {
-    await this.canManageAttachment(id, req);
-    return this.attachmentService.updateWithFile(id, updateDto, file);
+  ): Promise<Artifact> {
+    await this.canManageArtifact(id, req);
+    return this.artifactService.updateWithFile(id, updateDto, file);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @AttachmentSwagger.Delete()
+  @ArtifactSwagger.Delete()
   async delete(
     @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<null> {
-    await this.canManageAttachment(id, req);
-    return this.attachmentService.deleteWithFile(id);
+    await this.canManageArtifact(id, req);
+    return this.artifactService.deleteWithFile(id);
   }
 }

@@ -8,7 +8,7 @@ import { AuthorService } from './author.service';
 import { AuthorRepository } from './author.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
-import { AttachmentService } from '../attachment/attachment.service';
+import { ArtifactService } from '../artifact/artifact.service';
 
 describe('AuthorService', () => {
   let service: AuthorService;
@@ -49,7 +49,7 @@ describe('AuthorService', () => {
       }),
     };
 
-    const mockAttachmentService = {
+    const mockArtifactService = {
       findBy: jest.fn(),
       createWithFile: jest.fn(),
       updateWithFile: jest.fn(),
@@ -62,7 +62,7 @@ describe('AuthorService', () => {
         { provide: AuthorRepository, useValue: mockRepository },
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
-        { provide: AttachmentService, useValue: mockAttachmentService },
+        { provide: ArtifactService, useValue: mockArtifactService },
       ],
     }).compile();
 

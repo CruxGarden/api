@@ -27,10 +27,10 @@ import { CreateDimensionDto } from '../dimension/dto/create-dimension.dto';
 import { UpdateDimensionDto } from '../dimension/dto/update-dimension.dto';
 import { TagService } from '../tag/tag.service';
 import Tag from '../tag/entities/tag.entity';
-import { AttachmentService } from '../attachment/attachment.service';
+import { ArtifactService } from '../artifact/artifact.service';
 import { StoreService } from '../common/services/store.service';
-import Attachment from '../attachment/entities/attachment.entity';
-import { UploadAttachmentDto } from '../attachment/dto/upload-attachment.dto';
+import Artifact from '../artifact/entities/artifact.entity';
+import { UploadArtifactDto } from '../artifact/dto/upload-artifact.dto';
 
 @Injectable()
 export class CruxService {
@@ -42,7 +42,7 @@ export class CruxService {
     private readonly loggerService: LoggerService,
     private readonly dimensionService: DimensionService,
     private readonly tagService: TagService,
-    private readonly attachmentService: AttachmentService,
+    private readonly artifactService: ArtifactService,
     private readonly storeService: StoreService,
   ) {
     this.logger = this.loggerService.createChildLogger('CruxService');
@@ -238,11 +238,11 @@ export class CruxService {
 
   /* ~crux tags */
 
-  /* crux attachments */
+  /* crux artifacts */
 
-  async getAttachments(cruxId: string): Promise<Attachment[]> {
+  async getArtifacts(cruxId: string): Promise<Artifact[]> {
     const crux = await this.findById(cruxId);
-    const all = await this.attachmentService.findByResource(
+    const all = await this.artifactService.findByResource(
       ResourceType.CRUX,
       crux.id,
     );
@@ -250,14 +250,14 @@ export class CruxService {
     return all.filter((a) => a.kind !== 'published-snapshot');
   }
 
-  async createAttachment(
+  async createArtifact(
     cruxId: string,
-    uploadDto: UploadAttachmentDto,
+    uploadDto: UploadArtifactDto,
     file: any,
     authorId: string,
-  ): Promise<Attachment> {
+  ): Promise<Artifact> {
     const crux = await this.findById(cruxId);
-    return this.attachmentService.createWithFile(
+    return this.artifactService.createWithFile(
       ResourceType.CRUX,
       crux.id,
       crux.homeId,
@@ -267,56 +267,56 @@ export class CruxService {
     );
   }
 
-  async downloadAttachment(cruxId: string, attachmentId: string) {
-    // Verify the attachment belongs to this crux
+  async downloadArtifact(cruxId: string, artifactId: string) {
+    // Verify the artifact belongs to this crux
     const crux = await this.findById(cruxId);
-    const attachment = await this.attachmentService.findById(attachmentId);
+    const artifact = await this.artifactService.findById(artifactId);
 
     if (
-      attachment.resourceType !== ResourceType.CRUX ||
-      attachment.resourceId !== crux.id
+      artifact.resourceType !== ResourceType.CRUX ||
+      artifact.resourceId !== crux.id
     ) {
-      throw new NotFoundException('Attachment not found for this crux');
+      throw new NotFoundException('Artifact not found for this crux');
     }
 
-    return this.attachmentService.downloadAttachment(attachmentId);
+    return this.artifactService.downloadArtifact(artifactId);
   }
 
-  /* ~crux attachments */
+  /* ~crux artifacts */
 
   /* crux publishing */
 
   async publishCrux(cruxId: string): Promise<Crux> {
     const crux = await this.findById(cruxId);
 
-    // 1. Clean up any existing snapshot attachments
-    await this.attachmentService.deleteSnapshotAttachments(
+    // 1. Clean up any existing snapshot artifacts
+    await this.artifactService.deleteSnapshotArtifacts(
       ResourceType.CRUX,
       crux.id,
     );
 
-    // 2. Get current working attachments (exclude old snapshots)
-    const all = await this.attachmentService.findByResource(
+    // 2. Get current working artifacts (exclude old snapshots)
+    const all = await this.artifactService.findByResource(
       ResourceType.CRUX,
       crux.id,
     );
-    const workingAttachments = all.filter(
+    const workingArtifacts = all.filter(
       (a) => a.kind !== 'published-snapshot',
     );
 
-    // 3. Copy each working attachment to a snapshot
-    for (const attachment of workingAttachments) {
-      await this.attachmentService.copyAttachmentToSnapshot(
-        attachment,
+    // 3. Copy each working artifact to a snapshot
+    for (const artifact of workingArtifacts) {
+      await this.artifactService.copyArtifactToSnapshot(
+        artifact,
         crux.id,
       );
     }
 
     // 4. Publish files to static S3 bucket (use authorId — immutable, unlike username)
     const pathPrefix = `${crux.authorId}/${crux.slug}`;
-    await this.attachmentService.deleteFromStaticBucket(pathPrefix);
-    await this.attachmentService.publishToStaticBucket(
-      workingAttachments,
+    await this.artifactService.deleteFromStaticBucket(pathPrefix);
+    await this.artifactService.publishToStaticBucket(
+      workingArtifacts,
       pathPrefix,
       crux.kind,
     );
@@ -354,15 +354,15 @@ export class CruxService {
   async unpublishCrux(cruxId: string): Promise<Crux> {
     const crux = await this.findById(cruxId);
 
-    // Clean up snapshot attachments
-    await this.attachmentService.deleteSnapshotAttachments(
+    // Clean up snapshot artifacts
+    await this.artifactService.deleteSnapshotArtifacts(
       ResourceType.CRUX,
       crux.id,
     );
 
     // Delete from static S3 bucket and invalidate cache (best-effort)
     const pathPrefix = `${crux.authorId}/${crux.slug}`;
-    await this.attachmentService.deleteFromStaticBucket(pathPrefix);
+    await this.artifactService.deleteFromStaticBucket(pathPrefix);
     this.storeService
       .invalidateCache({ paths: [`/${pathPrefix}/*`] })
       .catch((err) =>
@@ -388,12 +388,12 @@ export class CruxService {
     return this.asCrux(updated.data);
   }
 
-  async getPublishedAttachments(cruxId: string): Promise<Attachment[]> {
+  async getPublishedArtifacts(cruxId: string): Promise<Artifact[]> {
     const crux = await this.findById(cruxId);
 
-    // If crux has been published, return snapshot attachments
+    // If crux has been published, return snapshot artifacts
     if (crux.meta?.publishedAt) {
-      const snapshots = await this.attachmentService.findByResourceAndKind(
+      const snapshots = await this.artifactService.findByResourceAndKind(
         ResourceType.CRUX,
         crux.id,
         'published-snapshot',
@@ -403,8 +403,8 @@ export class CruxService {
       }
     }
 
-    // Fallback: return working attachments (backward compat for pre-snapshot cruxes)
-    return this.attachmentService.findByResource(ResourceType.CRUX, crux.id);
+    // Fallback: return working artifacts (backward compat for pre-snapshot cruxes)
+    return this.artifactService.findByResource(ResourceType.CRUX, crux.id);
   }
 
   /* ~crux publishing */

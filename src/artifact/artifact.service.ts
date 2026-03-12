@@ -6,16 +6,16 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { toEntityFields } from '../common/helpers/case-helpers';
-import { CreateAttachmentDto } from './dto/create-attachment.dto';
-import { UpdateAttachmentDto } from './dto/update-attachment.dto';
-import { AttachmentRepository } from './attachment.repository';
+import { CreateArtifactDto } from './dto/create-artifact.dto';
+import { UpdateArtifactDto } from './dto/update-artifact.dto';
+import { ArtifactRepository } from './artifact.repository';
 import { KeyMaster } from '../common/services/key.master';
-import { MAX_ATTACHMENT_SIZE } from '../common/types/constants';
+import { MAX_ARTIFACT_SIZE } from '../common/types/constants';
 import { LoggerService } from '../common/services/logger.service';
 import { StoreService } from '../common/services/store.service';
-import AttachmentRaw from './entities/attachment-raw.entity';
-import Attachment from './entities/attachment.entity';
-import { UploadAttachmentDto } from './dto/upload-attachment.dto';
+import ArtifactRaw from './entities/artifact-raw.entity';
+import Artifact from './entities/artifact.entity';
+import { UploadArtifactDto } from './dto/upload-artifact.dto';
 import * as mime from 'mime-types';
 import { applyInjections } from '../common/publish/publish-injections';
 
@@ -29,120 +29,120 @@ interface UploadedFile {
 }
 
 @Injectable()
-export class AttachmentService {
+export class ArtifactService {
   private readonly logger: LoggerService;
 
   constructor(
-    private readonly attachmentRepository: AttachmentRepository,
+    private readonly artifactRepository: ArtifactRepository,
     private readonly keyMaster: KeyMaster,
     private readonly loggerService: LoggerService,
     private readonly storeService: StoreService,
   ) {
-    this.logger = this.loggerService.createChildLogger('AttachmentService');
+    this.logger = this.loggerService.createChildLogger('ArtifactService');
   }
 
-  asAttachment(data: AttachmentRaw): Attachment {
+  asArtifact(data: ArtifactRaw): Artifact {
     const entityFields = toEntityFields(data);
-    return new Attachment(entityFields);
+    return new Artifact(entityFields);
   }
 
-  asAttachments(rows: AttachmentRaw[]): Attachment[] {
-    return rows.map((data) => this.asAttachment(data));
+  asArtifacts(rows: ArtifactRaw[]): Artifact[] {
+    return rows.map((data) => this.asArtifact(data));
   }
 
-  findAllQuery(): Knex.QueryBuilder<AttachmentRaw, AttachmentRaw[]> {
-    return this.attachmentRepository.findAllQuery();
+  findAllQuery(): Knex.QueryBuilder<ArtifactRaw, ArtifactRaw[]> {
+    return this.artifactRepository.findAllQuery();
   }
 
-  async findById(id: string): Promise<Attachment> {
-    const { data: attachment, error } = await this.attachmentRepository.findBy(
+  async findById(id: string): Promise<Artifact> {
+    const { data: artifact, error } = await this.artifactRepository.findBy(
       'id',
       id,
     );
 
-    if (error || !attachment) {
-      throw new NotFoundException('Attachment not found');
+    if (error || !artifact) {
+      throw new NotFoundException('Artifact not found');
     }
 
-    return this.asAttachment(attachment);
+    return this.asArtifact(artifact);
   }
 
   async findByResource(
     resourceType: string,
     resourceId: string,
-  ): Promise<Attachment[]> {
-    const { data, error } = await this.attachmentRepository.findByResource(
+  ): Promise<Artifact[]> {
+    const { data, error } = await this.artifactRepository.findByResource(
       resourceType,
       resourceId,
     );
 
     if (error) {
       throw new InternalServerErrorException(
-        `Error fetching attachments: ${error}`,
+        `Error fetching artifacts: ${error}`,
       );
     }
 
-    return this.asAttachments(data || []);
+    return this.asArtifacts(data || []);
   }
 
-  async create(createAttachmentDto: CreateAttachmentDto): Promise<Attachment> {
-    createAttachmentDto.id = this.keyMaster.generateId();
+  async create(createArtifactDto: CreateArtifactDto): Promise<Artifact> {
+    createArtifactDto.id = this.keyMaster.generateId();
 
-    const created = await this.attachmentRepository.create(createAttachmentDto);
+    const created = await this.artifactRepository.create(createArtifactDto);
     if (created.error)
       throw new InternalServerErrorException(
-        `Attachment creation error: ${created.error}`,
+        `Artifact creation error: ${created.error}`,
       );
 
-    return this.asAttachment(created.data);
+    return this.asArtifact(created.data);
   }
 
   async update(
-    attachmentId: string,
-    updateDto: UpdateAttachmentDto,
-  ): Promise<Attachment> {
-    // 1) fetch attachment
-    const attachmentToUpdate = await this.findById(attachmentId);
+    artifactId: string,
+    updateDto: UpdateArtifactDto,
+  ): Promise<Artifact> {
+    // 1) fetch artifact
+    const artifactToUpdate = await this.findById(artifactId);
 
-    // 2) update attachment
-    const updated = await this.attachmentRepository.update(
-      attachmentToUpdate.id,
+    // 2) update artifact
+    const updated = await this.artifactRepository.update(
+      artifactToUpdate.id,
       updateDto,
     );
     if (updated.error)
       throw new InternalServerErrorException(
-        `Attachment update error: ${updated.error}`,
+        `Artifact update error: ${updated.error}`,
       );
 
-    return this.asAttachment(updated.data);
+    return this.asArtifact(updated.data);
   }
 
-  async delete(attachmentId: string): Promise<null> {
-    const attachmentToDelete = await this.findById(attachmentId);
-    if (!attachmentToDelete)
-      throw new NotFoundException('Attachment not found');
+  async delete(artifactId: string): Promise<null> {
+    const artifactToDelete = await this.findById(artifactId);
+    if (!artifactToDelete)
+      throw new NotFoundException('Artifact not found');
 
-    const { error: deleteError } = await this.attachmentRepository.delete(
-      attachmentToDelete.id,
+    const { error: deleteError } = await this.artifactRepository.delete(
+      artifactToDelete.id,
     );
     if (deleteError) {
       throw new InternalServerErrorException(
-        `Attachment deletion error: ${deleteError}`,
+        `Artifact deletion error: ${deleteError}`,
       );
     }
 
     return null;
   }
 
-  getStoragePath(attachment: {
+  getStoragePath(artifact: {
     resourceType: string;
     resourceId: string;
     id: string;
     mimeType: string;
   }): string {
-    const extension = mime.extension(attachment.mimeType);
+    const extension = mime.extension(artifact.mimeType);
     const ext = extension ? `.${extension}` : '';
-    return `${attachment.resourceType}/${attachment.resourceId}/${attachment.id}${ext}`;
+    return `${artifact.resourceType}/${artifact.resourceId}/${artifact.id}${ext}`;
   }
 
   validateFile(file: UploadedFile): void {
@@ -150,9 +150,9 @@ export class AttachmentService {
       throw new BadRequestException('File is required');
     }
 
-    if (file.size > MAX_ATTACHMENT_SIZE) {
+    if (file.size > MAX_ARTIFACT_SIZE) {
       throw new BadRequestException(
-        `File size exceeds maximum allowed size of ${MAX_ATTACHMENT_SIZE / 1024 / 1024}MB`,
+        `File size exceeds maximum allowed size of ${MAX_ARTIFACT_SIZE / 1024 / 1024}MB`,
       );
     }
 
@@ -166,9 +166,9 @@ export class AttachmentService {
     resourceId: string,
     homeId: string,
     authorId: string,
-    uploadDto: UploadAttachmentDto,
+    uploadDto: UploadArtifactDto,
     file: UploadedFile,
-  ): Promise<Attachment> {
+  ): Promise<Artifact> {
     this.validateFile(file);
 
     // Parse meta if provided as JSON string
@@ -181,10 +181,10 @@ export class AttachmentService {
       }
     }
 
-    // Create attachment DTO
+    // Create artifact DTO
     const id = this.keyMaster.generateId();
 
-    const createDto: CreateAttachmentDto = {
+    const createDto: CreateArtifactDto = {
       id,
       type: uploadDto.type,
       kind: uploadDto.kind,
@@ -219,7 +219,7 @@ export class AttachmentService {
     }
 
     // Save to database
-    const created = await this.attachmentRepository.create(createDto);
+    const created = await this.artifactRepository.create(createDto);
     if (created.error) {
       // Cleanup storage if database save fails
       try {
@@ -228,20 +228,20 @@ export class AttachmentService {
         this.logger.error(`Storage cleanup failed: ${cleanupError.message}`);
       }
       throw new InternalServerErrorException(
-        `Attachment creation error: ${created.error}`,
+        `Artifact creation error: ${created.error}`,
       );
     }
 
-    return this.asAttachment(created.data);
+    return this.asArtifact(created.data);
   }
 
   async updateWithFile(
-    attachmentId: string,
-    updateDto: UpdateAttachmentDto,
+    artifactId: string,
+    updateDto: UpdateArtifactDto,
     file?: UploadedFile,
-  ): Promise<Attachment> {
-    const attachmentToUpdate = await this.findById(attachmentId);
-    const oldStoragePath = this.getStoragePath(attachmentToUpdate);
+  ): Promise<Artifact> {
+    const artifactToUpdate = await this.findById(artifactId);
+    const oldStoragePath = this.getStoragePath(artifactToUpdate);
 
     // If file provided, validate and upload
     if (file) {
@@ -254,8 +254,8 @@ export class AttachmentService {
       updateDto.size = file.size;
 
       // Generate new storage path (might be different if mimeType changed)
-      const newAttachment = { ...attachmentToUpdate, ...updateDto };
-      const newStoragePath = this.getStoragePath(newAttachment);
+      const newArtifact = { ...artifactToUpdate, ...updateDto };
+      const newStoragePath = this.getStoragePath(newArtifact);
 
       // Upload new file
       try {
@@ -281,27 +281,27 @@ export class AttachmentService {
     }
 
     // Update database
-    const updated = await this.attachmentRepository.update(
-      attachmentToUpdate.id,
+    const updated = await this.artifactRepository.update(
+      artifactToUpdate.id,
       updateDto,
     );
     if (updated.error) {
       throw new InternalServerErrorException(
-        `Attachment update error: ${updated.error}`,
+        `Artifact update error: ${updated.error}`,
       );
     }
 
-    return this.asAttachment(updated.data);
+    return this.asArtifact(updated.data);
   }
 
-  async deleteWithFile(attachmentId: string): Promise<null> {
-    const attachmentToDelete = await this.findById(attachmentId);
-    if (!attachmentToDelete) {
-      throw new NotFoundException('Attachment not found');
+  async deleteWithFile(artifactId: string): Promise<null> {
+    const artifactToDelete = await this.findById(artifactId);
+    if (!artifactToDelete) {
+      throw new NotFoundException('Artifact not found');
     }
 
     // Delete from storage
-    const storagePath = this.getStoragePath(attachmentToDelete);
+    const storagePath = this.getStoragePath(artifactToDelete);
     try {
       await this.storeService.delete({ path: storagePath });
     } catch (error) {
@@ -310,12 +310,12 @@ export class AttachmentService {
     }
 
     // Soft delete from database
-    const { error: deleteError } = await this.attachmentRepository.delete(
-      attachmentToDelete.id,
+    const { error: deleteError } = await this.artifactRepository.delete(
+      artifactToDelete.id,
     );
     if (deleteError) {
       throw new InternalServerErrorException(
-        `Attachment deletion error: ${deleteError}`,
+        `Artifact deletion error: ${deleteError}`,
       );
     }
 
@@ -326,9 +326,9 @@ export class AttachmentService {
     resourceType: string,
     resourceId: string,
     kind: string,
-  ): Promise<Attachment[]> {
+  ): Promise<Artifact[]> {
     const { data, error } =
-      await this.attachmentRepository.findByResourceAndKind(
+      await this.artifactRepository.findByResourceAndKind(
         resourceType,
         resourceId,
         kind,
@@ -336,17 +336,17 @@ export class AttachmentService {
 
     if (error) {
       throw new InternalServerErrorException(
-        `Error fetching attachments: ${error}`,
+        `Error fetching artifacts: ${error}`,
       );
     }
 
-    return this.asAttachments(data || []);
+    return this.asArtifacts(data || []);
   }
 
-  async copyAttachmentToSnapshot(
-    source: Attachment,
+  async copyArtifactToSnapshot(
+    source: Artifact,
     cruxId: string,
-  ): Promise<Attachment> {
+  ): Promise<Artifact> {
     const newId = this.keyMaster.generateId();
 
     // Build S3 paths
@@ -361,14 +361,14 @@ export class AttachmentService {
     // Copy S3 file
     await this.storeService.copy({ sourcePath, destPath });
 
-    // Create snapshot attachment record
-    const createDto: CreateAttachmentDto = {
+    // Create snapshot artifact record
+    const createDto: CreateArtifactDto = {
       id: newId,
       type: source.type,
       kind: 'published-snapshot',
       meta: {
         ...source.meta,
-        sourceAttachmentId: source.id,
+        sourceArtifactId: source.id,
       },
       resourceId: cruxId,
       resourceType: source.resourceType,
@@ -380,7 +380,7 @@ export class AttachmentService {
       size: source.size,
     };
 
-    const created = await this.attachmentRepository.create(createDto);
+    const created = await this.artifactRepository.create(createDto);
     if (created.error) {
       // Cleanup S3 if DB fails
       try {
@@ -389,14 +389,14 @@ export class AttachmentService {
         this.logger.error(`Snapshot cleanup failed: ${cleanupError.message}`);
       }
       throw new InternalServerErrorException(
-        `Snapshot attachment creation error: ${created.error}`,
+        `Snapshot artifact creation error: ${created.error}`,
       );
     }
 
-    return this.asAttachment(created.data);
+    return this.asArtifact(created.data);
   }
 
-  async deleteSnapshotAttachments(
+  async deleteSnapshotArtifacts(
     resourceType: string,
     resourceId: string,
   ): Promise<void> {
@@ -412,7 +412,7 @@ export class AttachmentService {
   }
 
   async publishToStaticBucket(
-    attachments: Attachment[],
+    artifacts: Artifact[],
     pathPrefix: string,
     cruxKind?: string,
   ): Promise<void> {
@@ -420,19 +420,19 @@ export class AttachmentService {
       process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published';
 
     await Promise.all(
-      attachments.map(async (attachment) => {
+      artifacts.map(async (artifact) => {
         const virtualPath =
-          attachment.meta?.path || attachment.filename || attachment.id;
+          artifact.meta?.path || artifact.filename || artifact.id;
 
-        const storagePath = this.getStoragePath(attachment);
+        const storagePath = this.getStoragePath(artifact);
         let { data } = await this.storeService.download({ path: storagePath });
 
         // Apply publish injections to HTML files (SPA support, navigation sync, etc.)
-        if (attachment.mimeType === 'text/html') {
+        if (artifact.mimeType === 'text/html') {
           const result = applyInjections(
             data,
-            attachment,
-            attachments,
+            artifact,
+            artifacts,
             cruxKind,
           );
           data = result.data;
@@ -448,7 +448,7 @@ export class AttachmentService {
           path: publishedPath,
           data,
           namespace: publishedBucket,
-          contentType: attachment.mimeType,
+          contentType: artifact.mimeType,
         });
       }),
     );
@@ -464,30 +464,30 @@ export class AttachmentService {
     });
   }
 
-  getAttachmentsByResourceQuery(
+  getArtifactsByResourceQuery(
     resourceType: string,
     resourceId: string,
-  ): Knex.QueryBuilder<AttachmentRaw, AttachmentRaw[]> {
-    return this.attachmentRepository
+  ): Knex.QueryBuilder<ArtifactRaw, ArtifactRaw[]> {
+    return this.artifactRepository
       .findAllQuery()
       .where('resource_type', resourceType)
       .where('resource_id', resourceId);
   }
 
-  async downloadAttachment(attachmentId: string) {
-    const attachment = await this.findById(attachmentId);
-    const storagePath = this.getStoragePath(attachment);
+  async downloadArtifact(artifactId: string) {
+    const artifact = await this.findById(artifactId);
+    const storagePath = this.getStoragePath(artifact);
 
     try {
       const result = await this.storeService.download({ path: storagePath });
       return {
         data: result.data,
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
+        filename: artifact.filename,
+        mimeType: artifact.mimeType,
       };
     } catch (error) {
       this.logger.error(`Storage download failed: ${error.message}`);
-      throw new NotFoundException('Attachment file not found in storage');
+      throw new NotFoundException('Artifact file not found in storage');
     }
   }
 }

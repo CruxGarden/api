@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { LoggerService } from '../common/services/logger.service';
-import { AttachmentService } from '../attachment/attachment.service';
+import { ArtifactService } from '../artifact/artifact.service';
 import { AuthorService } from '../author/author.service';
 import { CruxService } from '../crux/crux.service';
 import { TOOL_DEFINITIONS } from './ai.tools';
@@ -30,7 +30,7 @@ export class AiService {
 
   constructor(
     private readonly loggerService: LoggerService,
-    private readonly attachmentService: AttachmentService,
+    private readonly artifactService: ArtifactService,
     private readonly authorService: AuthorService,
     private readonly cruxService: CruxService,
   ) {
@@ -364,7 +364,7 @@ export class AiService {
 
       // Hard-enforce read-before-write for existing files
       if (toolUse.name === 'write_file' && toolUse.input.path && !hasBeenRead) {
-        const existing = await this.findAttachmentByPath(
+        const existing = await this.findArtifactByPath(
           toolUse.input.path,
           ctx.cruxId,
         );
@@ -456,7 +456,7 @@ export class AiService {
     encoding: 'utf-8' | 'base64' = 'utf-8',
   ): Promise<string> {
     // Check if file already exists
-    const existing = await this.findAttachmentByPath(path, ctx.cruxId);
+    const existing = await this.findArtifactByPath(path, ctx.cruxId);
 
     const buffer = Buffer.from(content, encoding);
     const ext = path.split('.').pop() || 'txt';
@@ -473,14 +473,14 @@ export class AiService {
     };
 
     if (existing) {
-      await this.attachmentService.updateWithFile(
+      await this.artifactService.updateWithFile(
         existing.id,
         { meta: JSON.stringify({ path }) },
         file,
       );
       return `Updated file: ${path}`;
     } else {
-      await this.attachmentService.createWithFile(
+      await this.artifactService.createWithFile(
         'crux',
         ctx.cruxId,
         ctx.homeId,
@@ -499,13 +499,13 @@ export class AiService {
     ctx: StreamContext,
     replaceAll = false,
   ): Promise<string> {
-    const attachment = await this.findAttachmentByPath(path, ctx.cruxId);
-    if (!attachment) {
+    const artifact = await this.findArtifactByPath(path, ctx.cruxId);
+    if (!artifact) {
       return formatToolError('edit_file', `File not found: ${path}`);
     }
 
-    const { data, mimeType } = await this.attachmentService.downloadAttachment(
-      attachment.id,
+    const { data, mimeType } = await this.artifactService.downloadArtifact(
+      artifact.id,
     );
 
     if (this.isBinaryMime(mimeType)) {
@@ -581,8 +581,8 @@ export class AiService {
     const buffer = Buffer.from(updatedContent, 'utf-8');
     const filename = path.split('/').pop() || 'file';
 
-    await this.attachmentService.updateWithFile(
-      attachment.id,
+    await this.artifactService.updateWithFile(
+      artifact.id,
       { meta: JSON.stringify({ path }) },
       {
         fieldname: 'file',
@@ -604,14 +604,14 @@ export class AiService {
     path: string,
     ctx: StreamContext,
   ): Promise<string> {
-    const attachment = await this.findAttachmentByPath(path, ctx.cruxId);
-    if (!attachment) {
+    const artifact = await this.findArtifactByPath(path, ctx.cruxId);
+    if (!artifact) {
       return formatToolError('delete_file', `File not found: ${path}`);
     }
 
     // Don't delete immediately — send a pending event so the frontend can ask for confirmation
     this.sendSSE(ctx.res, 'delete_request', {
-      attachmentId: attachment.id,
+      artifactId: artifact.id,
       path,
     });
 
@@ -622,13 +622,13 @@ export class AiService {
     path: string,
     ctx: StreamContext,
   ): Promise<string> {
-    const attachment = await this.findAttachmentByPath(path, ctx.cruxId);
-    if (!attachment) {
+    const artifact = await this.findArtifactByPath(path, ctx.cruxId);
+    if (!artifact) {
       return formatToolError('read_file', `File not found: ${path}`);
     }
 
-    const { data, mimeType } = await this.attachmentService.downloadAttachment(
-      attachment.id,
+    const { data, mimeType } = await this.artifactService.downloadArtifact(
+      artifact.id,
     );
 
     if (this.isBinaryMime(mimeType)) {
@@ -647,35 +647,35 @@ export class AiService {
   }
 
   private async toolListFiles(ctx: StreamContext): Promise<string> {
-    const attachments = await this.attachmentService.findByResource(
+    const artifacts = await this.artifactService.findByResource(
       'crux',
       ctx.cruxId,
     );
 
-    if (attachments.length === 0) return 'No files in workspace.';
+    if (artifacts.length === 0) return 'No files in workspace.';
 
     const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-    return attachments
+    return artifacts
       .map((a) => {
         const path = a.meta?.path || a.filename || a.id;
-        const url = `${baseUrl}/authors/@${ctx.username}/cruxes/${ctx.cruxId}/attachments/${a.id}/download`;
+        const url = `${baseUrl}/authors/@${ctx.username}/cruxes/${ctx.cruxId}/artifacts/${a.id}/download`;
         return `${path} → ${url}`;
       })
       .join('\n');
   }
 
-  private async findAttachmentByPath(
+  private async findArtifactByPath(
     path: string,
     cruxId: string,
   ): Promise<any | null> {
-    const attachments = await this.attachmentService.findByResource(
+    const artifacts = await this.artifactService.findByResource(
       'crux',
       cruxId,
     );
     // Match by meta.path first, then fall back to filename (for user-uploaded files)
     const normalized = path.replace(/^\//, '');
     return (
-      attachments.find(
+      artifacts.find(
         (a) =>
           a.meta?.path === path ||
           a.meta?.path === normalized ||

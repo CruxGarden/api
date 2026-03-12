@@ -40,8 +40,8 @@ import { DimensionType, DimensionEmbed } from '../common/types/enums';
 import { SyncTagsDto } from '../tag/dto/sync-tags.dto';
 import Tag from '../tag/entities/tag.entity';
 import { HomeService } from '../home/home.service';
-import { UploadAttachmentDto } from '../attachment/dto/upload-attachment.dto';
-import Attachment from '../attachment/entities/attachment.entity';
+import { UploadArtifactDto } from '../artifact/dto/upload-artifact.dto';
+import Artifact from '../artifact/entities/artifact.entity';
 
 @Controller('cruxes')
 @UseGuards(AuthGuard)
@@ -227,42 +227,42 @@ export class CruxController {
 
   /* ~crux tags */
 
-  /* crux attachments */
+  /* crux artifacts */
 
-  @Get(':id/attachments')
-  @CruxSwagger.GetAttachments()
-  async getAttachments(@Param('id') id: string): Promise<Attachment[]> {
-    return this.cruxService.getAttachments(id);
+  @Get(':id/artifacts')
+  @CruxSwagger.GetArtifacts()
+  async getArtifacts(@Param('id') id: string): Promise<Artifact[]> {
+    return this.cruxService.getArtifacts(id);
   }
 
-  @Post(':id/attachments')
-  @CruxSwagger.CreateAttachment()
+  @Post(':id/artifacts')
+  @CruxSwagger.CreateArtifact()
   @UseInterceptors(FileInterceptor('file'))
-  async createAttachment(
+  async createArtifact(
     @Param('id') id: string,
-    @Body() uploadDto: UploadAttachmentDto,
+    @Body() uploadDto: UploadArtifactDto,
     @UploadedFile() file: Express.Multer.File,
     @Req() req: AuthRequest,
-  ): Promise<Attachment> {
+  ): Promise<Artifact> {
     const author = await this.getAuthor(req);
     await this.canManageCrux(id, author);
 
-    return this.cruxService.createAttachment(id, uploadDto, file, author.id);
+    return this.cruxService.createArtifact(id, uploadDto, file, author.id);
   }
 
-  @Get(':id/attachments/:attachmentId/download')
-  @CruxSwagger.DownloadAttachment()
+  @Get(':id/artifacts/:artifactId/download')
+  @CruxSwagger.DownloadArtifact()
   @Header('Cache-Control', 'no-cache')
-  async downloadAttachment(
+  async downloadArtifact(
     @Param('id') id: string,
-    @Param('attachmentId') attachmentId: string,
+    @Param('artifactId') artifactId: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     await this.getCruxById(id); // Verify crux exists and apply access control
-    const file = await this.cruxService.downloadAttachment(id, attachmentId);
+    const file = await this.cruxService.downloadArtifact(id, artifactId);
 
     if (!file) {
-      throw new NotFoundException('Attachment file not found');
+      throw new NotFoundException('Artifact file not found');
     }
 
     res.setHeader('Content-Type', file.mimeType);
@@ -274,7 +274,7 @@ export class CruxController {
     return new StreamableFile(file.data);
   }
 
-  /* ~crux attachments */
+  /* ~crux artifacts */
 
   /* crux publishing */
 

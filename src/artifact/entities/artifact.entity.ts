@@ -1,4 +1,4 @@
-export default class Attachment {
+export default class Artifact {
   id: string;
   type: string;
   kind: string;
@@ -15,7 +15,7 @@ export default class Attachment {
   updated: Date;
   deleted?: Date;
 
-  constructor(partial: Partial<Attachment>) {
+  constructor(partial: Partial<Artifact>) {
     Object.assign(this, partial);
   }
 

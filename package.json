@@ -176,7 +176,7 @@
       "AWS_SECRET_ACCESS_KEY",
       "AWS_REGION",
       "AWS_SES_FROM_EMAIL",
-      "AWS_S3_ATTACHMENTS_BUCKET"
+      "AWS_S3_ARTIFACTS_BUCKET"
     ],
     "optional": [
       "DB_POOL_MIN",

@@ -15,7 +15,7 @@ const expectedTables = [
   'markers',
   'tags',
   'homes',
-  'attachments',
+  'artifacts',
 ];
 
 export async function seed(knex: Knex): Promise<void> {

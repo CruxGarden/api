@@ -5,12 +5,12 @@ import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
 import { RepositoryResponse } from '../common/types/interfaces';
 import { success, failure } from '../common/helpers/repository-helpers';
-import AttachmentRaw from './entities/attachment-raw.entity';
-import { CreateAttachmentDto } from './dto/create-attachment.dto';
-import { UpdateAttachmentDto } from './dto/update-attachment.dto';
+import ArtifactRaw from './entities/artifact-raw.entity';
+import { CreateArtifactDto } from './dto/create-artifact.dto';
+import { UpdateArtifactDto } from './dto/update-artifact.dto';
 
 @Injectable()
-export class AttachmentRepository {
+export class ArtifactRepository {
   // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
@@ -18,33 +18,33 @@ export class AttachmentRepository {
     private readonly dbService: DbService,
     private readonly loggerService: LoggerService,
   ) {
-    this.logger = this.loggerService.createChildLogger('AttachmentRepository');
+    this.logger = this.loggerService.createChildLogger('ArtifactRepository');
   }
 
-  private static readonly TABLE_NAME = 'attachments';
+  private static readonly TABLE_NAME = 'artifacts';
   private static readonly BASE_SELECT = '*';
 
-  findAllQuery(): Knex.QueryBuilder<AttachmentRaw, AttachmentRaw[]> {
+  findAllQuery(): Knex.QueryBuilder<ArtifactRaw, ArtifactRaw[]> {
     return this.dbService
       .query()
-      .from<AttachmentRaw>(AttachmentRepository.TABLE_NAME)
-      .select<AttachmentRaw[]>(AttachmentRepository.BASE_SELECT)
+      .from<ArtifactRaw>(ArtifactRepository.TABLE_NAME)
+      .select<ArtifactRaw[]>(ArtifactRepository.BASE_SELECT)
       .whereNull('deleted')
       .orderBy('created', 'desc') as Knex.QueryBuilder<
-      AttachmentRaw,
-      AttachmentRaw[]
+      ArtifactRaw,
+      ArtifactRaw[]
     >;
   }
 
   async findBy(
     fieldName: string,
     fieldValue: string,
-  ): Promise<RepositoryResponse<AttachmentRaw>> {
+  ): Promise<RepositoryResponse<ArtifactRaw>> {
     try {
       const data = await this.dbService
         .query()
-        .from<AttachmentRaw>(AttachmentRepository.TABLE_NAME)
-        .select(AttachmentRepository.BASE_SELECT)
+        .from<ArtifactRaw>(ArtifactRepository.TABLE_NAME)
+        .select(ArtifactRepository.BASE_SELECT)
         .where(fieldName, fieldValue)
         .whereNull('deleted')
         .first();
@@ -58,12 +58,12 @@ export class AttachmentRepository {
   async findByResource(
     resourceType: string,
     resourceId: string,
-  ): Promise<RepositoryResponse<AttachmentRaw[]>> {
+  ): Promise<RepositoryResponse<ArtifactRaw[]>> {
     try {
       const data = await this.dbService
         .query()
-        .from<AttachmentRaw>(AttachmentRepository.TABLE_NAME)
-        .select(AttachmentRepository.BASE_SELECT)
+        .from<ArtifactRaw>(ArtifactRepository.TABLE_NAME)
+        .select(ArtifactRepository.BASE_SELECT)
         .where('resource_type', resourceType)
         .where('resource_id', resourceId)
         .whereNull('deleted')
@@ -79,12 +79,12 @@ export class AttachmentRepository {
     resourceType: string,
     resourceId: string,
     kind: string,
-  ): Promise<RepositoryResponse<AttachmentRaw[]>> {
+  ): Promise<RepositoryResponse<ArtifactRaw[]>> {
     try {
       const data = await this.dbService
         .query()
-        .from<AttachmentRaw>(AttachmentRepository.TABLE_NAME)
-        .select(AttachmentRepository.BASE_SELECT)
+        .from<ArtifactRaw>(ArtifactRepository.TABLE_NAME)
+        .select(ArtifactRepository.BASE_SELECT)
         .where('resource_type', resourceType)
         .where('resource_id', resourceId)
         .where('kind', kind)
@@ -98,14 +98,14 @@ export class AttachmentRepository {
   }
 
   async create(
-    createData: CreateAttachmentDto,
-  ): Promise<RepositoryResponse<AttachmentRaw>> {
+    createData: CreateArtifactDto,
+  ): Promise<RepositoryResponse<ArtifactRaw>> {
     try {
       const tableFields = toTableFields(createData);
 
       await this.dbService
         .query()
-        .from<AttachmentRaw>(AttachmentRepository.TABLE_NAME)
+        .from<ArtifactRaw>(ArtifactRepository.TABLE_NAME)
         .insert({
           ...tableFields,
           created: new Date(),
@@ -114,8 +114,8 @@ export class AttachmentRepository {
 
       const created = await this.dbService
         .query()
-        .from<AttachmentRaw>(AttachmentRepository.TABLE_NAME)
-        .select(AttachmentRepository.BASE_SELECT)
+        .from<ArtifactRaw>(ArtifactRepository.TABLE_NAME)
+        .select(ArtifactRepository.BASE_SELECT)
         .where('id', createData.id)
         .first();
 
@@ -126,16 +126,16 @@ export class AttachmentRepository {
   }
 
   async update(
-    attachmentId: string,
-    updateData: UpdateAttachmentDto,
-  ): Promise<RepositoryResponse<AttachmentRaw>> {
+    artifactId: string,
+    updateData: UpdateArtifactDto,
+  ): Promise<RepositoryResponse<ArtifactRaw>> {
     try {
       const tableFields = toTableFields(updateData);
 
       await this.dbService
         .query()
-        .from<AttachmentRaw>(AttachmentRepository.TABLE_NAME)
-        .where('id', attachmentId)
+        .from<ArtifactRaw>(ArtifactRepository.TABLE_NAME)
+        .where('id', artifactId)
         .update({
           ...tableFields,
           updated: new Date(),
@@ -143,9 +143,9 @@ export class AttachmentRepository {
 
       const updated = await this.dbService
         .query()
-        .from<AttachmentRaw>(AttachmentRepository.TABLE_NAME)
-        .select(AttachmentRepository.BASE_SELECT)
-        .where('id', attachmentId)
+        .from<ArtifactRaw>(ArtifactRepository.TABLE_NAME)
+        .select(ArtifactRepository.BASE_SELECT)
+        .where('id', artifactId)
         .first();
 
       return success(updated);
@@ -154,12 +154,12 @@ export class AttachmentRepository {
     }
   }
 
-  async delete(attachmentId: string): Promise<RepositoryResponse<void>> {
+  async delete(artifactId: string): Promise<RepositoryResponse<void>> {
     try {
       await this.dbService
         .query()
-        .from<AttachmentRaw>(AttachmentRepository.TABLE_NAME)
-        .where('id', attachmentId)
+        .from<ArtifactRaw>(ArtifactRepository.TABLE_NAME)
+        .where('id', artifactId)
         .update({
           deleted: new Date(),
           updated: new Date(),

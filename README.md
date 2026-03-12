@@ -83,7 +83,7 @@ npm run test:all         # All tests
 - `AWS_SECRET_ACCESS_KEY` - AWS secret key
 - `AWS_REGION` - AWS region (e.g., `us-east-1`)
 - `AWS_SES_FROM_EMAIL` - Email sender address
-- `AWS_S3_ATTACHMENTS_BUCKET` - S3 bucket for file storage
+- `AWS_S3_ARTIFACTS_BUCKET` - S3 bucket for artifact storage
 
 Without AWS credentials, emails and file operations are logged to console. See `.env.example` for additional configuration options.
 

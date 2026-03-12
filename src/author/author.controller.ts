@@ -209,7 +209,7 @@ export class AuthorController {
       ? await this.authorService.findByUsername(value)
       : await this.authorService.findById(value);
 
-    const file = await this.authorService.getAvatarAttachment(author.id);
+    const file = await this.authorService.getAvatarArtifact(author.id);
     if (!file) {
       throw new NotFoundException('No avatar found');
     }
@@ -276,33 +276,33 @@ export class AuthorController {
     return this.authorService.getGraph(author.id);
   }
 
-  /* Public attachment endpoints for display mode */
+  /* Public artifact endpoints for display mode */
 
-  @Get(':identifier/cruxes/:slug/attachments')
-  async getPublicAttachments(
+  @Get(':identifier/cruxes/:slug/artifacts')
+  async getPublicArtifacts(
     @Param('identifier') identifier: string,
     @Param('slug') slug: string,
   ) {
     const crux = await this.resolvePublicCrux(identifier, slug);
-    return this.cruxService.getPublishedAttachments(crux.id);
+    return this.cruxService.getPublishedArtifacts(crux.id);
   }
 
-  @Get(':identifier/cruxes/:slug/attachments/:attachmentId/download')
+  @Get(':identifier/cruxes/:slug/artifacts/:artifactId/download')
   @Header('Cache-Control', 'no-cache')
-  async downloadPublicAttachment(
+  async downloadPublicArtifact(
     @Param('identifier') identifier: string,
     @Param('slug') slug: string,
-    @Param('attachmentId') attachmentId: string,
+    @Param('artifactId') artifactId: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const crux = await this.resolvePublicCrux(identifier, slug);
-    const file = await this.cruxService.downloadAttachment(
+    const file = await this.cruxService.downloadArtifact(
       crux.id,
-      attachmentId,
+      artifactId,
     );
 
     if (!file) {
-      throw new NotFoundException('Attachment file not found');
+      throw new NotFoundException('Artifact file not found');
     }
 
     res.setHeader('Content-Type', file.mimeType);
@@ -334,7 +334,7 @@ export class AuthorController {
       ? await this.authorService.findByUsername(value)
       : await this.authorService.findById(value);
 
-    // Accept UUID (for stable attachment URLs) or slug (for human-friendly URLs)
+    // Accept UUID (for stable artifact URLs) or slug (for human-friendly URLs)
     const isUuid =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         slugOrId,

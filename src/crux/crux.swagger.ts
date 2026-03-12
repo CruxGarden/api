@@ -520,12 +520,12 @@ export const CruxSwagger = {
       ApiNotFoundResponse({ description: 'Dimension or crux not found' }),
     ),
 
-  GetAttachments: () =>
+  GetArtifacts: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get all attachments for a crux',
+        summary: 'Get all artifacts for a crux',
         description:
-          'Retrieves all file attachments associated with a specific crux.',
+          'Retrieves all file artifacts associated with a specific crux.',
       }),
       ApiParam({
         name: 'id',
@@ -535,7 +535,7 @@ export const CruxSwagger = {
       ApiBearerAuth(),
       ApiResponse({
         status: 200,
-        description: 'Attachments retrieved successfully',
+        description: 'Artifacts retrieved successfully',
         schema: {
           type: 'array',
           items: {
@@ -557,12 +557,12 @@ export const CruxSwagger = {
       ApiNotFoundResponse({ description: 'Crux not found' }),
     ),
 
-  CreateAttachment: () =>
+  CreateArtifact: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Upload a file attachment to a crux',
+        summary: 'Upload a file artifact to a crux',
         description:
-          'Uploads a file and creates an attachment record for a crux. Max file size: 50MB. Requires authentication and crux ownership.',
+          'Uploads a file and creates an artifact record for a crux. Max file size: 50MB. Requires authentication and crux ownership.',
       }),
       ApiParam({
         name: 'id',
@@ -582,12 +582,12 @@ export const CruxSwagger = {
             },
             type: {
               type: 'string',
-              description: 'Type of attachment',
+              description: 'Type of artifact',
               example: 'image',
             },
             kind: {
               type: 'string',
-              description: 'Kind of attachment',
+              description: 'Kind of artifact',
               example: 'photo',
             },
             meta: {
@@ -601,7 +601,7 @@ export const CruxSwagger = {
       ApiBearerAuth(),
       ApiResponse({
         status: 201,
-        description: 'Attachment uploaded successfully',
+        description: 'Artifact uploaded successfully',
         schema: {
           type: 'object',
           properties: {
@@ -627,12 +627,12 @@ export const CruxSwagger = {
       }),
     ),
 
-  DownloadAttachment: () =>
+  DownloadArtifact: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Download an attachment file',
+        summary: 'Download an artifact file',
         description:
-          'Downloads the file for a specific attachment. Returns the file with appropriate Content-Type and Content-Disposition headers. Cached for 1 year.',
+          'Downloads the file for a specific artifact. Returns the file with appropriate Content-Type and Content-Disposition headers. Cached for 1 year.',
       }),
       ApiParam({
         name: 'id',
@@ -640,13 +640,13 @@ export const CruxSwagger = {
         example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiParam({
-        name: 'attachmentId',
-        description: 'The UUID of the attachment',
+        name: 'artifactId',
+        description: 'The UUID of the artifact',
         example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiResponse({
         status: 200,
-        description: 'Attachment file downloaded successfully',
+        description: 'Artifact file downloaded successfully',
         content: {
           'application/octet-stream': {
             schema: {
@@ -661,7 +661,7 @@ export const CruxSwagger = {
             schema: { type: 'string' },
           },
           'Content-Disposition': {
-            description: 'Attachment filename',
+            description: 'Artifact filename',
             schema: { type: 'string' },
           },
           'Cache-Control': {
@@ -672,7 +672,7 @@ export const CruxSwagger = {
       }),
       ApiNotFoundResponse({
         description:
-          'Crux or attachment not found, or attachment does not belong to this crux',
+          'Crux or artifact not found, or artifact does not belong to this crux',
       }),
     ),
 };

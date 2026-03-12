@@ -11,7 +11,7 @@ import {
   ApiBadRequestResponse,
   ApiConsumes,
 } from '@nestjs/swagger';
-import { CreateAttachmentDto } from './dto/create-attachment.dto';
+import { CreateArtifactDto } from './dto/create-artifact.dto';
 
 // Helper function to combine multiple decorators
 const combineDecorators = (...decorators: any[]) => {
@@ -24,21 +24,21 @@ const combineDecorators = (...decorators: any[]) => {
   };
 };
 
-export const AttachmentSwagger = {
-  Controller: () => ApiTags('Attachments'),
+export const ArtifactSwagger = {
+  Controller: () => ApiTags('Artifacts'),
 
   Create: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Create a new attachment',
+        summary: 'Create a new artifact',
         description:
-          'Creates a new attachment with the provided data. Requires authentication.',
+          'Creates a new artifact with the provided data. Requires authentication.',
       }),
-      ApiBody({ type: CreateAttachmentDto }),
+      ApiBody({ type: CreateArtifactDto }),
       ApiBearerAuth(),
       ApiResponse({
         status: 201,
-        description: 'The attachment has been successfully created.',
+        description: 'The artifact has been successfully created.',
         schema: {
           type: 'object',
           properties: {
@@ -66,12 +66,12 @@ export const AttachmentSwagger = {
   GetAll: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get all attachments',
-        description: 'Retrieves a paginated list of all attachments.',
+        summary: 'Get all artifacts',
+        description: 'Retrieves a paginated list of all artifacts.',
       }),
       ApiResponse({
         status: 200,
-        description: 'List of attachments retrieved successfully',
+        description: 'List of artifacts retrieved successfully',
         schema: {
           type: 'array',
           items: {
@@ -97,17 +97,17 @@ export const AttachmentSwagger = {
   GetByKey: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Get an attachment by ID',
-        description: 'Retrieves a specific attachment by its UUID.',
+        summary: 'Get an artifact by ID',
+        description: 'Retrieves a specific artifact by its UUID.',
       }),
       ApiParam({
         name: 'id',
-        description: 'The UUID of the attachment',
+        description: 'The UUID of the artifact',
         example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiResponse({
         status: 200,
-        description: 'The attachment data',
+        description: 'The artifact data',
         schema: {
           type: 'object',
           properties: {
@@ -128,19 +128,19 @@ export const AttachmentSwagger = {
           },
         },
       }),
-      ApiNotFoundResponse({ description: 'Attachment not found' }),
+      ApiNotFoundResponse({ description: 'Artifact not found' }),
     ),
 
   Update: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Update an attachment',
+        summary: 'Update an artifact',
         description:
-          'Updates an existing attachment. Optionally upload a new file to replace the existing one. Max file size: 50MB. Requires authentication and ownership.',
+          'Updates an existing artifact. Optionally upload a new file to replace the existing one. Max file size: 50MB. Requires authentication and ownership.',
       }),
       ApiParam({
         name: 'id',
-        description: 'The UUID of the attachment to update',
+        description: 'The UUID of the artifact to update',
         example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiConsumes('multipart/form-data'),
@@ -155,12 +155,12 @@ export const AttachmentSwagger = {
             },
             type: {
               type: 'string',
-              description: 'Type of attachment',
+              description: 'Type of artifact',
               example: 'image',
             },
             kind: {
               type: 'string',
-              description: 'Kind of attachment',
+              description: 'Kind of artifact',
               example: 'photo',
             },
             meta: {
@@ -174,7 +174,7 @@ export const AttachmentSwagger = {
       ApiBearerAuth(),
       ApiResponse({
         status: 200,
-        description: 'The attachment has been successfully updated.',
+        description: 'The artifact has been successfully updated.',
         schema: {
           type: 'object',
           properties: {
@@ -191,7 +191,7 @@ export const AttachmentSwagger = {
       }),
       ApiUnauthorizedResponse({ description: 'Authentication required' }),
       ApiForbiddenResponse({ description: 'Insufficient permissions' }),
-      ApiNotFoundResponse({ description: 'Attachment not found' }),
+      ApiNotFoundResponse({ description: 'Artifact not found' }),
       ApiBadRequestResponse({
         description: 'Invalid input data or file exceeds size limit',
       }),
@@ -200,22 +200,22 @@ export const AttachmentSwagger = {
   Delete: () =>
     combineDecorators(
       ApiOperation({
-        summary: 'Delete an attachment',
+        summary: 'Delete an artifact',
         description:
-          'Deletes an existing attachment. Requires authentication and ownership.',
+          'Deletes an existing artifact. Requires authentication and ownership.',
       }),
       ApiParam({
         name: 'id',
-        description: 'The UUID of the attachment to delete',
+        description: 'The UUID of the artifact to delete',
         example: '550e8400-e29b-41d4-a716-446655440000',
       }),
       ApiBearerAuth(),
       ApiResponse({
         status: 204,
-        description: 'The attachment has been successfully deleted.',
+        description: 'The artifact has been successfully deleted.',
       }),
       ApiUnauthorizedResponse({ description: 'Authentication required' }),
       ApiForbiddenResponse({ description: 'Insufficient permissions' }),
-      ApiNotFoundResponse({ description: 'Attachment not found' }),
+      ApiNotFoundResponse({ description: 'Artifact not found' }),
     ),
 };

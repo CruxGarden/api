@@ -1,14 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AttachmentRepository } from './attachment.repository';
+import { ArtifactRepository } from './artifact.repository';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
 
-describe('AttachmentRepository', () => {
-  let repository: AttachmentRepository;
+describe('ArtifactRepository', () => {
+  let repository: ArtifactRepository;
   let mockQueryBuilder: any;
 
-  const mockAttachment = {
-    id: 'attachment-id',
+  const mockArtifact = {
+    id: 'artifact-id',
     type: 'image',
     kind: 'photo',
     meta: { caption: 'Test image' },
@@ -53,13 +53,13 @@ describe('AttachmentRepository', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        AttachmentRepository,
+        ArtifactRepository,
         { provide: DbService, useValue: mockDbService },
         { provide: LoggerService, useValue: mockLoggerService },
       ],
     }).compile();
 
-    repository = module.get<AttachmentRepository>(AttachmentRepository);
+    repository = module.get<ArtifactRepository>(ArtifactRepository);
   });
 
   afterEach(() => {
@@ -67,23 +67,23 @@ describe('AttachmentRepository', () => {
   });
 
   describe('findBy', () => {
-    it('should return attachment when found', async () => {
-      mockQueryBuilder.first.mockResolvedValue(mockAttachment);
+    it('should return artifact when found', async () => {
+      mockQueryBuilder.first.mockResolvedValue(mockArtifact);
 
-      const result = await repository.findBy('id', 'attachment-id');
+      const result = await repository.findBy('id', 'artifact-id');
 
-      expect(result.data).toEqual(mockAttachment);
+      expect(result.data).toEqual(mockArtifact);
       expect(result.error).toBeNull();
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
         'id',
-        'attachment-id',
+        'artifact-id',
       );
     });
 
     it('should return error on exception', async () => {
       mockQueryBuilder.first.mockRejectedValue(new Error('DB Error'));
 
-      const result = await repository.findBy('id', 'attachment-id');
+      const result = await repository.findBy('id', 'artifact-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
@@ -91,12 +91,12 @@ describe('AttachmentRepository', () => {
   });
 
   describe('findByResource', () => {
-    it('should return attachments for a resource', async () => {
-      mockQueryBuilder.orderBy.mockResolvedValue([mockAttachment]);
+    it('should return artifacts for a resource', async () => {
+      mockQueryBuilder.orderBy.mockResolvedValue([mockArtifact]);
 
       const result = await repository.findByResource('crux', 'resource-123');
 
-      expect(result.data).toEqual([mockAttachment]);
+      expect(result.data).toEqual([mockArtifact]);
       expect(result.error).toBeNull();
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
         'resource_type',
@@ -119,7 +119,7 @@ describe('AttachmentRepository', () => {
   });
 
   describe('findAllQuery', () => {
-    it('should build query for all attachments', () => {
+    it('should build query for all artifacts', () => {
       const result = repository.findAllQuery();
 
       expect(mockQueryBuilder.whereNull).toHaveBeenCalledWith('deleted');
@@ -129,9 +129,9 @@ describe('AttachmentRepository', () => {
   });
 
   describe('create', () => {
-    it('should create attachment successfully', async () => {
+    it('should create artifact successfully', async () => {
       const createData = {
-        id: 'attachment-id',
+        id: 'artifact-id',
         type: 'image',
         kind: 'photo',
         meta: { caption: 'Test' },
@@ -146,11 +146,11 @@ describe('AttachmentRepository', () => {
       };
 
       mockQueryBuilder.insert.mockResolvedValue(undefined);
-      mockQueryBuilder.first.mockResolvedValue(mockAttachment);
+      mockQueryBuilder.first.mockResolvedValue(mockArtifact);
 
       const result = await repository.create(createData);
 
-      expect(result.data).toEqual(mockAttachment);
+      expect(result.data).toEqual(mockArtifact);
       expect(result.error).toBeNull();
       expect(mockQueryBuilder.insert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -183,16 +183,16 @@ describe('AttachmentRepository', () => {
   });
 
   describe('update', () => {
-    it('should update attachment successfully', async () => {
+    it('should update artifact successfully', async () => {
       const updateData = { filename: 'updated.jpg' };
-      const updatedAttachment = { ...mockAttachment, filename: 'updated.jpg' };
+      const updatedArtifact = { ...mockArtifact, filename: 'updated.jpg' };
 
       mockQueryBuilder.update.mockResolvedValue(1);
-      mockQueryBuilder.first.mockResolvedValue(updatedAttachment);
+      mockQueryBuilder.first.mockResolvedValue(updatedArtifact);
 
-      const result = await repository.update('attachment-id', updateData);
+      const result = await repository.update('artifact-id', updateData);
 
-      expect(result.data).toEqual(updatedAttachment);
+      expect(result.data).toEqual(updatedArtifact);
       expect(result.error).toBeNull();
       expect(mockQueryBuilder.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -204,7 +204,7 @@ describe('AttachmentRepository', () => {
     it('should return error on exception', async () => {
       mockQueryBuilder.update.mockRejectedValue(new Error('Update failed'));
 
-      const result = await repository.update('attachment-id', {
+      const result = await repository.update('artifact-id', {
         filename: 'new.jpg',
       });
 
@@ -214,10 +214,10 @@ describe('AttachmentRepository', () => {
   });
 
   describe('delete', () => {
-    it('should soft delete attachment successfully', async () => {
+    it('should soft delete artifact successfully', async () => {
       mockQueryBuilder.update.mockResolvedValue(1);
 
-      const result = await repository.delete('attachment-id');
+      const result = await repository.delete('artifact-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeNull();
@@ -232,7 +232,7 @@ describe('AttachmentRepository', () => {
     it('should return error on exception', async () => {
       mockQueryBuilder.update.mockRejectedValue(new Error('Delete failed'));
 
-      const result = await repository.delete('attachment-id');
+      const result = await repository.delete('artifact-id');
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
