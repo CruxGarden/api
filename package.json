@@ -110,6 +110,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@babel/preset-env": "^7.29.0",
     "@nestjs/cli": "^11.0.7",
     "@nestjs/config": "^4.0.2",
     "@nestjs/schematics": "^11.0.5",
@@ -162,7 +163,7 @@
       "^src/(.*)$": "<rootDir>/src/$1"
     },
     "transformIgnorePatterns": [
-      "node_modules/(?!(camelcase-keys|snakecase-keys|map-obj|camelcase|quick-lru|change-case)/)"
+      "node_modules/"
     ],
     "automock": false,
     "resetMocks": false

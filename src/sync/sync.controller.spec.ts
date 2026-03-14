@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { SyncController } from './sync.controller';
 import { SyncService } from './sync.service';
+import { LoggerService } from '../common/services/logger.service';
 
 describe('SyncController', () => {
   let controller: SyncController;
@@ -31,6 +32,10 @@ describe('SyncController', () => {
             listCruxes: jest.fn(),
             deleteCrux: jest.fn(),
           },
+        },
+        {
+          provide: LoggerService,
+          useValue: { createChildLogger: () => ({ debug: jest.fn(), warn: jest.fn() }) },
         },
       ],
     }).compile();
