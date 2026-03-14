@@ -9,6 +9,7 @@ export default class Crux {
   themeId?: string;
   status: 'living' | 'frozen';
   visibility: 'public' | 'private' | 'unlisted';
+  discoverable?: boolean;
   authorId: string;
   homeId: string;
   meta?: any;

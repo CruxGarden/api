@@ -9,6 +9,7 @@ export default interface CruxRaw {
   theme_id?: string;
   status: 'living' | 'frozen';
   visibility: 'public' | 'private' | 'unlisted';
+  discoverable?: boolean;
   author_id: string;
   home_id: string;
   meta?: any;

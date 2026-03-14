@@ -48,6 +48,7 @@ services:
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_SES_FROM_EMAIL: ${AWS_SES_FROM_EMAIL}
       AWS_S3_ARTIFACTS_BUCKET: ${AWS_S3_ARTIFACTS_BUCKET:-artifacts.crux.garden}
+      AWS_S3_SYNC_BUCKET: ${AWS_S3_SYNC_BUCKET:-sync.crux.garden}
 
       # Optional Configuration
       CORS_ORIGIN: ${CORS_ORIGIN:-*}

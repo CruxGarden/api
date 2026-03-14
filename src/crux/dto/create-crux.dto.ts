@@ -2,6 +2,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsOptional,
@@ -88,6 +89,15 @@ export class CreateCruxDto {
   @IsOptional()
   @IsEnum(CruxVisibility)
   visibility?: CruxVisibility;
+
+  @ApiPropertyOptional({
+    description: 'Whether this crux is discoverable in search',
+    example: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  discoverable?: boolean;
 
   @ApiPropertyOptional({
     description: 'Array of tag names to associate with the crux',

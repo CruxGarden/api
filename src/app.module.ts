@@ -20,6 +20,8 @@ import { ThemeModule } from './theme/theme.module';
 import { HomeModule } from './home/home.module';
 import { ArtifactModule } from './artifact/artifact.module';
 import { AiModule } from './ai/ai.module';
+import { SyncModule } from './sync/sync.module';
+import { DiscoverModule } from './discover/discover.module';
 
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { AiModule } from './ai/ai.module';
     HomeModule,
     ArtifactModule,
     AiModule,
+    SyncModule,
+    DiscoverModule,
   ],
   controllers: [AppController],
   providers: [

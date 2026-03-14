@@ -4,6 +4,7 @@ import {
   IsString,
   IsEnum,
   IsArray,
+  IsBoolean,
   ValidateIf,
 } from 'class-validator';
 import { CruxKind, CruxStatus, CruxVisibility } from '../../common/types/enums';
@@ -85,6 +86,14 @@ export class UpdateCruxDto {
   @IsOptional()
   @IsEnum(CruxVisibility)
   visibility?: CruxVisibility;
+
+  @ApiPropertyOptional({
+    description: 'Whether this crux is discoverable in search',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  discoverable?: boolean;
 
   @ApiPropertyOptional({
     description: 'Updated array of tag names to associate with the crux',

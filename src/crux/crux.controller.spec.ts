@@ -24,6 +24,7 @@ describe('CruxController', () => {
     homeId: 'home-id-123',
     status: 'living' as const,
     visibility: 'public' as const,
+    discoverable: false,
     created: new Date(),
     updated: new Date(),
     deleted: null,
