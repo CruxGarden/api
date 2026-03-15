@@ -189,6 +189,10 @@ describe('CruxService', () => {
     };
 
     it('should create a crux successfully', async () => {
+      repository.findByAuthorAndSlug.mockResolvedValue({
+        data: null,
+        error: null,
+      });
       repository.create.mockResolvedValue({
         data: mockCruxRaw,
         error: null,
@@ -204,6 +208,10 @@ describe('CruxService', () => {
     });
 
     it('should throw InternalServerErrorException on create error', async () => {
+      repository.findByAuthorAndSlug.mockResolvedValue({
+        data: null,
+        error: null,
+      });
       repository.create.mockResolvedValue({
         data: null,
         error: new Error('Create failed'),

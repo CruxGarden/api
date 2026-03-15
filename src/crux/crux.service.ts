@@ -114,10 +114,26 @@ export class CruxService {
     return this.findBySlug(identifier);
   }
 
-  async create(createCruxDto: CreateCruxDto): Promise<Crux> {
+  async create(
+    createCruxDto: CreateCruxDto,
+    authorId?: string,
+  ): Promise<Crux> {
     createCruxDto.id = createCruxDto.id || this.keyMaster.generateId();
 
     this.applyDefaults(createCruxDto);
+
+    // If the same author+slug already exists (stale from a previous publish),
+    // hard-delete it so the new crux can take its place.
+    const effectiveAuthorId = authorId || createCruxDto.authorId;
+    if (effectiveAuthorId && createCruxDto.slug) {
+      const existing = await this.cruxRepository.findByAuthorAndSlug(
+        effectiveAuthorId,
+        createCruxDto.slug,
+      );
+      if (existing.data) {
+        await this.cruxRepository.delete(existing.data.id, undefined, true);
+      }
+    }
 
     const created = await this.cruxRepository.create(createCruxDto);
     if (created.error)
