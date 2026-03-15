@@ -72,6 +72,7 @@ describe('Crux Integration Tests', () => {
       findAll: jest.fn(),
       findAllByAuthorQuery: jest.fn(),
       findBy: jest.fn(),
+      findByAuthorAndSlug: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -253,6 +254,7 @@ describe('Crux Integration Tests', () => {
       };
 
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
+      mockCruxRepository.findByAuthorAndSlug.mockResolvedValue(success(null));
       mockCruxRepository.create.mockResolvedValue(success(newCruxRaw));
 
       const response = await request(app.getHttpServer())
