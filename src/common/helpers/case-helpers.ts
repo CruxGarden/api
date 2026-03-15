@@ -15,10 +15,7 @@ function toCamelCase(str: string): string {
 /**
  * Recursively convert all keys of an object using a key transformer
  */
-function convertKeys(
-  obj: unknown,
-  keyFn: (key: string) => string,
-): unknown {
+function convertKeys(obj: unknown, keyFn: (key: string) => string): unknown {
   if (Array.isArray(obj)) {
     return obj.map((item) => convertKeys(item, keyFn));
   }

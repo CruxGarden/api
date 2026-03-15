@@ -143,13 +143,9 @@ describe('Artifact Integration Tests', () => {
       const token = generateToken(testAccountId);
       const updatedArtifact = { ...testArtifactRaw, type: 'document' };
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
-      mockArtifactRepository.update.mockResolvedValue(
-        success(updatedArtifact),
-      );
+      mockArtifactRepository.update.mockResolvedValue(success(updatedArtifact));
 
       const response = await request(app.getHttpServer())
         .put(`/artifacts/${testArtifactId}`)
@@ -172,14 +168,10 @@ describe('Artifact Integration Tests', () => {
         filename: 'newfile.jpg',
       };
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
       mockStoreService.upload.mockResolvedValue(undefined);
-      mockArtifactRepository.update.mockResolvedValue(
-        success(updatedArtifact),
-      );
+      mockArtifactRepository.update.mockResolvedValue(success(updatedArtifact));
 
       const response = await request(app.getHttpServer())
         .put(`/artifacts/${testArtifactId}`)
@@ -212,9 +204,7 @@ describe('Artifact Integration Tests', () => {
         id: 'other-author-id',
       };
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(otherAuthorRaw));
 
       await request(app.getHttpServer())
@@ -244,9 +234,7 @@ describe('Artifact Integration Tests', () => {
     it('should return 204 and delete artifact with file (happy path)', async () => {
       const token = generateToken(testAccountId);
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
       mockStoreService.delete.mockResolvedValue(undefined);
       mockArtifactRepository.delete.mockResolvedValue(success(null));
@@ -265,9 +253,7 @@ describe('Artifact Integration Tests', () => {
     it('should return 204 even if storage deletion fails', async () => {
       const token = generateToken(testAccountId);
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
       mockStoreService.delete.mockRejectedValue(new Error('Storage error'));
       mockArtifactRepository.delete.mockResolvedValue(success(null));
@@ -298,9 +284,7 @@ describe('Artifact Integration Tests', () => {
         id: 'other-author-id',
       };
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(otherAuthorRaw));
 
       await request(app.getHttpServer())
@@ -327,9 +311,7 @@ describe('Artifact Integration Tests', () => {
     it('should handle large file size validation', async () => {
       const token = generateToken(testAccountId);
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
 
       // Create a buffer larger than MAX_ARTIFACT_SIZE (50MB)
@@ -346,9 +328,7 @@ describe('Artifact Integration Tests', () => {
     it('should handle missing author gracefully', async () => {
       const token = generateToken(testAccountId);
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
@@ -361,9 +341,7 @@ describe('Artifact Integration Tests', () => {
     it('should handle storage upload failure', async () => {
       const token = generateToken(testAccountId);
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
       mockStoreService.upload.mockRejectedValue(new Error('Upload failed'));
 
@@ -378,9 +356,7 @@ describe('Artifact Integration Tests', () => {
     it('should handle database update failure', async () => {
       const token = generateToken(testAccountId);
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
       mockArtifactRepository.update.mockResolvedValue({
         data: null,
@@ -397,9 +373,7 @@ describe('Artifact Integration Tests', () => {
     it('should handle database delete failure', async () => {
       const token = generateToken(testAccountId);
 
-      mockArtifactRepository.findBy.mockResolvedValue(
-        success(testArtifactRaw),
-      );
+      mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
       mockStoreService.delete.mockResolvedValue(undefined);
       mockArtifactRepository.delete.mockResolvedValue({

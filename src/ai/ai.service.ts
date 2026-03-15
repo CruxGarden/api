@@ -668,10 +668,7 @@ export class AiService {
     path: string,
     cruxId: string,
   ): Promise<any | null> {
-    const artifacts = await this.artifactService.findByResource(
-      'crux',
-      cruxId,
-    );
+    const artifacts = await this.artifactService.findByResource('crux', cruxId);
     // Match by meta.path first, then fall back to filename (for user-uploaded files)
     const normalized = path.replace(/^\//, '');
     return (

@@ -52,7 +52,7 @@ function isWebApp(ctx: InjectionContext): boolean {
 // ---------------------------------------------------------------------------
 // Injection: SPA index.html strip
 // ---------------------------------------------------------------------------
-// CloudFront rewrites deep links to /{authorId}/{slug}/index.html, but the
+// CloudFront rewrites deep links to /{authorId}/{cruxId}/index.html, but the
 // browser URL then shows /index.html. This strips it so routers see "/".
 
 const SPA_INDEX_STRIP: PublishInjection = {
@@ -68,7 +68,7 @@ const SPA_INDEX_STRIP: PublishInjection = {
 // ---------------------------------------------------------------------------
 // Injection: SPA basename detection
 // ---------------------------------------------------------------------------
-// Published SPAs live at /{authorId}/{slug}/. Frameworks with client-side
+// Published SPAs live at /{authorId}/{cruxId}/. Frameworks with client-side
 // routing need to know this prefix. We expose it as window.__CRUX_BASENAME__
 // so any framework can pick it up.
 

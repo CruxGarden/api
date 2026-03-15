@@ -101,9 +101,7 @@ describe('ArtifactController', () => {
       const updatedArtifact = { ...mockArtifact, type: 'document' };
       artifactService.findById.mockResolvedValue(mockArtifact);
       authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
-      artifactService.updateWithFile.mockResolvedValue(
-        updatedArtifact as any,
-      );
+      artifactService.updateWithFile.mockResolvedValue(updatedArtifact as any);
 
       const result = await controller.update(
         'artifact-id',

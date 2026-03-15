@@ -121,8 +121,11 @@ export class DiscoverRepository {
     if (filters.q) {
       const term = `%${filters.q}%`;
       query.where(function () {
-        this.where('a.username', 'ilike', term)
-          .orWhere('a.display_name', 'ilike', term);
+        this.where('a.username', 'ilike', term).orWhere(
+          'a.display_name',
+          'ilike',
+          term,
+        );
       });
     }
 
@@ -138,7 +141,9 @@ export class DiscoverRepository {
   /**
    * Popular tags across discoverable cruxes, with counts.
    */
-  async findPopularTags(limit: number = 50): Promise<{ label: string; count: number }[]> {
+  async findPopularTags(
+    limit: number = 50,
+  ): Promise<{ label: string; count: number }[]> {
     const rows = await this.dbService
       .query()
       .from('tags as t')

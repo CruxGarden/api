@@ -15,9 +15,24 @@ export class DiscoverController {
   @Get()
   @ApiOperation({ summary: 'Search discoverable cruxes or authors' })
   @ApiQuery({ name: 'q', required: false, description: 'Search term' })
-  @ApiQuery({ name: 'type', required: false, enum: ['cruxes', 'authors'], description: 'Result type' })
-  @ApiQuery({ name: 'tag', required: false, isArray: true, description: 'Filter by tag (exact, multiple = AND)' })
-  @ApiQuery({ name: 'sort', required: false, enum: ['recent', 'alpha'], description: 'Sort order' })
+  @ApiQuery({
+    name: 'type',
+    required: false,
+    enum: ['cruxes', 'authors'],
+    description: 'Result type',
+  })
+  @ApiQuery({
+    name: 'tag',
+    required: false,
+    isArray: true,
+    description: 'Filter by tag (exact, multiple = AND)',
+  })
+  @ApiQuery({
+    name: 'sort',
+    required: false,
+    enum: ['recent', 'alpha'],
+    description: 'Sort order',
+  })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'perPage', required: false, type: Number })
   async discover(
@@ -40,7 +55,12 @@ export class DiscoverController {
 
   @Get('tags')
   @ApiOperation({ summary: 'Popular tags across discoverable cruxes' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Max tags (default 50)' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Max tags (default 50)',
+  })
   async tags(@Query('limit') limit?: string) {
     const n = limit ? Math.min(parseInt(limit, 10) || 50, 200) : 50;
     const data = await this.discoverService.getPopularTags(n);

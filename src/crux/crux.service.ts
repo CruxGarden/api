@@ -115,7 +115,7 @@ export class CruxService {
   }
 
   async create(createCruxDto: CreateCruxDto): Promise<Crux> {
-    createCruxDto.id = this.keyMaster.generateId();
+    createCruxDto.id = createCruxDto.id || this.keyMaster.generateId();
 
     this.applyDefaults(createCruxDto);
 
@@ -159,7 +159,7 @@ export class CruxService {
     return this.asCrux(updated.data);
   }
 
-  async delete(cruxId: string): Promise<null> {
+  async delete(cruxId: string, hard = false): Promise<null> {
     // 1) fetch crux
     const cruxToDelete = await this.findById(cruxId);
     if (!cruxToDelete) throw new NotFoundException('Crux not found');
@@ -167,6 +167,8 @@ export class CruxService {
     // 2) delete crux
     const { error: deleteError } = await this.cruxRepository.delete(
       cruxToDelete.id,
+      undefined,
+      hard,
     );
 
     if (deleteError) {
@@ -300,20 +302,15 @@ export class CruxService {
       ResourceType.CRUX,
       crux.id,
     );
-    const workingArtifacts = all.filter(
-      (a) => a.kind !== 'published-snapshot',
-    );
+    const workingArtifacts = all.filter((a) => a.kind !== 'published-snapshot');
 
     // 3. Copy each working artifact to a snapshot
     for (const artifact of workingArtifacts) {
-      await this.artifactService.copyArtifactToSnapshot(
-        artifact,
-        crux.id,
-      );
+      await this.artifactService.copyArtifactToSnapshot(artifact, crux.id);
     }
 
-    // 4. Publish files to static S3 bucket (use authorId — immutable, unlike username)
-    const pathPrefix = `${crux.authorId}/${crux.slug}`;
+    // 4. Publish files to static S3 bucket (use authorId + cruxId — both immutable)
+    const pathPrefix = `${crux.authorId}/${crux.id}`;
     await this.artifactService.deleteFromStaticBucket(pathPrefix);
     await this.artifactService.publishToStaticBucket(
       workingArtifacts,
@@ -354,38 +351,30 @@ export class CruxService {
   async unpublishCrux(cruxId: string): Promise<Crux> {
     const crux = await this.findById(cruxId);
 
-    // Clean up snapshot artifacts
-    await this.artifactService.deleteSnapshotArtifacts(
-      ResourceType.CRUX,
-      crux.id,
-    );
-
-    // Delete from static S3 bucket and invalidate cache (best-effort)
-    const pathPrefix = `${crux.authorId}/${crux.slug}`;
+    // 1. Delete published files from static S3 bucket
+    const pathPrefix = `${crux.authorId}/${crux.id}`;
     await this.artifactService.deleteFromStaticBucket(pathPrefix);
+
+    // 2. Invalidate CloudFront cache (best-effort)
     this.storeService
       .invalidateCache({ paths: [`/${pathPrefix}/*`] })
       .catch((err) =>
         this.logger.error(`CloudFront invalidation failed: ${err.message}`),
       );
 
-    // Remove publish metadata and set to private
-    const updatedMeta = { ...crux.meta };
-    delete updatedMeta.publishedAt;
-    delete updatedMeta.publishedVersion;
+    // 3. Hard delete crux and all related entities (artifacts, dimensions, tags)
+    const { error: deleteError } = await this.cruxRepository.delete(
+      crux.id,
+      undefined,
+      true,
+    );
 
-    const updated = await this.cruxRepository.update(crux.id, {
-      meta: updatedMeta,
-      visibility: CruxVisibility.PRIVATE,
-    });
-
-    if (updated.error) {
-      throw new InternalServerErrorException(
-        `Unpublish error: ${updated.error}`,
-      );
+    if (deleteError) {
+      throw new InternalServerErrorException(`Unpublish error: ${deleteError}`);
     }
 
-    return this.asCrux(updated.data);
+    // Return the crux state as it was before deletion (for client-side update)
+    return crux;
   }
 
   async getPublishedArtifacts(cruxId: string): Promise<Artifact[]> {

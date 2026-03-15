@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
 import { LoggerService } from '../common/services/logger.service';
-import { DiscoverRepository, DiscoverCruxFilters, DiscoverAuthorFilters } from './discover.repository';
+import {
+  DiscoverRepository,
+  DiscoverCruxFilters,
+  DiscoverAuthorFilters,
+} from './discover.repository';
 
 @Injectable()
 export class DiscoverService {

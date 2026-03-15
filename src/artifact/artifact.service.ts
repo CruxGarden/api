@@ -119,8 +119,7 @@ export class ArtifactService {
 
   async delete(artifactId: string): Promise<null> {
     const artifactToDelete = await this.findById(artifactId);
-    if (!artifactToDelete)
-      throw new NotFoundException('Artifact not found');
+    if (!artifactToDelete) throw new NotFoundException('Artifact not found');
 
     const { error: deleteError } = await this.artifactRepository.delete(
       artifactToDelete.id,
@@ -327,12 +326,11 @@ export class ArtifactService {
     resourceId: string,
     kind: string,
   ): Promise<Artifact[]> {
-    const { data, error } =
-      await this.artifactRepository.findByResourceAndKind(
-        resourceType,
-        resourceId,
-        kind,
-      );
+    const { data, error } = await this.artifactRepository.findByResourceAndKind(
+      resourceType,
+      resourceId,
+      kind,
+    );
 
     if (error) {
       throw new InternalServerErrorException(
@@ -429,12 +427,7 @@ export class ArtifactService {
 
         // Apply publish injections to HTML files (SPA support, navigation sync, etc.)
         if (artifact.mimeType === 'text/html') {
-          const result = applyInjections(
-            data,
-            artifact,
-            artifacts,
-            cruxKind,
-          );
+          const result = applyInjections(data, artifact, artifacts, cruxKind);
           data = result.data;
           if (result.applied.length > 0) {
             this.logger.info(`Publish injections applied to ${virtualPath}`, {

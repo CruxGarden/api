@@ -74,10 +74,7 @@ describe('ArtifactRepository', () => {
 
       expect(result.data).toEqual(mockArtifact);
       expect(result.error).toBeNull();
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'id',
-        'artifact-id',
-      );
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id', 'artifact-id');
     });
 
     it('should return error on exception', async () => {

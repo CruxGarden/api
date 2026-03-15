@@ -146,9 +146,9 @@ export class CruxRepository {
   async delete(
     cruxId: string,
     trx?: Knex.Transaction,
+    hard = false,
   ): Promise<RepositoryResponse<void>> {
     try {
-      const now = new Date();
       const query = trx || this.dbService.query();
 
       // First, get the crux to find its author
@@ -161,29 +161,59 @@ export class CruxRepository {
         return failure(new Error('Crux not found'));
       }
 
-      // Soft delete the crux
-      await query
-        .from<CruxRaw>(CruxRepository.TABLE_NAME)
-        .where('id', cruxId)
-        .update({
-          deleted: now,
-          updated: now,
-        });
+      if (hard) {
+        // Hard delete — remove crux and all related entities from database
+        await query
+          .from('tags')
+          .where('resource_type', 'crux')
+          .where('resource_id', cruxId)
+          .del();
 
-      // Also soft delete all dimensions where:
-      // 1. This crux is involved (source OR target)
-      // 2. AND the dimension was created by the same author as the crux
-      // This preserves other people's dimensions that reference this crux
-      await query
-        .from('dimensions')
-        .where(function () {
-          this.where('source_id', cruxId).orWhere('target_id', cruxId);
-        })
-        .andWhere('author_id', crux.author_id)
-        .update({
-          deleted: now,
-          updated: now,
-        });
+        await query
+          .from('artifacts')
+          .where('resource_type', 'crux')
+          .where('resource_id', cruxId)
+          .del();
+
+        await query
+          .from('dimensions')
+          .where(function () {
+            this.where('source_id', cruxId).orWhere('target_id', cruxId);
+          })
+          .andWhere('author_id', crux.author_id)
+          .del();
+
+        await query
+          .from<CruxRaw>(CruxRepository.TABLE_NAME)
+          .where('id', cruxId)
+          .del();
+      } else {
+        const now = new Date();
+
+        // Soft delete the crux
+        await query
+          .from<CruxRaw>(CruxRepository.TABLE_NAME)
+          .where('id', cruxId)
+          .update({
+            deleted: now,
+            updated: now,
+          });
+
+        // Also soft delete all dimensions where:
+        // 1. This crux is involved (source OR target)
+        // 2. AND the dimension was created by the same author as the crux
+        // This preserves other people's dimensions that reference this crux
+        await query
+          .from('dimensions')
+          .where(function () {
+            this.where('source_id', cruxId).orWhere('target_id', cruxId);
+          })
+          .andWhere('author_id', crux.author_id)
+          .update({
+            deleted: now,
+            updated: now,
+          });
+      }
 
       return success(undefined);
     } catch (error) {

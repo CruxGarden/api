@@ -35,7 +35,9 @@ describe('SyncController', () => {
         },
         {
           provide: LoggerService,
-          useValue: { createChildLogger: () => ({ debug: jest.fn(), warn: jest.fn() }) },
+          useValue: {
+            createChildLogger: () => ({ debug: jest.fn(), warn: jest.fn() }),
+          },
         },
       ],
     }).compile();

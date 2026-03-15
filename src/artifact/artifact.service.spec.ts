@@ -497,9 +497,9 @@ describe('ArtifactService', () => {
       });
       storeService.download.mockRejectedValue(new Error('Not found'));
 
-      await expect(
-        service.downloadArtifact('artifact-id-123'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.downloadArtifact('artifact-id-123')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 

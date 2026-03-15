@@ -296,10 +296,7 @@ export class AuthorController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const crux = await this.resolvePublicCrux(identifier, slug);
-    const file = await this.cruxService.downloadArtifact(
-      crux.id,
-      artifactId,
-    );
+    const file = await this.cruxService.downloadArtifact(crux.id, artifactId);
 
     if (!file) {
       throw new NotFoundException('Artifact file not found');

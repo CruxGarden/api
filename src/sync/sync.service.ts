@@ -46,10 +46,7 @@ export class SyncService {
 
   // --- Garden ---
 
-  async pushGarden(
-    accountId: string,
-    data: Buffer,
-  ): Promise<GardenMeta> {
+  async pushGarden(accountId: string, data: Buffer): Promise<GardenMeta> {
     const meta: GardenMeta = {
       syncedAt: new Date().toISOString(),
       size: data.length,
