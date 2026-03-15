@@ -375,7 +375,7 @@ describe('Crux Integration Tests', () => {
         .set(authHeader(token))
         .expect(204);
 
-      expect(mockCruxRepository.delete).toHaveBeenCalledWith(testCruxId);
+      expect(mockCruxRepository.delete).toHaveBeenCalledWith(testCruxId, undefined, false);
     });
 
     it('should return 404 when crux not found', async () => {

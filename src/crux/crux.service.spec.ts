@@ -262,7 +262,7 @@ describe('CruxService', () => {
       const result = await service.delete('crux-id-123');
 
       expect(result).toBeNull();
-      expect(repository.delete).toHaveBeenCalledWith(mockCruxRaw.id);
+      expect(repository.delete).toHaveBeenCalledWith(mockCruxRaw.id, undefined, false);
     });
 
     it('should throw NotFoundException when crux not found', async () => {
