@@ -2,7 +2,7 @@ import type { Knex } from 'knex';
 
 export async function up(knex: Knex): Promise<void> {
   await knex.raw(`
-    create table accounts (
+    create table if not exists accounts (
       id uuid primary key,
       email varchar not null,
       role varchar not null,
@@ -15,7 +15,7 @@ export async function up(knex: Knex): Promise<void> {
       constraint check_accounts_role check (role in ('keeper', 'admin', 'author'))
     );
 
-    create table authors (
+    create table if not exists authors (
       id uuid primary key,
       key text not null,
       account_id uuid not null references accounts(id) on delete cascade on update cascade,
@@ -31,7 +31,7 @@ export async function up(knex: Knex): Promise<void> {
       constraint authors_username_key unique (username)
     );
 
-    create table themes (
+    create table if not exists themes (
       id uuid primary key,
       name varchar not null,
       key text not null,
@@ -54,7 +54,7 @@ export async function up(knex: Knex): Promise<void> {
       constraint check_quaternary_color_format check (quaternary_color ~ '^#[0-9A-Fa-f]{6}$')
     );
 
-    create table cruxes (
+    create table if not exists cruxes (
       id uuid primary key,
       key text not null,
       slug text not null,
@@ -80,7 +80,7 @@ export async function up(knex: Knex): Promise<void> {
       constraint check_cruxes_visibility check (visibility in ('public', 'private', 'unlisted'))
     );
 
-    create table paths (
+    create table if not exists paths (
       id uuid primary key,
       key text not null,
       slug text not null,
@@ -97,7 +97,7 @@ export async function up(knex: Knex): Promise<void> {
       constraint paths_type check (type in ('living', 'frozen'))
     );
 
-    create table dimensions (
+    create table if not exists dimensions (
       id uuid primary key,
       source_id uuid not null references cruxes(id) on delete cascade on update cascade,
       target_id uuid not null references cruxes(id) on delete cascade on update cascade,
@@ -113,7 +113,7 @@ export async function up(knex: Knex): Promise<void> {
       constraint unique_source_target_type unique (source_id, target_id, type)
     );
 
-    create table markers (
+    create table if not exists markers (
       id uuid primary key,
       path_id uuid not null references paths(id) on delete cascade on update cascade,
       crux_id uuid not null references cruxes(id) on delete cascade on update cascade,
@@ -125,7 +125,7 @@ export async function up(knex: Knex): Promise<void> {
       constraint unique_path_crux unique (path_id, crux_id)
     );
 
-    create table tags (
+    create table if not exists tags (
       id uuid primary key,
       crux_id uuid not null references cruxes(id) on delete cascade on update cascade,
       label text not null,
@@ -138,32 +138,32 @@ export async function up(knex: Knex): Promise<void> {
       constraint tags_lowercase_check check (label = lower(label))
     );
 
-    create index idx_accounts_email on accounts (email);
+    create index if not exists idx_accounts_email on accounts (email);
 
-    create index idx_authors_account_id on authors (account_id);
-    create index idx_authors_username on authors (username);
-    create index idx_authors_key on authors (key);
+    create index if not exists idx_authors_account_id on authors (account_id);
+    create index if not exists idx_authors_username on authors (username);
+    create index if not exists idx_authors_key on authors (key);
 
-    create index idx_themes_key on themes (key);
-    create index idx_themes_name on themes (name);
+    create index if not exists idx_themes_key on themes (key);
+    create index if not exists idx_themes_name on themes (name);
 
-    create index idx_cruxes_author_id on cruxes (author_id);
-    create index idx_cruxes_slug on cruxes (slug);
-    create index idx_cruxes_key on cruxes (key);
-    create index idx_cruxes_visibility on cruxes (visibility);
-    create index idx_cruxes_created on cruxes (created);
+    create index if not exists idx_cruxes_author_id on cruxes (author_id);
+    create index if not exists idx_cruxes_slug on cruxes (slug);
+    create index if not exists idx_cruxes_key on cruxes (key);
+    create index if not exists idx_cruxes_visibility on cruxes (visibility);
+    create index if not exists idx_cruxes_created on cruxes (created);
 
-    create index idx_paths_key on paths (key);
-    create index idx_paths_slug on paths (slug);
+    create index if not exists idx_paths_key on paths (key);
+    create index if not exists idx_paths_slug on paths (slug);
 
-    create index idx_dimension_source_type on dimensions (source_id, type);
-    create index idx_dimension_target_type on dimensions (target_id, type);
+    create index if not exists idx_dimension_source_type on dimensions (source_id, type);
+    create index if not exists idx_dimension_target_type on dimensions (target_id, type);
 
-    create index idx_markers_path on markers (path_id);
-    create index idx_markers_crux on markers (crux_id);
+    create index if not exists idx_markers_path on markers (path_id);
+    create index if not exists idx_markers_crux on markers (crux_id);
 
-    create index idx_tags_crux_id on tags (crux_id);
-    create index idx_tags_label on tags (label);
+    create index if not exists idx_tags_crux_id on tags (crux_id);
+    create index if not exists idx_tags_label on tags (label);
   `);
 }
 
