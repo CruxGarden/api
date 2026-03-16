@@ -133,7 +133,8 @@ describe('Author Integration Tests', () => {
 
   describe('GET /authors/:identifier', () => {
     it('should return 200 and author data by id (happy path)', async () => {
-      mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
+      // testAuthorId is not a UUID, so resolveAuthor treats it as a username
+      mockAuthorRepository.findByUsername.mockResolvedValue(success(testAuthorRaw));
 
       const response = await request(app.getHttpServer())
         .get(`/authors/${testAuthorId}`)
@@ -144,8 +145,7 @@ describe('Author Integration Tests', () => {
         username: testUsername,
         displayName: 'Test User',
       });
-      expect(mockAuthorRepository.findBy).toHaveBeenCalledWith(
-        'id',
+      expect(mockAuthorRepository.findByUsername).toHaveBeenCalledWith(
         testAuthorId,
       );
     });
@@ -168,7 +168,7 @@ describe('Author Integration Tests', () => {
     });
 
     it('should return 404 when author not found', async () => {
-      mockAuthorRepository.findBy.mockResolvedValue(success(null));
+      mockAuthorRepository.findByUsername.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())
         .get('/authors/nonexistent')
