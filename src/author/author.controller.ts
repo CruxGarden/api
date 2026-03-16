@@ -53,6 +53,20 @@ export class AuthorController {
     this.logger = this.loggerService.createChildLogger('AuthorController');
   }
 
+  private static readonly UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  /** Resolve an identifier to an author — supports UUID, @username, or plain username */
+  private async resolveAuthor(identifier: string): Promise<Author> {
+    const { hasPrefix, value } = stripPathPrefix(identifier, PathPrefix.USERNAME);
+    if (hasPrefix) {
+      return this.authorService.findByUsername(value);
+    }
+    if (AuthorController.UUID_RE.test(identifier)) {
+      return this.authorService.findById(identifier);
+    }
+    return this.authorService.findByUsername(identifier);
+  }
+
   async canManageAuthor(id: string, req: AuthRequest): Promise<boolean> {
     const author = await this.authorService.findById(id);
     if (!author) {
@@ -113,16 +127,7 @@ export class AuthorController {
     @Param('identifier') identifier: string,
     @Query('embed') embed?: AuthorEmbed,
   ): Promise<Author> {
-    let author: Author;
-    const { hasPrefix, value } = stripPathPrefix(
-      identifier,
-      PathPrefix.USERNAME,
-    );
-    if (hasPrefix) {
-      author = await this.authorService.findByUsername(value);
-    } else {
-      author = await this.authorService.findById(value);
-    }
+    let author = await this.resolveAuthor(identifier);
 
     if (embed === AuthorEmbed.ROOT && author.rootId) {
       const rootCrux = await this.cruxService.findById(author.rootId);
@@ -201,13 +206,7 @@ export class AuthorController {
     @Param('identifier') identifier: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const { hasPrefix, value } = stripPathPrefix(
-      identifier,
-      PathPrefix.USERNAME,
-    );
-    const author = hasPrefix
-      ? await this.authorService.findByUsername(value)
-      : await this.authorService.findById(value);
+    const author = await this.resolveAuthor(identifier);
 
     const file = await this.authorService.getAvatarArtifact(author.id);
     if (!file) {
@@ -226,13 +225,7 @@ export class AuthorController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<Crux[]> {
-    const { hasPrefix, value } = stripPathPrefix(
-      identifier,
-      PathPrefix.USERNAME,
-    );
-    const author = hasPrefix
-      ? await this.authorService.findByUsername(value)
-      : await this.authorService.findById(value);
+    const author = await this.resolveAuthor(identifier);
 
     const query = this.cruxService.findPublicByAuthorQuery(author.id);
     return this.dbService.paginate<CruxRaw, Crux>({
@@ -249,13 +242,7 @@ export class AuthorController {
     @Param('slug') slug: string,
   ) {
     // Get author by username (strip @ prefix if present)
-    const { hasPrefix, value } = stripPathPrefix(
-      identifier,
-      PathPrefix.USERNAME,
-    );
-    const author = hasPrefix
-      ? await this.authorService.findByUsername(value)
-      : await this.authorService.findById(value);
+    const author = await this.resolveAuthor(identifier);
 
     // Get crux by author ID and slug
     return this.cruxService.findByAuthorAndSlug(author.id, slug);
@@ -264,13 +251,7 @@ export class AuthorController {
   @Get(':identifier/graph')
   async getGraph(@Param('identifier') identifier: string) {
     // Get author by username or id
-    const { hasPrefix, value } = stripPathPrefix(
-      identifier,
-      PathPrefix.USERNAME,
-    );
-    const author = hasPrefix
-      ? await this.authorService.findByUsername(value)
-      : await this.authorService.findById(value);
+    const author = await this.resolveAuthor(identifier);
 
     // Get graph data for this author
     return this.authorService.getGraph(author.id);
@@ -323,13 +304,7 @@ export class AuthorController {
   }
 
   private async resolvePublicCrux(identifier: string, slugOrId: string) {
-    const { hasPrefix, value } = stripPathPrefix(
-      identifier,
-      PathPrefix.USERNAME,
-    );
-    const author = hasPrefix
-      ? await this.authorService.findByUsername(value)
-      : await this.authorService.findById(value);
+    const author = await this.resolveAuthor(identifier);
 
     // Accept UUID (for stable artifact URLs) or slug (for human-friendly URLs)
     const isUuid =
