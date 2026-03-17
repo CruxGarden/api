@@ -314,8 +314,11 @@ describe('Artifact Integration Tests', () => {
       mockArtifactRepository.findBy.mockResolvedValue(success(testArtifactRaw));
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
 
-      // Create a buffer larger than MAX_ARTIFACT_SIZE (50MB)
-      const largeBuffer = Buffer.alloc(51 * 1024 * 1024);
+      // Mock the size limit to 1 byte so a tiny buffer triggers validation
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const constants = require('../src/common/types/constants');
+      const replaced = jest.replaceProperty(constants, 'MAX_ARTIFACT_SIZE', 1);
+      const largeBuffer = Buffer.alloc(1024);
 
       await request(app.getHttpServer())
         .put(`/artifacts/${testArtifactId}`)
@@ -323,6 +326,8 @@ describe('Artifact Integration Tests', () => {
         .field('type', 'document')
         .attach('file', largeBuffer, 'large.jpg')
         .expect(400);
+
+      replaced.restore();
     });
 
     it('should handle missing author gracefully', async () => {

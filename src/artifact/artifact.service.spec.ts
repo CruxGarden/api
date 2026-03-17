@@ -269,7 +269,7 @@ describe('ArtifactService', () => {
     });
 
     it('should throw BadRequestException when file is too large', () => {
-      const largeFile = { ...mockFile, size: 100 * 1024 * 1024 }; // 100MB
+      const largeFile = { ...mockFile, size: 300 * 1024 * 1024 }; // 300MB
 
       expect(() => service.validateFile(largeFile)).toThrow(
         BadRequestException,

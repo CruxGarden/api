@@ -304,56 +304,66 @@ export class CruxService {
 
   /* crux publishing */
 
-  async publishCrux(cruxId: string): Promise<Crux> {
+  async publishCrux(
+    cruxId: string,
+    files: Express.Multer.File[],
+    fileMetas: Array<{ path?: string; type?: string; kind?: string }>,
+    authorId: string,
+  ): Promise<Crux> {
     const crux = await this.findById(cruxId);
 
-    // 1. Clean up any existing snapshot artifacts
+    // 1. Replace existing artifact records (working + any old snapshots).
+    //    deleteWorkingArtifactsByResource handles missing S3 files gracefully.
+    await this.artifactService.deleteWorkingArtifactsByResource(
+      ResourceType.CRUX,
+      crux.id,
+    );
     await this.artifactService.deleteSnapshotArtifacts(
       ResourceType.CRUX,
       crux.id,
     );
 
-    // 2. Get current working artifacts (exclude old snapshots)
-    const all = await this.artifactService.findByResource(
-      ResourceType.CRUX,
-      crux.id,
-    );
-    const workingArtifacts = all.filter((a) => a.kind !== 'published-snapshot');
-
-    // 3. Copy each working artifact to a snapshot
-    for (const artifact of workingArtifacts) {
-      await this.artifactService.copyArtifactToSnapshot(artifact, crux.id);
+    // 2. Create artifact DB records (metadata only — no working S3 copy needed).
+    const artifactRecords: Artifact[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const record = await this.artifactService.createArtifactRecord(
+        ResourceType.CRUX,
+        crux.id,
+        crux.homeId,
+        authorId,
+        files[i],
+        fileMetas[i] || {},
+      );
+      artifactRecords.push(record);
     }
 
-    // 4. Publish files to static S3 bucket (use authorId + cruxId — both immutable)
+    // 3. Publish files directly to the published S3 bucket (authorId + cruxId — both immutable).
     const pathPrefix = `${crux.authorId}/${crux.id}`;
     await this.artifactService.deleteFromStaticBucket(pathPrefix);
-    await this.artifactService.publishToStaticBucket(
-      workingArtifacts,
+    await this.artifactService.publishFilesDirectly(
+      files.map((file, i) => ({
+        buffer: file.buffer,
+        mimeType: file.mimetype,
+        path: fileMetas[i]?.path || file.originalname,
+        artifact: artifactRecords[i],
+      })),
       pathPrefix,
       crux.kind,
     );
 
-    // 5. Invalidate CloudFront cache (best-effort, don't block publish)
+    // 4. Invalidate CloudFront cache (best-effort, don't block publish)
     this.storeService
       .invalidateCache({ paths: [`/${pathPrefix}/*`] })
       .catch((err) =>
         this.logger.error(`CloudFront invalidation failed: ${err.message}`),
       );
 
-    // 6. Update crux meta with publish info
+    // 5. Update crux meta with publish info and set visibility to public
     const publishedVersion = (crux.meta?.publishedVersion || 0) + 1;
     const publishedAt = new Date().toISOString();
 
-    const updatedMeta = {
-      ...crux.meta,
-      publishedAt,
-      publishedVersion,
-    };
-
-    // 7. Set visibility to public and update meta
     const updated = await this.cruxRepository.update(crux.id, {
-      meta: updatedMeta,
+      meta: { ...crux.meta, publishedAt, publishedVersion },
       visibility: CruxVisibility.PUBLIC,
     });
 

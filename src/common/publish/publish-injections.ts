@@ -120,7 +120,6 @@ export const PUBLISH_INJECTIONS: PublishInjection[] = [
 
 /**
  * Apply all matching injections to an HTML file's content.
- * Injects scripts as a single <script> block before </head>.
  */
 export function applyInjections(
   content: Buffer,
@@ -135,12 +134,10 @@ export function applyInjections(
     return { data: content, applied: [] };
   }
 
+  let html = content.toString('utf-8');
   const combined = matching.map((inj) => inj.script).join('\n');
   const tag = `<script data-crux-inject>${combined}</script>`;
 
-  let html = content.toString('utf-8');
-
-  // Inject before </head> if present, otherwise before </body>, otherwise append
   if (html.includes('</head>')) {
     html = html.replace('</head>', `${tag}\n</head>`);
   } else if (html.includes('</body>')) {

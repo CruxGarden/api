@@ -447,6 +447,105 @@ export class ArtifactService {
     );
   }
 
+  /**
+   * Create a DB artifact record without uploading to working S3 storage.
+   * Used by the direct-publish flow where files go straight to the published bucket.
+   */
+  async createArtifactRecord(
+    resourceType: string,
+    resourceId: string,
+    homeId: string,
+    authorId: string,
+    file: UploadedFile,
+    extra: { type?: string; kind?: string; path?: string },
+  ): Promise<Artifact> {
+    const id = this.keyMaster.generateId();
+    const createDto: CreateArtifactDto = {
+      id,
+      type: extra.type,
+      kind: extra.kind,
+      meta: extra.path ? { path: extra.path } : undefined,
+      resourceId,
+      resourceType,
+      authorId,
+      homeId,
+      encoding: file.encoding || '7bit',
+      mimeType: file.mimetype,
+      filename: file.originalname,
+      size: file.size,
+    };
+    const created = await this.artifactRepository.create(createDto);
+    if (created.error) {
+      throw new InternalServerErrorException(
+        `Artifact creation error: ${created.error}`,
+      );
+    }
+    return this.asArtifact(created.data);
+  }
+
+  /**
+   * Publish file buffers directly to the published S3 bucket (with HTML injections).
+   * Bypasses working S3 storage entirely.
+   */
+  async publishFilesDirectly(
+    files: Array<{
+      buffer: Buffer;
+      mimeType: string;
+      path: string;
+      artifact: Artifact;
+    }>,
+    pathPrefix: string,
+    cruxKind?: string,
+  ): Promise<void> {
+    const publishedBucket =
+      process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published';
+
+    const artifactContexts = files.map((f) => f.artifact);
+
+    await Promise.all(
+      files.map(async ({ buffer, mimeType, path, artifact }) => {
+        let data = buffer;
+
+        if (mimeType === 'text/html') {
+          const result = applyInjections(
+            data,
+            artifact,
+            artifactContexts,
+            cruxKind,
+          );
+          data = result.data;
+          if (result.applied.length > 0) {
+            this.logger.info(`Publish injections applied to ${path}`, {
+              injections: result.applied,
+            });
+          }
+        }
+
+        await this.storeService.upload({
+          path: `${pathPrefix}/${path}`,
+          data,
+          namespace: publishedBucket,
+          contentType: mimeType,
+        });
+      }),
+    );
+  }
+
+  /**
+   * Soft-delete all working (non-snapshot) artifact records for a resource.
+   * Attempts to clean up any associated S3 files, ignoring missing-file errors.
+   */
+  async deleteWorkingArtifactsByResource(
+    resourceType: string,
+    resourceId: string,
+  ): Promise<void> {
+    const artifacts = await this.findByResource(resourceType, resourceId);
+    const working = artifacts.filter((a) => a.kind !== 'published-snapshot');
+    for (const artifact of working) {
+      await this.deleteWithFile(artifact.id);
+    }
+  }
+
   async deleteFromStaticBucket(pathPrefix: string): Promise<void> {
     const publishedBucket =
       process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published';
