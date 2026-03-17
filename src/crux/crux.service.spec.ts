@@ -40,6 +40,7 @@ describe('CruxService', () => {
   beforeEach(async () => {
     const mockRepository = {
       findBy: jest.fn(),
+      findByIdIncludingDeleted: jest.fn().mockResolvedValue({ data: null, error: null }),
       findByAuthorAndSlug: jest.fn(),
       findAllByAuthorQuery: jest.fn(),
       create: jest.fn(),

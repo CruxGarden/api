@@ -72,6 +72,7 @@ describe('Crux Integration Tests', () => {
       findAll: jest.fn(),
       findAllByAuthorQuery: jest.fn(),
       findBy: jest.fn(),
+      findByIdIncludingDeleted: jest.fn().mockResolvedValue({ data: null, error: null }),
       findByAuthorAndSlug: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
