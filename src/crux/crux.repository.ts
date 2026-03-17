@@ -68,6 +68,23 @@ export class CruxRepository {
     }
   }
 
+  async findByIdIncludingDeleted(
+    id: string,
+  ): Promise<RepositoryResponse<CruxRaw>> {
+    try {
+      const data = await this.dbService
+        .query()
+        .from<CruxRaw>(CruxRepository.TABLE_NAME)
+        .select(CruxRepository.BASE_SELECT)
+        .where('id', id)
+        .first();
+
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
   async findByAuthorAndSlug(
     authorId: string,
     slug: string,

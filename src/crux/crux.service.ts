@@ -122,6 +122,19 @@ export class CruxService {
 
     this.applyDefaults(createCruxDto);
 
+    // Hard-delete a soft-deleted record with the same ID and same author
+    // (e.g. from a previous unpublish) so the INSERT doesn't hit a duplicate PK.
+    // Scoped to authorId to avoid clobbering another author's crux.
+    if (createCruxDto.id && (authorId || createCruxDto.authorId)) {
+      const existing = await this.cruxRepository.findByIdIncludingDeleted(createCruxDto.id);
+      if (
+        existing.data?.deleted &&
+        existing.data.author_id === (authorId || createCruxDto.authorId)
+      ) {
+        await this.cruxRepository.delete(createCruxDto.id, undefined, true);
+      }
+    }
+
     // If the same author+slug already exists (stale from a previous publish),
     // hard-delete it so the new crux can take its place.
     const effectiveAuthorId = authorId || createCruxDto.authorId;
