@@ -125,6 +125,8 @@ const CRUX_STORE_CLIENT: PublishInjection = {
   window.crux=window.crux||{};
   var BASE='';
   var _token=null,_mode='live',_cruxId=null;
+  var _resolveReady;
+  var _ready=new Promise(function(r){_resolveReady=r;});
   window.addEventListener('message',function(e){
     if(e.data&&e.data.type==='crux:session'){
       _token=e.data.token||null;
@@ -132,6 +134,7 @@ const CRUX_STORE_CLIENT: PublishInjection = {
       _cruxId=e.data.cruxId||null;
       var apiBase=e.data.apiBase||'';
       if(_cruxId)BASE=apiBase+'/store/'+_cruxId;
+      _resolveReady();
     }
   });
   function hdr(){var h={'Content-Type':'application/json'};if(_token)h['Authorization']='Bearer '+_token;return h;}
@@ -152,27 +155,38 @@ const CRUX_STORE_CLIENT: PublishInjection = {
   }
   window.crux.store={
     get:function(key){
-      if(_mode==='local')return localCall('crux:store:get',{key:key});
-      return fetch(BASE+'/'+encodeURIComponent(key),{headers:hdr()}).then(function(r){return r.ok?r.json().then(function(d){return d.value}):null}).catch(function(){return null});
+      return _ready.then(function(){
+        if(_mode==='local')return localCall('crux:store:get',{key:key});
+        return fetch(BASE+'/'+encodeURIComponent(key),{headers:hdr()}).then(function(r){return r.ok?r.json().then(function(d){return d.value}):null}).catch(function(){return null});
+      });
     },
     set:function(key,value){
-      if(_mode==='local'){window.parent.postMessage({type:'crux:store:set',key:key,value:value},'*');return Promise.resolve();}
-      return fetch(BASE+'/'+encodeURIComponent(key),{method:'PUT',headers:hdr(),body:JSON.stringify({value:value})}).then(function(r){if(!r.ok)throw new Error('Store set failed: '+r.status)});
+      return _ready.then(function(){
+        if(_mode==='local'){window.parent.postMessage({type:'crux:store:set',key:key,value:value},'*');return;}
+        return fetch(BASE+'/'+encodeURIComponent(key),{method:'PUT',headers:hdr(),body:JSON.stringify({value:value})}).then(function(r){if(!r.ok)throw new Error('Store set failed: '+r.status)});
+      });
     },
     increment:function(key,by){
       if(by===undefined)by=1;
-      if(_mode==='local')return localCall('crux:store:inc',{key:key,by:by});
-      return fetch(BASE+'/'+encodeURIComponent(key)+'/inc',{method:'POST',headers:hdr(),body:JSON.stringify({by:by})}).then(function(r){if(!r.ok)throw new Error('Store increment failed: '+r.status);return r.json().then(function(d){return d.value})});
+      return _ready.then(function(){
+        if(_mode==='local')return localCall('crux:store:inc',{key:key,by:by});
+        return fetch(BASE+'/'+encodeURIComponent(key)+'/inc',{method:'POST',headers:hdr(),body:JSON.stringify({by:by})}).then(function(r){if(!r.ok)throw new Error('Store increment failed: '+r.status);return r.json().then(function(d){return d.value})});
+      });
     },
     delete:function(key){
-      if(_mode==='local'){window.parent.postMessage({type:'crux:store:del',key:key},'*');return Promise.resolve();}
-      return fetch(BASE+'/'+encodeURIComponent(key),{method:'DELETE',headers:hdr()}).then(function(r){if(!r.ok)throw new Error('Store delete failed: '+r.status)});
+      return _ready.then(function(){
+        if(_mode==='local'){window.parent.postMessage({type:'crux:store:del',key:key},'*');return;}
+        return fetch(BASE+'/'+encodeURIComponent(key),{method:'DELETE',headers:hdr()}).then(function(r){if(!r.ok)throw new Error('Store delete failed: '+r.status)});
+      });
     },
     list:function(){
-      if(_mode==='local')return localCall('crux:store:list',{});
-      return fetch(BASE,{headers:hdr()}).then(function(r){if(!r.ok)throw new Error('Store list failed: '+r.status);return r.json()});
+      return _ready.then(function(){
+        if(_mode==='local')return localCall('crux:store:list',{});
+        return fetch(BASE,{headers:hdr()}).then(function(r){if(!r.ok)throw new Error('Store list failed: '+r.status);return r.json()});
+      });
     }
   };
+  if(window.parent!==window)window.parent.postMessage({type:'crux:ready'},'*');
 })();`,
 };
 
