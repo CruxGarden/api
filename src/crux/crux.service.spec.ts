@@ -26,7 +26,6 @@ describe('CruxService', () => {
     description: 'A test crux',
     data: '{}',
     type: 'note',
-    theme_id: 'theme-123',
     status: 'living' as const,
     visibility: 'public' as const,
     author_id: 'author-123',
@@ -419,7 +418,6 @@ describe('CruxService', () => {
 
       expect(result.id).toBe(mockCruxRaw.id);
       expect(result.authorId).toBe(mockCruxRaw.author_id);
-      expect(result.themeId).toBe(mockCruxRaw.theme_id);
     });
   });
 

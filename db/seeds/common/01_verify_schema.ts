@@ -8,7 +8,6 @@ import { Knex } from 'knex';
 const expectedTables = [
   'accounts',
   'authors',
-  'themes',
   'cruxes',
   'paths',
   'dimensions',
@@ -16,6 +15,7 @@ const expectedTables = [
   'tags',
   'homes',
   'artifacts',
+  'store',
 ];
 
 export async function seed(knex: Knex): Promise<void> {
@@ -26,7 +26,9 @@ export async function seed(knex: Knex): Promise<void> {
   for (const table of expectedTables) {
     const exists = await knex.schema.hasTable(table);
     if (exists) {
-      const count = await knex(table).whereNull('deleted').count('* as total').first();
+      const hasDeleted = await knex.schema.hasColumn(table, 'deleted');
+      const query = hasDeleted ? knex(table).whereNull('deleted') : knex(table);
+      const count = await query.count('* as total').first();
       console.log(`  ✓ ${table} (${count?.total ?? 0} rows)`);
     } else {
       console.log(`  ✗ ${table} — MISSING`);

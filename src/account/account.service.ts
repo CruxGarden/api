@@ -14,7 +14,6 @@ import { RedisService } from '../common/services/redis.service';
 import { AccountRepository } from './account.repository';
 import { AuthorRepository } from '../author/author.repository';
 import { CruxRepository } from '../crux/crux.repository';
-import { ThemeRepository } from '../theme/theme.repository';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
@@ -29,7 +28,6 @@ export class AccountService {
     private readonly accountRepository: AccountRepository,
     private readonly authorRepository: AuthorRepository,
     private readonly cruxRepository: CruxRepository,
-    private readonly themeRepository: ThemeRepository,
     private readonly dbService: DbService,
     private readonly redisService: RedisService,
     private readonly keyMaster: KeyMaster,
@@ -217,16 +215,6 @@ export class AccountService {
           }
         }
 
-        // Delete all themes by this author
-        const deleteThemesResult = await this.themeRepository.deleteByAuthorId(
-          author.id,
-          trx,
-        );
-        if (deleteThemesResult.error) {
-          throw new InternalServerErrorException(
-            `Error deleting themes: ${deleteThemesResult.error}`,
-          );
-        }
       }
 
       // Delete all authors for this account

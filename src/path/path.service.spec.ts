@@ -33,7 +33,6 @@ describe('PathService', () => {
     kind: 'guide' as const,
     entry: 'crux-entry-id',
     author_id: 'author-123',
-    theme_id: 'theme-123',
     home_id: 'home-id-123',
     created: new Date(),
     updated: new Date(),
@@ -427,7 +426,6 @@ describe('PathService', () => {
 
       expect(result.id).toBe(mockPathRaw.id);
       expect(result.authorId).toBe(mockPathRaw.author_id);
-      expect(result.themeId).toBe(mockPathRaw.theme_id);
     });
   });
 

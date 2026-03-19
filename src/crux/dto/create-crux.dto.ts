@@ -63,14 +63,6 @@ export class CreateCruxDto {
   kind?: CruxKind;
 
   @ApiPropertyOptional({
-    description: 'Theme ID for styling the crux',
-    example: 'theme-123',
-  })
-  @IsOptional()
-  @IsString()
-  themeId?: string;
-
-  @ApiPropertyOptional({
     description: 'Status of the crux',
     enum: CruxStatus,
     example: CruxStatus.LIVING,

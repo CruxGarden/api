@@ -6,7 +6,6 @@ import { AppModule } from '../src/app.module';
 import { AccountRepository } from '../src/account/account.repository';
 import { AuthorRepository } from '../src/author/author.repository';
 import { CruxRepository } from '../src/crux/crux.repository';
-import { ThemeRepository } from '../src/theme/theme.repository';
 import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
 import { RedisService } from '../src/common/services/redis.service';
@@ -20,7 +19,6 @@ describe('Account Integration Tests', () => {
   let mockAccountRepository: jest.Mocked<AccountRepository>;
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
   let mockCruxRepository: jest.Mocked<CruxRepository>;
-  let mockThemeRepository: jest.Mocked<ThemeRepository>;
 
   const testAccountId = 'account-123';
   const testEmail = 'test@example.com';
@@ -64,9 +62,6 @@ describe('Account Integration Tests', () => {
       delete: jest.fn(),
     } as any;
 
-    mockThemeRepository = {
-      deleteByAuthorId: jest.fn(),
-    } as any;
 
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
@@ -89,8 +84,6 @@ describe('Account Integration Tests', () => {
       .useValue(mockAuthorRepository)
       .overrideProvider(CruxRepository)
       .useValue(mockCruxRepository)
-      .overrideProvider(ThemeRepository)
-      .useValue(mockThemeRepository)
       .overrideProvider(HomeService)
       .useValue(mockHomeService)
       .compile();

@@ -14,7 +14,6 @@ describe('CruxRepository', () => {
     description: 'A test crux',
     data: '{}',
     type: 'note',
-    theme_id: 'theme-123',
     status: 'living' as const,
     visibility: 'public' as const,
     author_id: 'author-123',

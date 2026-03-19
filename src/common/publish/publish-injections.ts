@@ -109,6 +109,73 @@ const SPA_NAVIGATE_SYNC: PublishInjection = {
 };
 
 // ---------------------------------------------------------------------------
+// Injection: Crux Store client
+// ---------------------------------------------------------------------------
+// Exposes window.crux.store with get/set/increment/delete/list methods.
+// In live mode, calls the crux.garden API. In local mode (workspace preview),
+// routes all calls back to the parent via postMessage.
+
+const CRUX_STORE_CLIENT: PublishInjection = {
+  id: 'crux-store-client',
+  shouldApply: (ctx) => {
+    const p = (ctx.artifact.meta?.path || ctx.artifact.filename || '').toLowerCase().replace(/^\//, '');
+    return p.endsWith('.html') || p.endsWith('.htm');
+  },
+  script: `(function(){
+  window.crux=window.crux||{};
+  var BASE='';
+  var _token=null,_mode='live',_cruxId=null;
+  window.addEventListener('message',function(e){
+    if(e.data&&e.data.type==='crux:session'){
+      _token=e.data.token||null;
+      _mode=e.data.mode||'live';
+      _cruxId=e.data.cruxId||null;
+      if(_cruxId)BASE='/store/'+_cruxId;
+    }
+  });
+  function hdr(){var h={'Content-Type':'application/json'};if(_token)h['Authorization']='Bearer '+_token;return h;}
+  function localCall(type,payload){
+    return new Promise(function(res){
+      var id=Math.random().toString(36).slice(2);
+      var timeout=setTimeout(function(){window.removeEventListener('message',h);res(null);},5000);
+      function h(e){
+        if(e.data&&e.data.id===id&&e.data.type===type+':res'){
+          clearTimeout(timeout);
+          window.removeEventListener('message',h);
+          res(e.data.value!==undefined?e.data.value:e.data.keys||null);
+        }
+      }
+      window.addEventListener('message',h);
+      window.parent.postMessage(Object.assign({type:type,id:id},payload),'*');
+    });
+  }
+  window.crux.store={
+    get:function(key){
+      if(_mode==='local')return localCall('crux:store:get',{key:key});
+      return fetch(BASE+'/'+encodeURIComponent(key),{headers:hdr()}).then(function(r){return r.ok?r.json().then(function(d){return d.value}):null}).catch(function(){return null});
+    },
+    set:function(key,value){
+      if(_mode==='local'){window.parent.postMessage({type:'crux:store:set',key:key,value:value},'*');return Promise.resolve();}
+      return fetch(BASE+'/'+encodeURIComponent(key),{method:'PUT',headers:hdr(),body:JSON.stringify({value:value})}).then(function(r){if(!r.ok)throw new Error('Store set failed: '+r.status)});
+    },
+    increment:function(key,by){
+      if(by===undefined)by=1;
+      if(_mode==='local')return localCall('crux:store:inc',{key:key,by:by});
+      return fetch(BASE+'/'+encodeURIComponent(key)+'/inc',{method:'POST',headers:hdr(),body:JSON.stringify({by:by})}).then(function(r){if(!r.ok)throw new Error('Store increment failed: '+r.status);return r.json().then(function(d){return d.value})});
+    },
+    delete:function(key){
+      if(_mode==='local'){window.parent.postMessage({type:'crux:store:del',key:key},'*');return Promise.resolve();}
+      return fetch(BASE+'/'+encodeURIComponent(key),{method:'DELETE',headers:hdr()}).then(function(r){if(!r.ok)throw new Error('Store delete failed: '+r.status)});
+    },
+    list:function(){
+      if(_mode==='local')return localCall('crux:store:list',{});
+      return fetch(BASE,{headers:hdr()}).then(function(r){if(!r.ok)throw new Error('Store list failed: '+r.status);return r.json()});
+    }
+  };
+})();`,
+};
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -116,6 +183,7 @@ export const PUBLISH_INJECTIONS: PublishInjection[] = [
   SPA_INDEX_STRIP,
   SPA_BASENAME,
   SPA_NAVIGATE_SYNC,
+  CRUX_STORE_CLIENT,
 ];
 
 /**

@@ -54,11 +54,4 @@ export class UpdatePathDto {
   @IsUUID()
   entry?: string;
 
-  @ApiPropertyOptional({
-    description: 'Updated theme ID for the path',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-  })
-  @IsOptional()
-  @IsUUID()
-  themeId?: string;
 }

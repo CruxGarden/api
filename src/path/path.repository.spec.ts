@@ -18,7 +18,6 @@ describe('PathRepository', () => {
     kind: 'guide' as const,
     entry: 'crux-entry-id',
     author_id: 'author-123',
-    theme_id: 'theme-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,

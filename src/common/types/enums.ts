@@ -78,7 +78,6 @@ export enum ResourceType {
   DIMENSION = 'dimension',
   PATH = 'path',
   TAG = 'tag',
-  THEME = 'theme',
 }
 
 export enum ServiceHealthType {

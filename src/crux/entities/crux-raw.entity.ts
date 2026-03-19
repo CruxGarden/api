@@ -6,7 +6,6 @@ export default interface CruxRaw {
   data: string;
   type: string;
   kind?: string;
-  theme_id?: string;
   status: 'living' | 'frozen';
   visibility: 'public' | 'private' | 'unlisted';
   discoverable?: boolean;

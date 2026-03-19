@@ -31,7 +31,6 @@ describe('PathController', () => {
     entry: 'crux-entry-id',
     authorId: 'author-123',
     homeId: 'home-id-123',
-    themeId: 'theme-123',
     created: new Date(),
     updated: new Date(),
     deleted: null,

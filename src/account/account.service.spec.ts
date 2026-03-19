@@ -9,7 +9,6 @@ import { AccountService } from './account.service';
 import { AccountRepository } from './account.repository';
 import { AuthorRepository } from '../author/author.repository';
 import { CruxRepository } from '../crux/crux.repository';
-import { ThemeRepository } from '../theme/theme.repository';
 import { RedisService } from '../common/services/redis.service';
 import { DbService } from '../common/services/db.service';
 import { KeyMaster } from '../common/services/key.master';
@@ -21,7 +20,6 @@ describe('AccountService', () => {
   let repository: jest.Mocked<AccountRepository>;
   let authorRepository: jest.Mocked<AuthorRepository>;
   let cruxRepository: jest.Mocked<CruxRepository>;
-  let themeRepository: jest.Mocked<ThemeRepository>;
   let redisService: jest.Mocked<RedisService>;
   let dbService: jest.Mocked<DbService>;
 
@@ -52,10 +50,6 @@ describe('AccountService', () => {
     const mockCruxRepository = {
       findAllByAuthorId: jest.fn(),
       delete: jest.fn(),
-    };
-
-    const mockThemeRepository = {
-      deleteByAuthorId: jest.fn(),
     };
 
     const mockRedisService = {
@@ -91,7 +85,6 @@ describe('AccountService', () => {
         { provide: AccountRepository, useValue: mockRepository },
         { provide: AuthorRepository, useValue: mockAuthorRepository },
         { provide: CruxRepository, useValue: mockCruxRepository },
-        { provide: ThemeRepository, useValue: mockThemeRepository },
         { provide: RedisService, useValue: mockRedisService },
         { provide: DbService, useValue: mockDbService },
         { provide: KeyMaster, useValue: mockKeyMaster },
@@ -103,7 +96,6 @@ describe('AccountService', () => {
     repository = module.get(AccountRepository);
     authorRepository = module.get(AuthorRepository);
     cruxRepository = module.get(CruxRepository);
-    themeRepository = module.get(ThemeRepository);
     redisService = module.get(RedisService);
     dbService = module.get(DbService);
   });
@@ -477,7 +469,6 @@ describe('AccountService', () => {
           author_id: 'author-id-123',
           account_id: 'account-id-123',
           home_id: 'home-id-123',
-          theme_id: null,
           meta: null,
           created: new Date(),
           updated: new Date(),
@@ -495,7 +486,6 @@ describe('AccountService', () => {
           author_id: 'author-id-123',
           account_id: 'account-id-123',
           home_id: 'home-id-123',
-          theme_id: null,
           meta: null,
           created: new Date(),
           updated: new Date(),
@@ -516,10 +506,6 @@ describe('AccountService', () => {
         error: null,
       });
       cruxRepository.delete.mockResolvedValue({ data: null, error: null });
-      themeRepository.deleteByAuthorId.mockResolvedValue({
-        data: null,
-        error: null,
-      });
       authorRepository.deleteByAccountId.mockResolvedValue({
         data: null,
         error: null,
@@ -535,10 +521,6 @@ describe('AccountService', () => {
       expect(cruxRepository.delete).toHaveBeenCalledTimes(2);
       expect(cruxRepository.delete).toHaveBeenCalledWith('crux-1', mockTrx);
       expect(cruxRepository.delete).toHaveBeenCalledWith('crux-2', mockTrx);
-      expect(themeRepository.deleteByAuthorId).toHaveBeenCalledWith(
-        'author-id-123',
-        mockTrx,
-      );
       expect(authorRepository.deleteByAccountId).toHaveBeenCalledWith(
         'account-id-123',
         mockTrx,

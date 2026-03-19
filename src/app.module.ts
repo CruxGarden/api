@@ -16,12 +16,12 @@ import { CruxModule } from './crux/crux.module';
 import { DimensionModule } from './dimension/dimension.module';
 import { PathModule } from './path/path.module';
 import { TagModule } from './tag/tag.module';
-import { ThemeModule } from './theme/theme.module';
 import { HomeModule } from './home/home.module';
 import { ArtifactModule } from './artifact/artifact.module';
 import { AiModule } from './ai/ai.module';
 import { SyncModule } from './sync/sync.module';
 import { DiscoverModule } from './discover/discover.module';
+import { StoreModule } from './crux-store/crux-store.module';
 
 @Module({
   imports: [
@@ -40,12 +40,12 @@ import { DiscoverModule } from './discover/discover.module';
     DimensionModule,
     PathModule,
     TagModule,
-    ThemeModule,
     HomeModule,
     ArtifactModule,
     AiModule,
     SyncModule,
     DiscoverModule,
+    StoreModule,
   ],
   controllers: [AppController],
   providers: [

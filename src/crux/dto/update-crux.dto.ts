@@ -62,14 +62,6 @@ export class UpdateCruxDto {
   kind?: CruxKind | null;
 
   @ApiPropertyOptional({
-    description: 'Updated theme ID for styling the crux',
-    example: 'theme-456',
-  })
-  @IsOptional()
-  @IsString()
-  themeId?: string;
-
-  @ApiPropertyOptional({
     description: 'Updated status of the crux',
     enum: CruxStatus,
     example: CruxStatus.FROZEN,
