@@ -130,7 +130,8 @@ const CRUX_STORE_CLIENT: PublishInjection = {
       _token=e.data.token||null;
       _mode=e.data.mode||'live';
       _cruxId=e.data.cruxId||null;
-      if(_cruxId)BASE='/store/'+_cruxId;
+      var apiBase=e.data.apiBase||'';
+      if(_cruxId)BASE=apiBase+'/store/'+_cruxId;
     }
   });
   function hdr(){var h={'Content-Type':'application/json'};if(_token)h['Authorization']='Bearer '+_token;return h;}
