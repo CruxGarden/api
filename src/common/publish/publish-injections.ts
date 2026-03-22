@@ -157,10 +157,11 @@ const CRUX_STORE_CLIENT: PublishInjection = {
         return fetch(BASE+'/'+encodeURIComponent(key),{headers:hdr()}).then(function(r){return r.ok?r.json().then(function(d){return d.value}):null}).catch(function(){return null});
       });
     },
-    set:function(key,value){
+    set:function(key,value,opts){
+      var m=(opts&&opts.mode)||'protected';
       return _ready.then(function(){
-        if(_mode==='local'){window.parent.postMessage({type:'crux:store:set',key:key,value:value},'*');return;}
-        return fetch(BASE+'/'+encodeURIComponent(key),{method:'PUT',headers:hdr(),body:JSON.stringify({value:value})}).then(function(r){if(!r.ok)throw new Error('Store set failed: '+r.status)});
+        if(_mode==='local'){window.parent.postMessage({type:'crux:store:set',key:key,value:value,mode:m},'*');return;}
+        return fetch(BASE+'/'+encodeURIComponent(key),{method:'PUT',headers:hdr(),body:JSON.stringify({value:value,mode:m})}).then(function(r){if(!r.ok)throw new Error('Store set failed: '+r.status)});
       });
     },
     increment:function(key,by){
