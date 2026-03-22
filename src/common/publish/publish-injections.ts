@@ -68,16 +68,14 @@ const SPA_INDEX_STRIP: PublishInjection = {
 // ---------------------------------------------------------------------------
 // Injection: SPA basename detection
 // ---------------------------------------------------------------------------
-// Published SPAs live at /{authorId}/{cruxId}/. Frameworks with client-side
-// routing need to know this prefix. We expose it as window.__CRUX_BASENAME__
-// so any framework can pick it up.
+// With per-crux subdomain isolation, each crux is served at the root of its
+// own origin ({cruxId}.publish.crux.garden). The basename is always '/'.
 
 const SPA_BASENAME: PublishInjection = {
   id: 'spa-basename',
   shouldApply: (ctx) => isIndexHtml(ctx.artifact) && isWebApp(ctx),
   script: `(function(){
-  var p=location.pathname.split('/').filter(Boolean);
-  window.__CRUX_BASENAME__=p.length>=2?'/'+p[0]+'/'+p[1]:'/';
+  window.__CRUX_BASENAME__='/';
 })();`,
 };
 
@@ -87,18 +85,15 @@ const SPA_BASENAME: PublishInjection = {
 // Monkey-patches history.pushState and replaceState + listens for popstate
 // to notify the parent frame (crux.garden) of route changes via postMessage.
 // Works universally with any SPA framework (React Router, Vue Router, etc.)
+// With per-crux subdomains, paths are already root-relative — no prefix to strip.
 
 const SPA_NAVIGATE_SYNC: PublishInjection = {
   id: 'spa-navigate-sync',
   shouldApply: (ctx) => isIndexHtml(ctx.artifact) && isWebApp(ctx),
   script: `(function(){
   if(window.parent===window)return;
-  var p=location.pathname.split('/').filter(Boolean);
-  var base=p.length>=2?'/'+p[0]+'/'+p[1]:'';
   function notify(){
-    var path=location.pathname;
-    if(base&&path.indexOf(base)===0)path=path.slice(base.length)||'/';
-    window.parent.postMessage({type:'crux:navigate',path:path},'*');
+    window.parent.postMessage({type:'crux:navigate',path:location.pathname},'*');
   }
   var OP=history.pushState,OR=history.replaceState;
   history.pushState=function(){OP.apply(this,arguments);notify();};

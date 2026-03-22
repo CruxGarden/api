@@ -350,8 +350,8 @@ export class CruxService {
       artifactRecords.push(record);
     }
 
-    // 3. Publish files directly to the published S3 bucket (authorId + cruxId — both immutable).
-    const pathPrefix = `${crux.authorId}/${crux.id}`;
+    // 3. Publish files directly to the published S3 bucket (cruxId only — per-crux subdomain isolation).
+    const pathPrefix = crux.id;
     await this.artifactService.deleteFromStaticBucket(pathPrefix);
     await this.artifactService.publishFilesDirectly(
       files.map((file, i) => ({
@@ -391,7 +391,7 @@ export class CruxService {
     const crux = await this.findById(cruxId);
 
     // 1. Delete published files from static S3 bucket
-    const pathPrefix = `${crux.authorId}/${crux.id}`;
+    const pathPrefix = crux.id;
     await this.artifactService.deleteFromStaticBucket(pathPrefix);
 
     // 2. Invalidate CloudFront cache (best-effort)
