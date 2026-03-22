@@ -53,5 +53,4 @@ export class UpdatePathDto {
   @IsOptional()
   @IsUUID()
   entry?: string;
-
 }

@@ -101,10 +101,14 @@ describe('AuthorController', () => {
     it('should return author by id', async () => {
       service.findById.mockResolvedValue(mockAuthor);
 
-      const result = await controller.getByIdentifier('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+      const result = await controller.getByIdentifier(
+        'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      );
 
       expect(result).toEqual(mockAuthor);
-      expect(service.findById).toHaveBeenCalledWith('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+      expect(service.findById).toHaveBeenCalledWith(
+        'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      );
     });
 
     it('should return author by plain username (no @ prefix)', async () => {
@@ -268,10 +272,15 @@ describe('AuthorController', () => {
       service.findById.mockResolvedValue(mockAuthor);
       cruxService.findByAuthorAndSlug.mockResolvedValue(mockCrux as any);
 
-      const result = await controller.getCruxBySlug('a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'test-crux');
+      const result = await controller.getCruxBySlug(
+        'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        'test-crux',
+      );
 
       expect(result).toEqual(mockCrux);
-      expect(service.findById).toHaveBeenCalledWith('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+      expect(service.findById).toHaveBeenCalledWith(
+        'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      );
       expect(cruxService.findByAuthorAndSlug).toHaveBeenCalledWith(
         'author-id',
         'test-crux',

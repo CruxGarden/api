@@ -214,7 +214,6 @@ export class AccountService {
             }
           }
         }
-
       }
 
       // Delete all authors for this account

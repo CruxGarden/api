@@ -39,7 +39,9 @@ describe('CruxService', () => {
   beforeEach(async () => {
     const mockRepository = {
       findBy: jest.fn(),
-      findByIdIncludingDeleted: jest.fn().mockResolvedValue({ data: null, error: null }),
+      findByIdIncludingDeleted: jest
+        .fn()
+        .mockResolvedValue({ data: null, error: null }),
       findByAuthorAndSlug: jest.fn(),
       findAllByAuthorQuery: jest.fn(),
       create: jest.fn(),
@@ -270,7 +272,11 @@ describe('CruxService', () => {
       const result = await service.delete('crux-id-123');
 
       expect(result).toBeNull();
-      expect(repository.delete).toHaveBeenCalledWith(mockCruxRaw.id, undefined, false);
+      expect(repository.delete).toHaveBeenCalledWith(
+        mockCruxRaw.id,
+        undefined,
+        false,
+      );
     });
 
     it('should throw NotFoundException when crux not found', async () => {

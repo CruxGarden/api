@@ -6,10 +6,7 @@ import { CruxModule } from '../crux/crux.module';
 import { AuthorModule } from '../author/author.module';
 
 @Module({
-  imports: [
-    forwardRef(() => CruxModule),
-    forwardRef(() => AuthorModule),
-  ],
+  imports: [forwardRef(() => CruxModule), forwardRef(() => AuthorModule)],
   controllers: [StoreController],
   providers: [StoreService, StoreRepository],
   exports: [StoreService],

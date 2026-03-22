@@ -72,7 +72,9 @@ describe('Crux Integration Tests', () => {
       findAll: jest.fn(),
       findAllByAuthorQuery: jest.fn(),
       findBy: jest.fn(),
-      findByIdIncludingDeleted: jest.fn().mockResolvedValue({ data: null, error: null }),
+      findByIdIncludingDeleted: jest
+        .fn()
+        .mockResolvedValue({ data: null, error: null }),
       findByAuthorAndSlug: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -378,7 +380,11 @@ describe('Crux Integration Tests', () => {
         .set(authHeader(token))
         .expect(204);
 
-      expect(mockCruxRepository.delete).toHaveBeenCalledWith(testCruxId, undefined, false);
+      expect(mockCruxRepository.delete).toHaveBeenCalledWith(
+        testCruxId,
+        undefined,
+        false,
+      );
     });
 
     it('should return 404 when crux not found', async () => {

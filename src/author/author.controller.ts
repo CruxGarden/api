@@ -53,11 +53,15 @@ export class AuthorController {
     this.logger = this.loggerService.createChildLogger('AuthorController');
   }
 
-  private static readonly UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  private static readonly UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   /** Resolve an identifier to an author — supports UUID, @username, or plain username */
   private async resolveAuthor(identifier: string): Promise<Author> {
-    const { hasPrefix, value } = stripPathPrefix(identifier, PathPrefix.USERNAME);
+    const { hasPrefix, value } = stripPathPrefix(
+      identifier,
+      PathPrefix.USERNAME,
+    );
     if (hasPrefix) {
       return this.authorService.findByUsername(value);
     }

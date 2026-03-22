@@ -21,7 +21,10 @@ import { AuthRequest } from '../common/types/interfaces';
 import { CruxService } from '../crux/crux.service';
 import { AuthorService } from '../author/author.service';
 import { StoreService } from './crux-store.service';
-import { SetStoreEntryDto, IncrementStoreEntryDto } from './dto/set-store-entry.dto';
+import {
+  SetStoreEntryDto,
+  IncrementStoreEntryDto,
+} from './dto/set-store-entry.dto';
 
 @Controller('store')
 export class StoreController {
@@ -97,7 +100,12 @@ export class StoreController {
     }
 
     const entry = await this.storeService.set(
-      cruxId, authorId, key, dto.value, mode, visitorId,
+      cruxId,
+      authorId,
+      key,
+      dto.value,
+      mode,
+      visitorId,
     );
     return { value: entry.value };
   }
@@ -118,7 +126,11 @@ export class StoreController {
     const authorId = await this.getCruxAuthorId(cruxId);
     const visitorId = await this.getVisitorId(req);
     const value = await this.storeService.increment(
-      cruxId, authorId, key, dto.by ?? 1, visitorId,
+      cruxId,
+      authorId,
+      key,
+      dto.by ?? 1,
+      visitorId,
     );
     return { value };
   }
@@ -131,10 +143,7 @@ export class StoreController {
    */
   @Get(':cruxId')
   @UseGuards(AuthGuard)
-  async list(
-    @Param('cruxId') cruxId: string,
-    @Req() req: AuthRequest,
-  ) {
+  async list(@Param('cruxId') cruxId: string, @Req() req: AuthRequest) {
     await this.assertCruxOwner(cruxId, req);
     const entries = await this.storeService.list(cruxId);
     return entries.map((e) => ({
@@ -169,17 +178,17 @@ export class StoreController {
   @Delete(':cruxId')
   @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  async clearAll(
-    @Param('cruxId') cruxId: string,
-    @Req() req: AuthRequest,
-  ) {
+  async clearAll(@Param('cruxId') cruxId: string, @Req() req: AuthRequest) {
     await this.assertCruxOwner(cruxId, req);
     await this.storeService.clearAll(cruxId);
   }
 
   // ── Helpers ─────────────────────────────────────────────
 
-  private async assertCruxOwner(cruxId: string, req: AuthRequest): Promise<void> {
+  private async assertCruxOwner(
+    cruxId: string,
+    req: AuthRequest,
+  ): Promise<void> {
     const crux = await this.cruxService.findById(cruxId);
     if (!crux) throw new NotFoundException('Crux not found');
 

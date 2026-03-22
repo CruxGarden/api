@@ -34,7 +34,11 @@ export class StoreService {
   ): Promise<Store | null> {
     // Try protected (per-visitor) first if visitor is authenticated
     if (visitorId) {
-      const { data } = await this.repository.findProtectedEntry(cruxId, key, visitorId);
+      const { data } = await this.repository.findProtectedEntry(
+        cruxId,
+        key,
+        visitorId,
+      );
       if (data) return this.asStore(data);
     }
 
@@ -57,7 +61,11 @@ export class StoreService {
 
     if (mode === 'public') {
       const { data, error } = await this.repository.upsertPublic(
-        id, cruxId, authorId, key, value,
+        id,
+        cruxId,
+        authorId,
+        key,
+        value,
       );
       if (error || !data) {
         throw new InternalServerErrorException(`Store set failed: ${error}`);
@@ -70,7 +78,12 @@ export class StoreService {
     }
 
     const { data, error } = await this.repository.upsertProtected(
-      id, cruxId, authorId, visitorId, key, value,
+      id,
+      cruxId,
+      authorId,
+      visitorId,
+      key,
+      value,
     );
     if (error || !data) {
       throw new InternalServerErrorException(`Store set failed: ${error}`);
@@ -98,15 +111,24 @@ export class StoreService {
     }
 
     const { data, error } = await this.repository.atomicIncrement(
-      cruxId, key, by, visitorId,
+      cruxId,
+      key,
+      by,
+      visitorId,
     );
     if (error || !data) {
-      throw new InternalServerErrorException(`Store increment failed: ${error}`);
+      throw new InternalServerErrorException(
+        `Store increment failed: ${error}`,
+      );
     }
     return typeof data.value === 'number' ? data.value : Number(data.value);
   }
 
-  async delete(cruxId: string, key: string, visitorId?: string | null): Promise<void> {
+  async delete(
+    cruxId: string,
+    key: string,
+    visitorId?: string | null,
+  ): Promise<void> {
     const { error } = await this.repository.deleteEntry(cruxId, key, visitorId);
     if (error) {
       throw new InternalServerErrorException(`Store delete failed: ${error}`);

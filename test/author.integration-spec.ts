@@ -134,7 +134,9 @@ describe('Author Integration Tests', () => {
   describe('GET /authors/:identifier', () => {
     it('should return 200 and author data by id (happy path)', async () => {
       // testAuthorId is not a UUID, so resolveAuthor treats it as a username
-      mockAuthorRepository.findByUsername.mockResolvedValue(success(testAuthorRaw));
+      mockAuthorRepository.findByUsername.mockResolvedValue(
+        success(testAuthorRaw),
+      );
 
       const response = await request(app.getHttpServer())
         .get(`/authors/${testAuthorId}`)

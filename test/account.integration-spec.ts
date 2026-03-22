@@ -62,7 +62,6 @@ describe('Account Integration Tests', () => {
       delete: jest.fn(),
     } as any;
 
-
     const mockHomeService = {
       primary: jest.fn().mockResolvedValue({
         id: 'home-123',

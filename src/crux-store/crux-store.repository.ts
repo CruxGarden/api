@@ -94,7 +94,9 @@ export class StoreRepository {
           created_at: now,
           updated_at: now,
         })
-        .onConflict(this.dbService.query().raw('(crux_id, key) WHERE visitor_id IS NULL'))
+        .onConflict(
+          this.dbService.query().raw('(crux_id, key) WHERE visitor_id IS NULL'),
+        )
         .merge({
           value: JSON.stringify(value),
           updated_at: now,
@@ -140,7 +142,9 @@ export class StoreRepository {
           updated_at: now,
         })
         .onConflict(
-          this.dbService.query().raw('(crux_id, visitor_id, key) WHERE visitor_id IS NOT NULL'),
+          this.dbService
+            .query()
+            .raw('(crux_id, visitor_id, key) WHERE visitor_id IS NOT NULL'),
         )
         .merge({
           value: JSON.stringify(value),
@@ -188,7 +192,11 @@ export class StoreRepository {
 
       const rows = await query
         .update({
-          value: this.dbService.query().raw('(COALESCE(value::text, \'0\')::numeric + ?)::text::jsonb', [by]),
+          value: this.dbService
+            .query()
+            .raw("(COALESCE(value::text, '0')::numeric + ?)::text::jsonb", [
+              by,
+            ]),
           updated_at: new Date(),
         })
         .returning('*');
@@ -240,7 +248,9 @@ export class StoreRepository {
     }
   }
 
-  async getStorageByAuthor(authorId: string): Promise<RepositoryResponse<number>> {
+  async getStorageByAuthor(
+    authorId: string,
+  ): Promise<RepositoryResponse<number>> {
     try {
       const result = await this.dbService
         .query()

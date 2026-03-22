@@ -113,7 +113,9 @@ const SPA_NAVIGATE_SYNC: PublishInjection = {
 const CRUX_STORE_CLIENT: PublishInjection = {
   id: 'crux-store-client',
   shouldApply: (ctx) => {
-    const p = (ctx.artifact.meta?.path || ctx.artifact.filename || '').toLowerCase().replace(/^\//, '');
+    const p = (ctx.artifact.meta?.path || ctx.artifact.filename || '')
+      .toLowerCase()
+      .replace(/^\//, '');
     return p.endsWith('.html') || p.endsWith('.htm');
   },
   script: `(function(){

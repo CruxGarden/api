@@ -23,8 +23,11 @@ async function bootstrap() {
 
   // CORS — validate origins against crux.garden and per-crux publish subdomains.
   // No credentials: true — auth uses Bearer tokens, not cookies.
-  const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-  const PUBLISH_SUBDOMAIN_RE = new RegExp(`^https://${UUID_PATTERN}\\.publish\\.crux\\.garden$`);
+  const UUID_PATTERN =
+    '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  const PUBLISH_SUBDOMAIN_RE = new RegExp(
+    `^https://${UUID_PATTERN}\\.publish\\.crux\\.garden$`,
+  );
   app.enableCors({
     origin: (origin, callback) => {
       // Allow requests with no origin (server-to-server, curl, etc.)

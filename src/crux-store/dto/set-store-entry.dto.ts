@@ -2,7 +2,9 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsNotEmpty, IsOptional } from 'class-validator';
 
 export class SetStoreEntryDto {
-  @ApiProperty({ description: 'The value to store (any JSON-serializable type)' })
+  @ApiProperty({
+    description: 'The value to store (any JSON-serializable type)',
+  })
   @IsNotEmpty()
   value: any;
 

@@ -315,7 +315,7 @@ describe('Artifact Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
 
       // Mock the size limit to 1 byte so a tiny buffer triggers validation
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+
       const constants = require('../src/common/types/constants');
       const replaced = jest.replaceProperty(constants, 'MAX_ARTIFACT_SIZE', 1);
       const largeBuffer = Buffer.alloc(1024);

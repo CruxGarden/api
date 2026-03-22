@@ -114,10 +114,7 @@ export class CruxService {
     return this.findBySlug(identifier);
   }
 
-  async create(
-    createCruxDto: CreateCruxDto,
-    authorId?: string,
-  ): Promise<Crux> {
+  async create(createCruxDto: CreateCruxDto, authorId?: string): Promise<Crux> {
     createCruxDto.id = createCruxDto.id || this.keyMaster.generateId();
 
     this.applyDefaults(createCruxDto);
@@ -126,7 +123,9 @@ export class CruxService {
     // (e.g. from a previous unpublish) so the INSERT doesn't hit a duplicate PK.
     // Scoped to authorId to avoid clobbering another author's crux.
     if (createCruxDto.id && (authorId || createCruxDto.authorId)) {
-      const existing = await this.cruxRepository.findByIdIncludingDeleted(createCruxDto.id);
+      const existing = await this.cruxRepository.findByIdIncludingDeleted(
+        createCruxDto.id,
+      );
       if (
         existing.data?.deleted &&
         existing.data.author_id === (authorId || createCruxDto.authorId)
