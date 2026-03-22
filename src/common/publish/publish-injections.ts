@@ -89,7 +89,13 @@ const SPA_BASENAME: PublishInjection = {
 
 const SPA_NAVIGATE_SYNC: PublishInjection = {
   id: 'spa-navigate-sync',
-  shouldApply: (ctx) => isIndexHtml(ctx.artifact) && isWebApp(ctx),
+  shouldApply: (ctx) => {
+    // Inject into ALL HTML files — not just index.html.
+    // Multi-page sites do full navigations between .html files.
+    // Each page needs the sync script to update the parent URL.
+    const p = (ctx.artifact.meta?.path || ctx.artifact.filename || '').toLowerCase().replace(/^\//, '');
+    return (p.endsWith('.html') || p.endsWith('.htm')) && isWebApp(ctx);
+  },
   script: `(function(){
   if(window.parent===window)return;
   function notify(){
