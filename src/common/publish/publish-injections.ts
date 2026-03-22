@@ -39,10 +39,11 @@ function isIndexHtml(artifact: Artifact): boolean {
   return p === 'index.html';
 }
 
-/** True when the crux is a webapp — either explicitly set or auto-detected */
+/** True when the crux is a webapp or notes vault — anything with SPA routing */
 function isWebApp(ctx: InjectionContext): boolean {
-  // Explicit kind takes priority
-  if (ctx.cruxKind === CruxKind.WEBAPP) return true;
+  // Explicit SPA-capable kinds
+  if (ctx.cruxKind === CruxKind.WEBAPP || ctx.cruxKind === CruxKind.NOTES)
+    return true;
   if (ctx.cruxKind && ctx.cruxKind !== CruxKind.WEBAPP) return false;
 
   // Auto-detect: any crux with an index.html is treated as a web app
@@ -93,7 +94,9 @@ const SPA_NAVIGATE_SYNC: PublishInjection = {
     // Inject into ALL HTML files — not just index.html.
     // Multi-page sites do full navigations between .html files.
     // Each page needs the sync script to update the parent URL.
-    const p = (ctx.artifact.meta?.path || ctx.artifact.filename || '').toLowerCase().replace(/^\//, '');
+    const p = (ctx.artifact.meta?.path || ctx.artifact.filename || '')
+      .toLowerCase()
+      .replace(/^\//, '');
     return (p.endsWith('.html') || p.endsWith('.htm')) && isWebApp(ctx);
   },
   script: `(function(){

@@ -18,6 +18,7 @@ export enum CruxKind {
   PAGE = 'page',
   DOCUMENT = 'document',
   IMAGE = 'image',
+  NOTES = 'notes',
 }
 
 export enum CruxVisibility {
