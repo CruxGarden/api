@@ -66,6 +66,12 @@ export class SyncController {
     return status;
   }
 
+  @Delete('garden')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteGarden(@Req() req: AuthRequest) {
+    await this.syncService.deleteGarden(req.account.id);
+  }
+
   // --- Crux ---
 
   @Put('crux/:cruxId')

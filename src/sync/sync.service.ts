@@ -98,6 +98,25 @@ export class SyncService {
     }
   }
 
+  async deleteGarden(accountId: string): Promise<void> {
+    try {
+      await this.storeService.delete({
+        path: this.gardenPath(accountId),
+        namespace: this.bucket,
+      });
+      await this.storeService.delete({
+        path: this.gardenMetaPath(accountId),
+        namespace: this.bucket,
+      });
+      this.logger.info('Garden backup deleted', { accountId });
+    } catch (e) {
+      this.logger.warn('Garden delete failed', {
+        accountId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
   // --- Crux ---
 
   async pushCrux(
