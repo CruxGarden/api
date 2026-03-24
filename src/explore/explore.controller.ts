@@ -2,13 +2,13 @@ import { Controller, Get, Query, Req, Res } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { DbService } from '../common/services/db.service';
-import { DiscoverService } from './discover.service';
+import { ExploreService } from './explore.service';
 
-@ApiTags('discover')
-@Controller('discover')
-export class DiscoverController {
+@ApiTags('explore')
+@Controller('explore')
+export class ExploreController {
   constructor(
-    private readonly discoverService: DiscoverService,
+    private readonly exploreService: ExploreService,
     private readonly dbService: DbService,
   ) {}
 
@@ -35,7 +35,7 @@ export class DiscoverController {
   })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'perPage', required: false, type: Number })
-  async discover(
+  async explore(
     @Query('q') q?: string,
     @Query('type') type: 'cruxes' | 'authors' = 'cruxes',
     @Query('tag') tag?: string | string[],
@@ -44,12 +44,12 @@ export class DiscoverController {
     @Res({ passthrough: true }) res?: Response,
   ) {
     if (type === 'authors') {
-      const query = this.discoverService.getAuthorsQuery({ q, sort });
+      const query = this.exploreService.getAuthorsQuery({ q, sort });
       return this.dbService.paginate({ query, request: req, response: res });
     }
 
     const tags = tag ? (Array.isArray(tag) ? tag : [tag]) : undefined;
-    const query = this.discoverService.getCruxesQuery({ q, tag: tags, sort });
+    const query = this.exploreService.getCruxesQuery({ q, tag: tags, sort });
     return this.dbService.paginate({ query, request: req, response: res });
   }
 
@@ -63,7 +63,7 @@ export class DiscoverController {
   })
   async tags(@Query('limit') limit?: string) {
     const n = limit ? Math.min(parseInt(limit, 10) || 50, 200) : 50;
-    const data = await this.discoverService.getPopularTags(n);
+    const data = await this.exploreService.getPopularTags(n);
     return { data };
   }
 }

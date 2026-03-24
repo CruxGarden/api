@@ -3,19 +3,19 @@ import { Knex } from 'knex';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
 
-export interface DiscoverCruxFilters {
+export interface ExploreCruxFilters {
   q?: string;
   tag?: string[];
   sort?: 'recent' | 'alpha';
 }
 
-export interface DiscoverAuthorFilters {
+export interface ExploreAuthorFilters {
   q?: string;
   sort?: 'recent' | 'alpha';
 }
 
 @Injectable()
-export class DiscoverRepository {
+export class ExploreRepository {
   // @ts-expect-error - logger
   private readonly logger: LoggerService;
 
@@ -23,7 +23,7 @@ export class DiscoverRepository {
     private readonly dbService: DbService,
     private readonly loggerService: LoggerService,
   ) {
-    this.logger = this.loggerService.createChildLogger('DiscoverRepository');
+    this.logger = this.loggerService.createChildLogger('ExploreRepository');
   }
 
   /**
@@ -31,7 +31,7 @@ export class DiscoverRepository {
    * Joins author for username/displayName.
    * Optionally filters by text search and/or tags.
    */
-  findCruxesQuery(filters: DiscoverCruxFilters): Knex.QueryBuilder {
+  findCruxesQuery(filters: ExploreCruxFilters): Knex.QueryBuilder {
     const query = this.dbService
       .query()
       .from('cruxes as c')
@@ -96,7 +96,7 @@ export class DiscoverRepository {
   /**
    * Query authors who have at least one discoverable published crux.
    */
-  findAuthorsQuery(filters: DiscoverAuthorFilters): Knex.QueryBuilder {
+  findAuthorsQuery(filters: ExploreAuthorFilters): Knex.QueryBuilder {
     const query = this.dbService
       .query()
       .from('authors as a')

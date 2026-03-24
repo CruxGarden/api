@@ -20,7 +20,7 @@ import { HomeModule } from './home/home.module';
 import { ArtifactModule } from './artifact/artifact.module';
 import { AiModule } from './ai/ai.module';
 import { SyncModule } from './sync/sync.module';
-import { DiscoverModule } from './discover/discover.module';
+import { ExploreModule } from './explore/explore.module';
 import { StoreModule } from './crux-store/crux-store.module';
 
 @Module({
@@ -44,7 +44,7 @@ import { StoreModule } from './crux-store/crux-store.module';
     ArtifactModule,
     AiModule,
     SyncModule,
-    DiscoverModule,
+    ExploreModule,
     StoreModule,
   ],
   controllers: [AppController],
