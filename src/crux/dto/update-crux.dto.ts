@@ -99,6 +99,8 @@ export class UpdateCruxDto {
 
   @ApiPropertyOptional({
     description: 'Updated metadata object for the crux',
+    type: 'object',
+    additionalProperties: true,
     example: { key: 'updated-value', custom: 'updated-data' },
   })
   @IsOptional()

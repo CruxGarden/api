@@ -17,14 +17,36 @@ export interface PublishInjection {
   id: string;
   /** When should this injection be applied? */
   shouldApply: (ctx: InjectionContext) => boolean;
-  /** The inline script to inject (will be wrapped in <script>) */
-  script: string;
+  /**
+   * The inline script to inject (wrapped in <script>). A function when the
+   * script needs publish-time facts baked in — see the Crux Store client,
+   * which cannot discover its own crux id at runtime on a direct visit.
+   */
+  script: string | ((ctx: InjectionContext) => string);
 }
 
 export interface InjectionContext {
   artifact: Artifact;
   allArtifacts: Artifact[];
   cruxKind?: string;
+  /** The crux being published — required for store calls from a standalone page. */
+  cruxId?: string;
+  /** Public API origin the published page should call. */
+  apiBase?: string;
+}
+
+/** JSON-encode a value for safe inlining inside a <script> block. */
+function inlineJson(value: unknown): string {
+  return JSON.stringify(value ?? null).replace(/</g, '\\u003c');
+}
+
+/** Public origin of this API, as a published page must call it. */
+function publicApiBase(): string {
+  return (
+    process.env.PUBLIC_API_URL ||
+    process.env.API_URL ||
+    'https://api.crux.garden'
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -127,18 +149,29 @@ const CRUX_STORE_CLIENT: PublishInjection = {
       .replace(/^\//, '');
     return p.endsWith('.html') || p.endsWith('.htm');
   },
-  script: `(function(){
+  script: (ctx) => `(function(){
   window.crux=window.crux||{};
-  var BASE='';
-  var _token=null,_mode='live',_cruxId=null;
+  var PUBLISHED_CRUX_ID=${inlineJson(ctx.cruxId)};
+  var PUBLISHED_API_BASE=${inlineJson(ctx.apiBase)};
+  var BASE=(PUBLISHED_CRUX_ID&&PUBLISHED_API_BASE)?PUBLISHED_API_BASE+'/store/'+PUBLISHED_CRUX_ID:'';
+  var _token=null,_mode='live',_cruxId=PUBLISHED_CRUX_ID;
   var _resolveReady;
   var _ready=new Promise(function(r){_resolveReady=r;});
+  // A page opened directly (its own subdomain, no parent frame) never receives
+  // a crux:session message, so it must be ready immediately — waiting for one
+  // left every store call pending forever. Framed contexts (the workspace
+  // preview) still override mode/token when their session arrives.
+  if(window.parent===window&&BASE)_resolveReady();
   window.addEventListener('message',function(e){
+    // Only the opener may configure the session: any page can embed a
+    // published crux, and an arbitrary embedder must not be able to point
+    // store traffic at a server of its choosing.
+    if(e.source!==window.parent)return;
     if(e.data&&e.data.type==='crux:session'){
       _token=e.data.token||null;
       _mode=e.data.mode||'live';
-      _cruxId=e.data.cruxId||null;
-      var apiBase=e.data.apiBase||'';
+      _cruxId=e.data.cruxId||_cruxId;
+      var apiBase=e.data.apiBase||PUBLISHED_API_BASE||'';
       if(_cruxId)BASE=apiBase+'/store/'+_cruxId;
       _resolveReady();
     }
@@ -216,8 +249,15 @@ export function applyInjections(
   artifact: Artifact,
   allArtifacts: Artifact[],
   cruxKind?: string,
+  options?: { cruxId?: string; apiBase?: string },
 ): { data: Buffer; applied: string[] } {
-  const ctx: InjectionContext = { artifact, allArtifacts, cruxKind };
+  const ctx: InjectionContext = {
+    artifact,
+    allArtifacts,
+    cruxKind,
+    cruxId: options?.cruxId,
+    apiBase: options?.apiBase ?? publicApiBase(),
+  };
   const matching = PUBLISH_INJECTIONS.filter((inj) => inj.shouldApply(ctx));
 
   if (matching.length === 0) {
@@ -225,7 +265,11 @@ export function applyInjections(
   }
 
   let html = content.toString('utf-8');
-  const combined = matching.map((inj) => inj.script).join('\n');
+  const combined = matching
+    .map((inj) =>
+      typeof inj.script === 'function' ? inj.script(ctx) : inj.script,
+    )
+    .join('\n');
   const tag = `<script data-crux-inject>${combined}</script>`;
 
   if (html.includes('</head>')) {

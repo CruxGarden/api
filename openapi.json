@@ -1,0 +1,5669 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "Returns the health status of the API and its dependencies (database, Redis). Status will be \"healthy\" if all services are up, \"degraded\" if some services are down, or \"unhealthy\" if critical services are down.",
+        "operationId": "AppController_health",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Health status retrieved successfully. Always returns 200 OK even if services are down - check the status field for actual health.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "version",
+                    "timestamp",
+                    "services"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "healthy",
+                        "degraded",
+                        "unhealthy"
+                      ],
+                      "example": "healthy",
+                      "description": "Overall health: \"healthy\" = all up, \"degraded\" = some down, \"unhealthy\" = critical services down"
+                    },
+                    "version": {
+                      "type": "string",
+                      "example": "0.0.1",
+                      "description": "API version"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "example": "2025-10-06T12:00:00.000Z",
+                      "description": "ISO 8601 timestamp when the health check was performed"
+                    },
+                    "services": {
+                      "type": "object",
+                      "required": [
+                        "database",
+                        "redis"
+                      ],
+                      "properties": {
+                        "database": {
+                          "type": "object",
+                          "required": [
+                            "status"
+                          ],
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "up",
+                                "down"
+                              ],
+                              "example": "up",
+                              "description": "Database connectivity status"
+                            },
+                            "responseTime": {
+                              "type": "number",
+                              "example": 5,
+                              "description": "Database response time in milliseconds"
+                            },
+                            "error": {
+                              "type": "string",
+                              "example": "Connection timeout",
+                              "description": "Error message when status is \"down\""
+                            }
+                          }
+                        },
+                        "redis": {
+                          "type": "object",
+                          "required": [
+                            "status"
+                          ],
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "up",
+                                "down"
+                              ],
+                              "example": "up",
+                              "description": "Redis connectivity status"
+                            },
+                            "responseTime": {
+                              "type": "number",
+                              "example": 2,
+                              "description": "Redis response time in milliseconds"
+                            },
+                            "error": {
+                              "type": "string",
+                              "example": "Connection refused",
+                              "description": "Error message when status is \"down\""
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Health check",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/auth/code": {
+      "post": {
+        "description": "Sends an authentication code to the provided email address.",
+        "operationId": "AuthController_code",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthCodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication code sent successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Auth Code emailed to user@example.com"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid email format"
+          }
+        },
+        "summary": "Request authentication code",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "description": "Authenticates a user using email and authentication code. Creates account and author if first time login.",
+        "operationId": "AuthController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accessToken": {
+                      "type": "string",
+                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                      "description": "JWT access token valid for 1 hour"
+                    },
+                    "refreshToken": {
+                      "type": "string",
+                      "example": "gHtdgqnJiEaBcDef",
+                      "description": "Refresh token valid for 14 days"
+                    },
+                    "expiresIn": {
+                      "type": "number",
+                      "example": 3600,
+                      "description": "Access token expiration time in seconds"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format"
+          },
+          "401": {
+            "description": "Invalid email or authentication code"
+          }
+        },
+        "summary": "Login with email and code",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/token": {
+      "post": {
+        "description": "Gets a new access token using a refresh token.",
+        "operationId": "AuthController_token",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token refreshed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accessToken": {
+                      "type": "string",
+                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                      "description": "New JWT access token valid for 1 hour"
+                    },
+                    "refreshToken": {
+                      "type": "string",
+                      "example": "gHtdgqnJiEaBcDef",
+                      "description": "New refresh token valid for 14 days"
+                    },
+                    "expiresIn": {
+                      "type": "number",
+                      "example": 3600,
+                      "description": "Access token expiration time in seconds"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request format"
+          },
+          "401": {
+            "description": "Invalid or expired refresh token"
+          }
+        },
+        "summary": "Refresh access token",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/profile": {
+      "get": {
+        "description": "Retrieves the authenticated user's account profile.",
+        "operationId": "AuthController_profile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "User profile retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440000"
+                    },
+                    "email": {
+                      "type": "string",
+                      "format": "email",
+                      "example": "user@example.com"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "admin",
+                        "author",
+                        "keeper"
+                      ],
+                      "example": "author"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time",
+                      "example": "2024-01-01T00:00:00.000Z"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time",
+                      "example": "2024-01-01T00:00:00.000Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "User profile not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get user profile",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "delete": {
+        "description": "Logs out the authenticated user and invalidates their grant tokens.",
+        "operationId": "AuthController_logout",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "Logout successful - no content returned"
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Logout user",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/account/check-email": {
+      "get": {
+        "description": "Checks if an email address is available for use. Returns true if available or if it belongs to the current user.",
+        "operationId": "AccountController_checkEmail",
+        "parameters": [
+          {
+            "name": "email",
+            "required": true,
+            "in": "query",
+            "description": "Email address to check",
+            "schema": {
+              "example": "user@example.com",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Email availability status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean",
+                      "example": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid email format"
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Check email availability",
+        "tags": [
+          "Account Management"
+        ]
+      }
+    },
+    "/account": {
+      "get": {
+        "description": "Retrieves the authenticated user's account.",
+        "operationId": "AccountController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Account retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "email": {
+                      "type": "string",
+                      "example": "user@example.com"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "admin",
+                        "author",
+                        "keeper"
+                      ]
+                    },
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440001"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Account not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get account",
+        "tags": [
+          "Account Management"
+        ]
+      },
+      "patch": {
+        "description": "Partially updates the authenticated user's account information. Only provided fields will be updated.",
+        "operationId": "AccountController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAccountDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Account updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "email": {
+                      "type": "string",
+                      "example": "user@example.com"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "admin",
+                        "author",
+                        "keeper"
+                      ]
+                    },
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440001"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input data"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Cannot update another user's account"
+          },
+          "404": {
+            "description": "Account not found"
+          },
+          "409": {
+            "description": "Email already exists"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update account (partial)",
+        "tags": [
+          "Account Management"
+        ]
+      },
+      "delete": {
+        "description": "Permanently deletes the authenticated user's account. Requires confirmation.",
+        "operationId": "AccountController_delete",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteAccountDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Account deleted successfully"
+          },
+          "400": {
+            "description": "Confirmation text does not match"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Cannot delete another user's account"
+          },
+          "404": {
+            "description": "Account not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete account",
+        "tags": [
+          "Account Management"
+        ]
+      }
+    },
+    "/authors/check-username": {
+      "get": {
+        "description": "Checks if a username is available for use. Returns true if available or if it belongs to the current user.",
+        "operationId": "AuthorController_checkUsername",
+        "parameters": [
+          {
+            "name": "username",
+            "required": true,
+            "in": "query",
+            "description": "Username to check",
+            "schema": {
+              "example": "johndoe",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Username availability status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean",
+                      "example": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Check username availability",
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/authors": {
+      "get": {
+        "description": "Retrieves a paginated list of all authors.",
+        "operationId": "AuthorController_getAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of authors retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "example": "author_123"
+                      },
+                      "username": {
+                        "type": "string",
+                        "example": "johndoe"
+                      },
+                      "display_name": {
+                        "type": "string",
+                        "example": "John Doe"
+                      },
+                      "email": {
+                        "type": "string",
+                        "example": "john@example.com"
+                      },
+                      "bio": {
+                        "type": "string",
+                        "example": "Software developer and writer"
+                      },
+                      "website": {
+                        "type": "string",
+                        "example": "https://johndoe.com"
+                      },
+                      "avatar_url": {
+                        "type": "string",
+                        "example": "https://example.com/avatar.jpg"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get all authors",
+        "tags": [
+          "Authors"
+        ]
+      },
+      "post": {
+        "description": "Creates a new author profile. Requires authentication.",
+        "operationId": "AuthorController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAuthorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The author has been successfully created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "author_123"
+                    },
+                    "username": {
+                      "type": "string",
+                      "example": "johndoe"
+                    },
+                    "display_name": {
+                      "type": "string",
+                      "example": "John Doe"
+                    },
+                    "email": {
+                      "type": "string",
+                      "example": "john@example.com"
+                    },
+                    "bio": {
+                      "type": "string",
+                      "example": "Software developer and writer"
+                    },
+                    "website": {
+                      "type": "string",
+                      "example": "https://johndoe.com"
+                    },
+                    "avatar_url": {
+                      "type": "string",
+                      "example": "https://example.com/avatar.jpg"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a new author",
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/authors/{identifier}": {
+      "get": {
+        "description": "Retrieves a specific author by their UUID or username. Prefix identifier with @ to search by username (e.g., @johndoe), otherwise looks up by UUID.",
+        "operationId": "AuthorController_getByIdentifier",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "description": "Author UUID (e.g., \"550e8400-e29b-41d4-a716-446655440000\") or @username (e.g., \"@johndoe\")",
+            "schema": {
+              "example": "@johndoe",
+              "type": "string"
+            }
+          },
+          {
+            "name": "embed",
+            "required": false,
+            "in": "query",
+            "description": "Embed related resources. Use \"home\" to include the home crux.",
+            "schema": {
+              "enum": [
+                "home"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The author data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "description": "Author without embedded resources",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "example": "author_123"
+                        },
+                        "username": {
+                          "type": "string",
+                          "example": "johndoe"
+                        },
+                        "displayName": {
+                          "type": "string",
+                          "example": "John Doe"
+                        },
+                        "bio": {
+                          "type": "string",
+                          "example": "Software developer and writer"
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "example": "550e8400-e29b-41d4-a716-446655440000"
+                        },
+                        "homeId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "example": "550e8400-e29b-41d4-a716-446655440001"
+                        },
+                        "type": {
+                          "type": "string",
+                          "example": "individual"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "example": "writer"
+                        },
+                        "meta": {
+                          "type": "object",
+                          "example": {}
+                        },
+                        "created": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updated": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "description": "Author with embedded home crux (when ?embed=home)",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "example": "author_123"
+                        },
+                        "username": {
+                          "type": "string",
+                          "example": "johndoe"
+                        },
+                        "displayName": {
+                          "type": "string",
+                          "example": "John Doe"
+                        },
+                        "bio": {
+                          "type": "string",
+                          "example": "Software developer and writer"
+                        },
+                        "accountId": {
+                          "type": "string",
+                          "example": "account_456"
+                        },
+                        "type": {
+                          "type": "string",
+                          "example": "individual"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "example": "writer"
+                        },
+                        "meta": {
+                          "type": "object",
+                          "example": {}
+                        },
+                        "home": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "example": "crux_789"
+                            },
+                            "title": {
+                              "type": "string",
+                              "example": "My Home Crux"
+                            }
+                          }
+                        },
+                        "created": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updated": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Author not found"
+          }
+        },
+        "summary": "Get an author by ID or username",
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/authors/{id}": {
+      "patch": {
+        "description": "Updates an existing author profile. Requires authentication and ownership.",
+        "operationId": "AuthorController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the author to update",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAuthorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The author has been successfully updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "author_123"
+                    },
+                    "username": {
+                      "type": "string",
+                      "example": "johndoe"
+                    },
+                    "display_name": {
+                      "type": "string",
+                      "example": "John Updated"
+                    },
+                    "email": {
+                      "type": "string",
+                      "example": "john.updated@example.com"
+                    },
+                    "bio": {
+                      "type": "string",
+                      "example": "Updated bio information"
+                    },
+                    "website": {
+                      "type": "string",
+                      "example": "https://johnupdated.com"
+                    },
+                    "avatar_url": {
+                      "type": "string",
+                      "example": "https://example.com/new-avatar.jpg"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Author not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update an author",
+        "tags": [
+          "Authors"
+        ]
+      },
+      "delete": {
+        "description": "Deletes an existing author profile. Requires authentication and ownership.",
+        "operationId": "AuthorController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the author to delete",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The author has been successfully deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Author deleted successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Author not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete an author",
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/authors/{id}/avatar": {
+      "post": {
+        "operationId": "AuthorController_uploadAvatar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authors"
+        ]
+      },
+      "delete": {
+        "operationId": "AuthorController_removeAvatar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/authors/{identifier}/avatar": {
+      "get": {
+        "operationId": "AuthorController_getAvatar",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/authors/{identifier}/cruxes": {
+      "get": {
+        "operationId": "AuthorController_getPublicCruxes",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/authors/{identifier}/cruxes/{slug}": {
+      "get": {
+        "operationId": "AuthorController_getCruxBySlug",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/authors/{identifier}/graph": {
+      "get": {
+        "operationId": "AuthorController_getGraph",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/authors/{identifier}/cruxes/{slug}/artifacts": {
+      "get": {
+        "operationId": "AuthorController_getPublicArtifacts",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/authors/{identifier}/cruxes/{slug}/artifacts/{artifactId}/download": {
+      "get": {
+        "operationId": "AuthorController_downloadPublicArtifact",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifactId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
+    "/cruxes": {
+      "get": {
+        "description": "Retrieves a paginated list of all cruxes with their authors.",
+        "operationId": "CruxController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of cruxes retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "example": "crux_123"
+                      },
+                      "slug": {
+                        "type": "string",
+                        "example": "my-awesome-crux"
+                      },
+                      "title": {
+                        "type": "string",
+                        "example": "My Awesome Crux"
+                      },
+                      "description": {
+                        "type": "string",
+                        "example": "A brief description of this crux"
+                      },
+                      "data": {
+                        "type": "string",
+                        "example": "This is the content of my crux"
+                      },
+                      "type": {
+                        "type": "string",
+                        "example": "text"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "example": "note"
+                      },
+                      "status": {
+                        "type": "string",
+                        "example": "living"
+                      },
+                      "visibility": {
+                        "type": "string",
+                        "example": "public"
+                      },
+                      "authorId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "example": "550e8400-e29b-41d4-a716-446655440000"
+                      },
+                      "homeId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "example": "550e8400-e29b-41d4-a716-446655440001"
+                      },
+                      "meta": {
+                        "type": "object",
+                        "example": {}
+                      },
+                      "author_username": {
+                        "type": "string",
+                        "example": "johndoe"
+                      },
+                      "author_display_name": {
+                        "type": "string",
+                        "example": "John Doe"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get all cruxes",
+        "tags": [
+          "Cruxes"
+        ]
+      },
+      "post": {
+        "description": "Creates a new crux with the provided data. Requires authentication.",
+        "operationId": "CruxController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCruxDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The crux has been successfully created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "crux_123"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "example": "my-awesome-crux"
+                    },
+                    "title": {
+                      "type": "string",
+                      "example": "My Awesome Crux"
+                    },
+                    "description": {
+                      "type": "string",
+                      "example": "A brief description of this crux"
+                    },
+                    "data": {
+                      "type": "string",
+                      "example": "This is the content of my crux"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "text"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "note"
+                    },
+                    "status": {
+                      "type": "string",
+                      "example": "living"
+                    },
+                    "visibility": {
+                      "type": "string",
+                      "example": "unlisted"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440000"
+                    },
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440001"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "example": {}
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a new crux",
+        "tags": [
+          "Cruxes"
+        ]
+      }
+    },
+    "/cruxes/{identifier}": {
+      "get": {
+        "description": "Retrieves a specific crux by its UUID or slug.",
+        "operationId": "CruxController_getByIdentifier",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "description": "The UUID or slug of the crux",
+            "examples": {
+              "uuid": {
+                "value": "be464476-892a-40f5-b26b-ee340f060c72",
+                "description": "UUID"
+              },
+              "slug": {
+                "value": "my-crux",
+                "description": "Slug"
+              }
+            },
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The crux data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "crux_123"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "example": "my-awesome-crux"
+                    },
+                    "title": {
+                      "type": "string",
+                      "example": "My Awesome Crux"
+                    },
+                    "description": {
+                      "type": "string",
+                      "example": "A brief description of this crux"
+                    },
+                    "data": {
+                      "type": "string",
+                      "example": "This is the content of my crux"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "text"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "note"
+                    },
+                    "status": {
+                      "type": "string",
+                      "example": "living"
+                    },
+                    "visibility": {
+                      "type": "string",
+                      "example": "unlisted"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440000"
+                    },
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440001"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "example": {}
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "summary": "Get a crux by identifier",
+        "tags": [
+          "Cruxes"
+        ]
+      }
+    },
+    "/cruxes/{id}": {
+      "patch": {
+        "description": "Updates an existing crux with the provided data. Requires authentication and ownership.",
+        "operationId": "CruxController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the crux to update",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCruxDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The crux has been successfully updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "crux_123"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "example": "my-awesome-crux"
+                    },
+                    "title": {
+                      "type": "string",
+                      "example": "My Updated Crux"
+                    },
+                    "description": {
+                      "type": "string",
+                      "example": "Updated description"
+                    },
+                    "data": {
+                      "type": "string",
+                      "example": "This is the updated content"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "text"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "note"
+                    },
+                    "status": {
+                      "type": "string",
+                      "example": "living"
+                    },
+                    "visibility": {
+                      "type": "string",
+                      "example": "public"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440000"
+                    },
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440001"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "example": {}
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a crux",
+        "tags": [
+          "Cruxes"
+        ]
+      },
+      "delete": {
+        "description": "Deletes an existing crux. Requires authentication and ownership.",
+        "operationId": "CruxController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the crux to delete",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The crux has been successfully deleted."
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a crux",
+        "tags": [
+          "Cruxes"
+        ]
+      }
+    },
+    "/cruxes/{id}/dimensions": {
+      "get": {
+        "description": "Retrieves all dimensional relationships where this crux is the source. Dimensions can be filtered by type and optionally include embedded source/target crux data.",
+        "operationId": "CruxController_getDimensions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the source crux",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "description": "Filter dimensions by type. Gates are origins/sources, Gardens are creations/consequences, Growth is evolution over time, Grafts are lateral connections.",
+            "schema": {
+              "enum": [
+                "gate",
+                "garden",
+                "growth",
+                "graft"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "embed",
+            "required": false,
+            "in": "query",
+            "description": "Control which related crux data to embed in the response. Can be a single value or comma-separated list (order-agnostic, case-insensitive). Default: \"target\"",
+            "examples": {
+              "default": {
+                "value": "target",
+                "description": "Default - embeds target crux only (id, slug, title, data)"
+              },
+              "none": {
+                "value": "none",
+                "description": "No embedded data - returns only IDs"
+              },
+              "source": {
+                "value": "source",
+                "description": "Embeds source crux data only"
+              },
+              "both": {
+                "value": "source,target",
+                "description": "Embeds both source and target crux data"
+              },
+              "bothReversed": {
+                "value": "target,source",
+                "description": "Order does not matter - same as source,target"
+              }
+            },
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dimensions retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "sourceId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Always present - ID of the source crux"
+                      },
+                      "targetId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Always present - ID of the target crux"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "gate",
+                          "garden",
+                          "growth",
+                          "graft"
+                        ],
+                        "example": "gate"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "example": "inspiration"
+                      },
+                      "weight": {
+                        "type": "number",
+                        "example": 1
+                      },
+                      "note": {
+                        "type": "string",
+                        "example": "This inspired that idea"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "source": {
+                        "type": "object",
+                        "description": "Embedded source crux data (only present if embed includes \"source\")",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "slug": {
+                            "type": "string",
+                            "example": "my-source-crux"
+                          },
+                          "title": {
+                            "type": "string",
+                            "example": "Source Crux Title"
+                          },
+                          "data": {
+                            "type": "string",
+                            "example": "Source crux content..."
+                          }
+                        }
+                      },
+                      "target": {
+                        "type": "object",
+                        "description": "Embedded target crux data (present by default, excluded if embed=none or embed=source)",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "slug": {
+                            "type": "string",
+                            "example": "my-target-crux"
+                          },
+                          "title": {
+                            "type": "string",
+                            "example": "Target Crux Title"
+                          },
+                          "data": {
+                            "type": "string",
+                            "example": "Target crux content..."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "summary": "Get dimensions for a crux",
+        "tags": [
+          "Cruxes"
+        ]
+      },
+      "post": {
+        "description": "Creates a new dimensional relationship from this crux to another crux.",
+        "operationId": "CruxController_createDimension",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the source crux",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDimensionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Dimension created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "dim_123"
+                    },
+                    "sourceId": {
+                      "type": "string",
+                      "example": "crux_123"
+                    },
+                    "targetId": {
+                      "type": "string",
+                      "example": "crux_456"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "gate"
+                    },
+                    "weight": {
+                      "type": "number",
+                      "example": 1
+                    },
+                    "note": {
+                      "type": "string",
+                      "example": "Connection note"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid dimension type or target IDs"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a new dimension from this crux",
+        "tags": [
+          "Cruxes"
+        ]
+      }
+    },
+    "/cruxes/{id}/tags": {
+      "get": {
+        "description": "Retrieves all tags associated with a specific crux.",
+        "operationId": "CruxController_getTags",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the crux",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          },
+          {
+            "name": "filter",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tags retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "label": {
+                        "type": "string",
+                        "example": "web-development"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get all tags for a crux",
+        "tags": [
+          "Cruxes"
+        ]
+      },
+      "put": {
+        "description": "Replaces all tags for a crux with the provided list. Tags must be in kebab-case format.",
+        "operationId": "CruxController_syncTags",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the crux",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "labels": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "example": [
+                      "web-development",
+                      "javascript",
+                      "tutorial"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tags synced successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "label": {
+                        "type": "string",
+                        "example": "web-development"
+                      },
+                      "resourceType": {
+                        "type": "string",
+                        "example": "crux"
+                      },
+                      "resourceId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "authorId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "homeId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid tag label format (must be kebab-case)"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "No permission to manage tags for this crux"
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Sync tags for a crux",
+        "tags": [
+          "Cruxes"
+        ]
+      }
+    },
+    "/cruxes/{id}/artifacts": {
+      "get": {
+        "description": "Retrieves all file artifacts associated with a specific crux.",
+        "operationId": "CruxController_getArtifacts",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the crux",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifacts retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "type": {
+                        "type": "string",
+                        "example": "image"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "example": "photo"
+                      },
+                      "filename": {
+                        "type": "string",
+                        "example": "screenshot.png"
+                      },
+                      "mimeType": {
+                        "type": "string",
+                        "example": "image/png"
+                      },
+                      "size": {
+                        "type": "number",
+                        "example": 1024000
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get all artifacts for a crux",
+        "tags": [
+          "Cruxes"
+        ]
+      },
+      "post": {
+        "description": "Uploads a file and creates an artifact record for a crux. Max file size: 50MB. Requires authentication and crux ownership.",
+        "operationId": "CruxController_createArtifact",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the crux",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file",
+                  "type",
+                  "kind"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "The file to upload (max 50MB)"
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Type of artifact",
+                    "example": "image"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "description": "Kind of artifact",
+                    "example": "photo"
+                  },
+                  "meta": {
+                    "type": "string",
+                    "description": "Optional metadata as JSON string",
+                    "example": "{\"width\": 1920, \"height\": 1080}"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Artifact uploaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "image"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "photo"
+                    },
+                    "filename": {
+                      "type": "string",
+                      "example": "screenshot.png"
+                    },
+                    "mimeType": {
+                      "type": "string",
+                      "example": "image/png"
+                    },
+                    "size": {
+                      "type": "number",
+                      "example": 1024000
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid file, exceeds size limit, or missing required fields"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "No permission to manage this crux"
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload a file artifact to a crux",
+        "tags": [
+          "Cruxes"
+        ]
+      }
+    },
+    "/cruxes/{id}/artifacts/{artifactId}/download": {
+      "get": {
+        "description": "Downloads the file for a specific artifact. Returns the file with appropriate Content-Type and Content-Disposition headers. Cached for 1 year.",
+        "operationId": "CruxController_downloadArtifact",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the crux",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifactId",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the artifact",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact file downloaded successfully",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "headers": {
+              "Content-Type": {
+                "description": "MIME type of the file",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Disposition": {
+                "description": "Artifact filename",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "description": "Cache control header",
+                "schema": {
+                  "type": "string",
+                  "example": "max-age=31536000"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Crux or artifact not found, or artifact does not belong to this crux"
+          }
+        },
+        "summary": "Download an artifact file",
+        "tags": [
+          "Cruxes"
+        ]
+      }
+    },
+    "/cruxes/{id}/publish": {
+      "post": {
+        "operationId": "CruxController_publish",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Cruxes"
+        ]
+      }
+    },
+    "/cruxes/{id}/unpublish": {
+      "post": {
+        "operationId": "CruxController_unpublish",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Cruxes"
+        ]
+      }
+    },
+    "/artifacts/{id}": {
+      "put": {
+        "description": "Updates an existing artifact. Optionally upload a new file to replace the existing one. Max file size: 50MB. Requires authentication and ownership.",
+        "operationId": "ArtifactController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the artifact to update",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Optional: New file to replace existing (max 50MB)"
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Type of artifact",
+                    "example": "image"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "description": "Kind of artifact",
+                    "example": "photo"
+                  },
+                  "meta": {
+                    "type": "string",
+                    "description": "Optional metadata as JSON string",
+                    "example": "{\"width\": 1920, \"height\": 1080}"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The artifact has been successfully updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "image"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "photo"
+                    },
+                    "filename": {
+                      "type": "string",
+                      "example": "screenshot.png"
+                    },
+                    "mimeType": {
+                      "type": "string",
+                      "example": "image/png"
+                    },
+                    "size": {
+                      "type": "number",
+                      "example": 1024000
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input data or file exceeds size limit"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Artifact not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update an artifact",
+        "tags": [
+          "Artifacts"
+        ]
+      },
+      "delete": {
+        "description": "Deletes an existing artifact. Requires authentication and ownership.",
+        "operationId": "ArtifactController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the artifact to delete",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The artifact has been successfully deleted."
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Artifact not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete an artifact",
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
+    "/homes": {
+      "get": {
+        "description": "Retrieves a paginated list of all homes.",
+        "operationId": "HomeController_getAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of homes retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string",
+                        "example": "My Garden"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "primary": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "type": {
+                        "type": "string",
+                        "example": "personal"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "example": "garden"
+                      },
+                      "meta": {
+                        "type": "object"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get all homes",
+        "tags": [
+          "Homes"
+        ]
+      },
+      "post": {
+        "description": "Creates a new home with the provided data. Requires admin authentication.",
+        "operationId": "HomeController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHomeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The home has been successfully created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440000"
+                    },
+                    "name": {
+                      "type": "string",
+                      "example": "My Garden"
+                    },
+                    "description": {
+                      "type": "string",
+                      "example": "A personal knowledge garden"
+                    },
+                    "primary": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "personal"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "garden"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "example": {
+                        "color": "blue",
+                        "icon": "tree"
+                      }
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input data"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Admin access required"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a new home",
+        "tags": [
+          "Homes"
+        ]
+      }
+    },
+    "/homes/{id}": {
+      "get": {
+        "description": "Retrieves a specific home by its UUID.",
+        "operationId": "HomeController_getById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the home",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The home data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string",
+                      "example": "My Garden"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "primary": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "personal"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "garden"
+                    },
+                    "meta": {
+                      "type": "object"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Home not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a home by ID",
+        "tags": [
+          "Homes"
+        ]
+      },
+      "patch": {
+        "description": "Updates an existing home with the provided data. Requires admin authentication.",
+        "operationId": "HomeController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the home to update",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateHomeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The home has been successfully updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string",
+                      "example": "Updated Garden Name"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "primary": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "personal"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "garden"
+                    },
+                    "meta": {
+                      "type": "object"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input data"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "404": {
+            "description": "Home not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a home",
+        "tags": [
+          "Homes"
+        ]
+      },
+      "delete": {
+        "description": "Deletes an existing home. Requires admin authentication.",
+        "operationId": "HomeController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the home to delete",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The home has been successfully deleted."
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "404": {
+            "description": "Home not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a home",
+        "tags": [
+          "Homes"
+        ]
+      }
+    },
+    "/tags": {
+      "get": {
+        "description": "Retrieves all tags with optional filtering by resource type, search term, and sorting. Results are paginated - use Link and Pagination response headers for navigation.",
+        "operationId": "TagController_findAll",
+        "parameters": [
+          {
+            "name": "resourceType",
+            "required": false,
+            "in": "query",
+            "description": "Filter tags by resource type (crux, path, or theme)",
+            "schema": {
+              "enum": [
+                "crux",
+                "path",
+                "theme"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Search term to filter tags by label (case-insensitive partial match)",
+            "schema": {
+              "example": "frontend",
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "Sort order: \"alpha\" for alphabetical, \"count\" for most used (default: count)",
+            "schema": {
+              "enum": [
+                "alpha",
+                "count"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "label",
+            "required": false,
+            "in": "query",
+            "description": "Filter by exact label match (case-sensitive)",
+            "schema": {
+              "example": "javascript",
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Page number for pagination (default: 1)",
+            "schema": {
+              "example": 1
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "description": "Number of results per page (default: 25)",
+            "schema": {
+              "example": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tags retrieved successfully. Check Link header for pagination links and Pagination header for metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "example": "tag_123"
+                      },
+                      "resourceType": {
+                        "type": "string",
+                        "enum": [
+                          "crux",
+                          "path",
+                          "theme"
+                        ],
+                        "example": "crux"
+                      },
+                      "resourceId": {
+                        "type": "string",
+                        "example": "crux_456"
+                      },
+                      "label": {
+                        "type": "string",
+                        "example": "frontend-development"
+                      },
+                      "authorId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "example": "550e8400-e29b-41d4-a716-446655440000"
+                      },
+                      "homeId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "example": "550e8400-e29b-41d4-a716-446655440001"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List all tags",
+        "tags": [
+          "Tags"
+        ]
+      }
+    },
+    "/tags/{id}": {
+      "get": {
+        "description": "Retrieves a single tag by its UUID.",
+        "operationId": "TagController_getById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the tag",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tag retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "tag_123"
+                    },
+                    "resourceType": {
+                      "type": "string",
+                      "example": "crux"
+                    },
+                    "resourceId": {
+                      "type": "string",
+                      "example": "crux_456"
+                    },
+                    "label": {
+                      "type": "string",
+                      "example": "frontend-development"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "example": "author_789"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Tag not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a tag by ID",
+        "tags": [
+          "Tags"
+        ]
+      },
+      "patch": {
+        "description": "Updates the label of an existing tag by its ID. This is an admin-only operation and affects ALL resources using this tag.",
+        "operationId": "TagController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the tag to update",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTagDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tag updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "tag_123"
+                    },
+                    "resourceType": {
+                      "type": "string",
+                      "enum": [
+                        "crux",
+                        "path",
+                        "theme"
+                      ],
+                      "example": "crux"
+                    },
+                    "resourceId": {
+                      "type": "string",
+                      "example": "crux_456"
+                    },
+                    "label": {
+                      "type": "string",
+                      "example": "frontend-development",
+                      "description": "Updated label (lowercase kebab-case)"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "example": "author_789"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid tag label format (must be lowercase kebab-case: a-z, 0-9, hyphens only)"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Admin permissions required"
+          },
+          "404": {
+            "description": "Tag not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a tag",
+        "tags": [
+          "Tags"
+        ]
+      },
+      "delete": {
+        "description": "Soft deletes an existing tag by its ID. This is an admin-only operation and affects ALL resources using this tag. The tag is marked as deleted but not permanently removed from the database.",
+        "operationId": "TagController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the tag to delete",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Tag successfully deleted (soft delete). No content returned."
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Admin permissions required"
+          },
+          "404": {
+            "description": "Tag not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a tag",
+        "tags": [
+          "Tags"
+        ]
+      }
+    },
+    "/dimensions/{id}": {
+      "get": {
+        "description": "Retrieves a single dimension by its UUID.",
+        "operationId": "DimensionController_getById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the dimension",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dimension retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "dim_123"
+                    },
+                    "sourceId": {
+                      "type": "string",
+                      "example": "crux_123"
+                    },
+                    "targetId": {
+                      "type": "string",
+                      "example": "crux_456"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "gate"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "reference"
+                    },
+                    "weight": {
+                      "type": "number",
+                      "example": 1
+                    },
+                    "note": {
+                      "type": "string",
+                      "example": "Prerequisite concept"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440000"
+                    },
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440001"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "example": {}
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Dimension not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a dimension by ID",
+        "tags": [
+          "Dimensions"
+        ]
+      },
+      "patch": {
+        "description": "Updates an existing dimensional relationship.",
+        "operationId": "DimensionController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the dimension to update",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDimensionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Dimension updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "dim_123"
+                    },
+                    "sourceId": {
+                      "type": "string",
+                      "example": "crux_123"
+                    },
+                    "targetId": {
+                      "type": "string",
+                      "example": "crux_456"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "gate"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "reference"
+                    },
+                    "weight": {
+                      "type": "number",
+                      "example": 2
+                    },
+                    "note": {
+                      "type": "string",
+                      "example": "Updated note"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440000"
+                    },
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "550e8400-e29b-41d4-a716-446655440001"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "example": {}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Dimension not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a dimension",
+        "tags": [
+          "Dimensions"
+        ]
+      },
+      "delete": {
+        "description": "Soft deletes a dimensional relationship.",
+        "operationId": "DimensionController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the dimension to delete",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Dimension deleted successfully"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Dimension not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a dimension",
+        "tags": [
+          "Dimensions"
+        ]
+      }
+    },
+    "/paths": {
+      "get": {
+        "description": "Retrieves a paginated list of all paths with their metadata.",
+        "operationId": "PathController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of paths retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "slug": {
+                        "type": "string",
+                        "example": "my-awesome-path"
+                      },
+                      "title": {
+                        "type": "string",
+                        "example": "My Awesome Path"
+                      },
+                      "description": {
+                        "type": "string",
+                        "example": "A journey through code"
+                      },
+                      "type": {
+                        "type": "string",
+                        "example": "living"
+                      },
+                      "visibility": {
+                        "type": "string",
+                        "example": "public"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "example": "guide"
+                      },
+                      "entry": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "authorId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "homeId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "meta": {
+                        "type": "object",
+                        "example": {}
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get all paths",
+        "tags": [
+          "Paths"
+        ]
+      },
+      "post": {
+        "description": "Creates a new path with the provided data. Requires authentication.",
+        "operationId": "PathController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePathDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The path has been successfully created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "example": "my-awesome-path"
+                    },
+                    "title": {
+                      "type": "string",
+                      "example": "My Awesome Path"
+                    },
+                    "description": {
+                      "type": "string",
+                      "example": "A journey through code"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "living"
+                    },
+                    "visibility": {
+                      "type": "string",
+                      "example": "unlisted"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "guide"
+                    },
+                    "entry": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a new path",
+        "tags": [
+          "Paths"
+        ]
+      }
+    },
+    "/paths/{identifier}": {
+      "get": {
+        "description": "Retrieves a specific path by its UUID or slug.",
+        "operationId": "PathController_getByIdentifier",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "description": "The UUID or slug of the path",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The path data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "example": "my-awesome-path"
+                    },
+                    "title": {
+                      "type": "string",
+                      "example": "My Awesome Path"
+                    },
+                    "description": {
+                      "type": "string",
+                      "example": "A journey through code"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "living"
+                    },
+                    "visibility": {
+                      "type": "string",
+                      "example": "public"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "guide"
+                    },
+                    "entry": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Path not found"
+          }
+        },
+        "summary": "Get a path by identifier",
+        "tags": [
+          "Paths"
+        ]
+      }
+    },
+    "/paths/{id}": {
+      "patch": {
+        "description": "Updates an existing path with the provided data. Requires authentication and ownership.",
+        "operationId": "PathController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the path to update",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePathDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The path has been successfully updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "example": "my-updated-path"
+                    },
+                    "title": {
+                      "type": "string",
+                      "example": "My Updated Path"
+                    },
+                    "description": {
+                      "type": "string",
+                      "example": "Updated description"
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "frozen"
+                    },
+                    "visibility": {
+                      "type": "string",
+                      "example": "public"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "example": "wander"
+                    },
+                    "entry": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "authorId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "homeId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "created": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Path not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a path",
+        "tags": [
+          "Paths"
+        ]
+      },
+      "delete": {
+        "description": "Deletes an existing path. Requires authentication and ownership.",
+        "operationId": "PathController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the path to delete",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The path has been successfully deleted."
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Path not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a path",
+        "tags": [
+          "Paths"
+        ]
+      }
+    },
+    "/paths/{id}/markers": {
+      "get": {
+        "description": "Retrieves all markers (crux references) for a specific path in order.",
+        "operationId": "PathController_getMarkers",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the path",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Markers retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "pathId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "cruxId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "order": {
+                        "type": "number",
+                        "example": 0
+                      },
+                      "note": {
+                        "type": "string",
+                        "example": "Start here"
+                      },
+                      "authorId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "homeId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Path not found"
+          }
+        },
+        "summary": "Get all markers for a path",
+        "tags": [
+          "Paths"
+        ]
+      },
+      "put": {
+        "description": "Replaces all markers for a path with the provided list. Each marker references a crux by ID.",
+        "operationId": "PathController_syncMarkers",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the path",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncMarkersDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Markers synced successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "pathId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "cruxId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "order": {
+                        "type": "number",
+                        "example": 0
+                      },
+                      "note": {
+                        "type": "string",
+                        "example": "Start here"
+                      },
+                      "authorId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "homeId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid marker data"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "No permission to manage markers for this path"
+          },
+          "404": {
+            "description": "Path or referenced crux not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Sync markers for a path",
+        "tags": [
+          "Paths"
+        ]
+      }
+    },
+    "/paths/{id}/tags": {
+      "get": {
+        "description": "Retrieves all tags associated with a specific path.",
+        "operationId": "PathController_getTags",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the path",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          },
+          {
+            "name": "filter",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tags retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "label": {
+                        "type": "string",
+                        "example": "tutorial"
+                      },
+                      "resourceType": {
+                        "type": "string",
+                        "example": "path"
+                      },
+                      "resourceId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "authorId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "homeId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Path not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get all tags for a path",
+        "tags": [
+          "Paths"
+        ]
+      },
+      "put": {
+        "description": "Replaces all tags for a path with the provided list. Tags must be in kebab-case format.",
+        "operationId": "PathController_syncTags",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "The UUID of the path",
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "labels": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "example": [
+                      "tutorial",
+                      "learning-path",
+                      "beginner"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tags synced successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "label": {
+                        "type": "string",
+                        "example": "tutorial"
+                      },
+                      "resourceType": {
+                        "type": "string",
+                        "example": "path"
+                      },
+                      "resourceId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "authorId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "homeId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "created": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updated": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid tag label format (must be kebab-case)"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "No permission to manage tags for this path"
+          },
+          "404": {
+            "description": "Path not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Sync tags for a path",
+        "tags": [
+          "Paths"
+        ]
+      }
+    },
+    "/ai/chat": {
+      "post": {
+        "operationId": "AiController_chat",
+        "parameters": [
+          {
+            "name": "x-anthropic-key",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Ai"
+        ]
+      }
+    },
+    "/sync/garden": {
+      "put": {
+        "operationId": "SyncController_pushGarden",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Sync"
+        ]
+      },
+      "get": {
+        "operationId": "SyncController_pullGarden",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Sync"
+        ]
+      },
+      "delete": {
+        "operationId": "SyncController_deleteGarden",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Sync"
+        ]
+      }
+    },
+    "/sync/garden/status": {
+      "get": {
+        "operationId": "SyncController_getGardenStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Sync"
+        ]
+      }
+    },
+    "/sync/crux/{cruxId}": {
+      "put": {
+        "operationId": "SyncController_pushCrux",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Sync"
+        ]
+      },
+      "get": {
+        "operationId": "SyncController_pullCrux",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Sync"
+        ]
+      },
+      "delete": {
+        "operationId": "SyncController_deleteCrux",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Sync"
+        ]
+      }
+    },
+    "/sync/crux": {
+      "get": {
+        "operationId": "SyncController_listCruxes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Sync"
+        ]
+      }
+    },
+    "/explore": {
+      "get": {
+        "operationId": "ExploreController_explore",
+        "parameters": [
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "Search term",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "description": "Result type",
+            "schema": {
+              "enum": [
+                "cruxes",
+                "authors"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "Sort order",
+            "schema": {
+              "enum": [
+                "recent",
+                "alpha"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "tag",
+            "required": false,
+            "in": "query",
+            "description": "Filter by tag (exact, multiple = AND)",
+            "schema": {
+              "type": "array",
+              "items": {}
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Search discoverable cruxes or authors",
+        "tags": [
+          "explore"
+        ]
+      }
+    },
+    "/explore/tags": {
+      "get": {
+        "operationId": "ExploreController_tags",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Max tags (default 50)",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Popular tags across discoverable cruxes",
+        "tags": [
+          "explore"
+        ]
+      }
+    },
+    "/store/{cruxId}/{key}": {
+      "get": {
+        "operationId": "StoreController_get",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Store"
+        ]
+      },
+      "put": {
+        "operationId": "StoreController_set",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStoreEntryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Store"
+        ]
+      },
+      "delete": {
+        "operationId": "StoreController_deleteEntry",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Store"
+        ]
+      }
+    },
+    "/store/{cruxId}/{key}/inc": {
+      "post": {
+        "operationId": "StoreController_increment",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncrementStoreEntryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Store"
+        ]
+      }
+    },
+    "/store/{cruxId}": {
+      "get": {
+        "operationId": "StoreController_list",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Store"
+        ]
+      },
+      "delete": {
+        "operationId": "StoreController_clearAll",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Store"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Crux Garden API",
+    "description": "",
+    "version": "0.0.1",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "AuthCodeDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to send authentication code to",
+            "example": "user@example.com",
+            "format": "email"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "AuthLoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address of the user",
+            "example": "user@example.com",
+            "format": "email"
+          },
+          "code": {
+            "type": "string",
+            "description": "Authentication code received via email",
+            "example": "123456",
+            "minLength": 6,
+            "maxLength": 6
+          }
+        },
+        "required": [
+          "email",
+          "code"
+        ]
+      },
+      "AuthTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "description": "Refresh token for obtaining new access tokens",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "UpdateAccountDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "DeleteAccountDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateAuthorDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the author",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string",
+            "description": "Username for the author (alphanumeric, hyphens, underscores only)",
+            "example": "johndoe",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Display name for the author",
+            "example": "John Doe"
+          },
+          "bio": {
+            "type": "string",
+            "description": "Bio or description of the author",
+            "example": "Software developer and writer"
+          },
+          "rootId": {
+            "type": "string",
+            "description": "Root Crux ID for the author",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "description": "Home ID (set internally from primary home)",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          }
+        },
+        "required": [
+          "username",
+          "displayName"
+        ]
+      },
+      "UpdateAuthorDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Username for the author (alphanumeric, hyphens, underscores only)",
+            "example": "johndoe"
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Display name for the author",
+            "example": "John Doe"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address of the author",
+            "example": "john@example.com"
+          },
+          "bio": {
+            "type": "string",
+            "description": "Bio or description of the author",
+            "example": "Software developer and writer"
+          },
+          "rootId": {
+            "type": "string",
+            "description": "Root Crux ID for the author",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "website": {
+            "type": "string",
+            "description": "Website URL of the author",
+            "example": "https://johndoe.com"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "description": "Avatar URL for the author",
+            "example": "https://example.com/avatar.jpg"
+          },
+          "meta": {
+            "type": "object",
+            "description": "Metadata JSON object"
+          }
+        }
+      },
+      "CreateCruxDto": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Unique slug identifier for the crux",
+            "example": "my-awesome-crux",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional title for the crux",
+            "example": "My Awesome Crux"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description for the crux",
+            "example": "My Awesome Crux Description"
+          },
+          "data": {
+            "type": "string",
+            "description": "Main content/data of the crux",
+            "example": "This is the content of my crux"
+          },
+          "type": {
+            "type": "string",
+            "description": "Type of crux content",
+            "example": "text",
+            "default": "text"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Kind of crux (subcategory)",
+            "enum": [
+              "webapp",
+              "page",
+              "document",
+              "image",
+              "notes"
+            ],
+            "example": "webapp"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status of the crux",
+            "enum": [
+              "living",
+              "frozen"
+            ],
+            "example": "living",
+            "default": "living"
+          },
+          "visibility": {
+            "type": "string",
+            "description": "Visibility setting for the crux",
+            "enum": [
+              "public",
+              "private",
+              "unlisted"
+            ],
+            "example": "unlisted",
+            "default": "unlisted"
+          },
+          "discoverable": {
+            "type": "boolean",
+            "description": "Whether this crux is discoverable in search",
+            "example": false,
+            "default": false
+          },
+          "tags": {
+            "description": "Array of tag names to associate with the crux",
+            "example": [
+              "technology",
+              "programming"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "description": "Optional metadata object for the crux",
+            "additionalProperties": true,
+            "example": {
+              "key": "value",
+              "custom": "data"
+            }
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the crux (auto-generated)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "authorId": {
+            "type": "string",
+            "description": "Author ID (set internally from account)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "description": "Home ID (set internally from author)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "slug",
+          "data"
+        ]
+      },
+      "UpdateCruxDto": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Updated slug (URL-safe identifier)",
+            "example": "my-updated-slug"
+          },
+          "title": {
+            "type": "string",
+            "description": "Updated title for the crux",
+            "example": "My Updated Crux Title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated description for the crux",
+            "example": "My Updated Crux Description"
+          },
+          "data": {
+            "type": "string",
+            "description": "Updated content/data of the crux",
+            "example": "This is the updated content of my crux"
+          },
+          "type": {
+            "type": "string",
+            "description": "Updated type of crux content",
+            "example": "text"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Updated kind of crux (subcategory). Set to null to clear.",
+            "enum": [
+              "webapp",
+              "page",
+              "document",
+              "image",
+              "notes"
+            ],
+            "example": "webapp",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "description": "Updated status of the crux",
+            "enum": [
+              "living",
+              "frozen"
+            ],
+            "example": "frozen"
+          },
+          "visibility": {
+            "type": "string",
+            "description": "Updated visibility setting for the crux",
+            "enum": [
+              "public",
+              "private",
+              "unlisted"
+            ],
+            "example": "public"
+          },
+          "discoverable": {
+            "type": "boolean",
+            "description": "Whether this crux is discoverable in search",
+            "example": false
+          },
+          "tags": {
+            "description": "Updated array of tag names to associate with the crux",
+            "example": [
+              "updated-tag",
+              "new-category"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "description": "Updated metadata object for the crux",
+            "additionalProperties": true,
+            "example": {
+              "key": "updated-value",
+              "custom": "updated-data"
+            }
+          }
+        }
+      },
+      "CreateDimensionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the dimension (auto-generated)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "targetId": {
+            "type": "string",
+            "description": "Target crux ID to create dimensional relationship with",
+            "example": "crux_123"
+          },
+          "type": {
+            "type": "string",
+            "description": "Type of dimensional relationship",
+            "enum": [
+              "gate",
+              "garden",
+              "growth",
+              "graft"
+            ],
+            "example": "gate"
+          },
+          "weight": {
+            "type": "number",
+            "description": "Weight of the relationship (integer)",
+            "example": 1
+          },
+          "note": {
+            "type": "string",
+            "description": "Optional note for the dimension",
+            "example": "This is a note about the dimension"
+          },
+          "sourceId": {
+            "type": "string",
+            "description": "Source crux ID (set internally from crux endpoint)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "authorId": {
+            "type": "string",
+            "description": "Author ID (set internally from account)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "description": "Home ID (set internally from primary home)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "targetId",
+          "type"
+        ]
+      },
+      "CreateHomeDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the home",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the home",
+            "example": "My Garden",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description of the home",
+            "example": "A personal knowledge garden for collecting ideas"
+          },
+          "primary": {
+            "type": "boolean",
+            "description": "Whether this is the primary home",
+            "example": true,
+            "default": false
+          },
+          "type": {
+            "type": "string",
+            "description": "Type of the home",
+            "example": "personal"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Kind of the home",
+            "example": "garden"
+          },
+          "meta": {
+            "type": "object",
+            "description": "Optional metadata for the home",
+            "example": {
+              "color": "blue",
+              "icon": "tree"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "kind"
+        ]
+      },
+      "UpdateHomeDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the home",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the home",
+            "example": "Updated Garden Name",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description of the home",
+            "example": "An updated description"
+          },
+          "primary": {
+            "type": "boolean",
+            "description": "Whether this is the primary home",
+            "example": true,
+            "default": false
+          },
+          "type": {
+            "type": "string",
+            "description": "Type of the home",
+            "example": "personal"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Kind of the home",
+            "example": "garden"
+          },
+          "meta": {
+            "type": "object",
+            "description": "Optional metadata for the home",
+            "example": {
+              "color": "green",
+              "icon": "flower"
+            }
+          }
+        }
+      },
+      "UpdateTagDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateDimensionDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Type of dimensional relationship",
+            "enum": [
+              "gate",
+              "garden",
+              "growth",
+              "graft"
+            ],
+            "example": "gate"
+          },
+          "weight": {
+            "type": "number",
+            "description": "Weight of the relationship (integer)",
+            "example": 1
+          },
+          "note": {
+            "type": "string",
+            "description": "Optional note for the dimension",
+            "example": "This is a note about the dimension"
+          }
+        }
+      },
+      "CreatePathDto": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Unique slug identifier for the path",
+            "example": "my-awesome-path",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional title for the path",
+            "example": "My Awesome Path"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description for the path",
+            "example": "This is a description of my path"
+          },
+          "type": {
+            "type": "string",
+            "description": "Type of the path",
+            "enum": [
+              "living",
+              "frozen"
+            ],
+            "example": "living",
+            "default": "living"
+          },
+          "visibility": {
+            "type": "string",
+            "description": "Visibility setting for the path",
+            "enum": [
+              "public",
+              "private",
+              "unlisted"
+            ],
+            "example": "unlisted",
+            "default": "unlisted"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Kind of path (guide or wander)",
+            "enum": [
+              "guide",
+              "wander"
+            ],
+            "example": "wander"
+          },
+          "entry": {
+            "type": "string",
+            "description": "Entry marker ID for the path",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the path (auto-generated)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "authorId": {
+            "type": "string",
+            "description": "Author ID (set internally from account)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "homeId": {
+            "type": "string",
+            "description": "Home ID (set internally from primary home)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          },
+          "accountId": {
+            "type": "string",
+            "description": "Account ID (set internally from auth)",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "slug",
+          "kind",
+          "entry"
+        ]
+      },
+      "UpdatePathDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Updated title for the path",
+            "example": "My Updated Path Title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated description for the path",
+            "example": "Updated description for my path"
+          },
+          "type": {
+            "type": "string",
+            "description": "Updated type of the path",
+            "enum": [
+              "living",
+              "frozen"
+            ],
+            "example": "frozen"
+          },
+          "visibility": {
+            "type": "string",
+            "description": "Updated visibility setting for the path",
+            "enum": [
+              "public",
+              "private",
+              "unlisted"
+            ],
+            "example": "public"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Updated kind of path (guide or wander)",
+            "enum": [
+              "guide",
+              "wander"
+            ],
+            "example": "guide"
+          },
+          "entry": {
+            "type": "string",
+            "description": "Updated entry marker ID for the path",
+            "example": "550e8400-e29b-41d4-a716-446655440001"
+          }
+        }
+      },
+      "MarkerInput": {
+        "type": "object",
+        "properties": {
+          "cruxId": {
+            "type": "string",
+            "description": "Crux ID for the marker",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "order": {
+            "type": "number",
+            "description": "Order/position of the marker in the path",
+            "example": 0
+          },
+          "note": {
+            "type": "string",
+            "description": "Optional note for the marker",
+            "example": "This is an important marker"
+          }
+        },
+        "required": [
+          "cruxId",
+          "order"
+        ]
+      },
+      "SyncMarkersDto": {
+        "type": "object",
+        "properties": {
+          "markers": {
+            "description": "Array of markers to sync for the path",
+            "example": [
+              {
+                "cruxId": "550e8400-e29b-41d4-a716-446655440000",
+                "order": 0,
+                "note": "First marker"
+              },
+              {
+                "cruxId": "660e8400-e29b-41d4-a716-446655440000",
+                "order": 1
+              }
+            ],
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarkerInput"
+            }
+          }
+        },
+        "required": [
+          "markers"
+        ]
+      },
+      "ChatDto": {
+        "type": "object",
+        "properties": {
+          "cruxId": {
+            "type": "string",
+            "description": "Crux workspace ID"
+          },
+          "messages": {
+            "description": "Conversation messages (content may be string or content blocks)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "model": {
+            "type": "string",
+            "description": "Model to use",
+            "default": "claude-sonnet-4-20250514"
+          }
+        },
+        "required": [
+          "cruxId",
+          "messages"
+        ]
+      },
+      "SetStoreEntryDto": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "object",
+            "description": "The value to store (any JSON-serializable type)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Access mode for this key",
+            "enum": [
+              "public",
+              "protected"
+            ],
+            "default": "protected"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "IncrementStoreEntryDto": {
+        "type": "object",
+        "properties": {
+          "by": {
+            "type": "number",
+            "description": "Amount to increment by (default: 1)",
+            "default": 1
+          }
+        }
+      }
+    }
+  }
+}

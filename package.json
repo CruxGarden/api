@@ -35,6 +35,7 @@
     "build:ci": "npm ci --include=dev --legacy-peer-deps && npm run build",
     "build:prod": "npm ci --include=dev && npm run lint && npm run test:all && npm run build",
     "start": "nest start",
+    "openapi": "ts-node -r tsconfig-paths/register scripts/emit-openapi.ts",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/src/main",

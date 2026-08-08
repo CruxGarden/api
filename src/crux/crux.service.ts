@@ -361,6 +361,7 @@ export class CruxService {
       })),
       pathPrefix,
       crux.kind,
+      crux.id,
     );
 
     // 4. Invalidate CloudFront cache (best-effort, don't block publish)
@@ -437,6 +438,9 @@ export class CruxService {
   /* ~crux publishing */
 
   private applyDefaults(dto: CreateCruxDto): void {
+    // Workspace cruxes keep their content in artifacts, not in `data` — the
+    // column is NOT NULL, so an absent/empty value becomes an empty string.
+    if (dto.data == null) dto.data = '';
     if (!dto.type) dto.type = CruxType.MARKDOWN;
     if (!dto.status) dto.status = CruxStatus.LIVING;
     if (!dto.visibility) dto.visibility = CruxVisibility.UNLISTED;

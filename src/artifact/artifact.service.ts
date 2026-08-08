@@ -413,6 +413,7 @@ export class ArtifactService {
     artifacts: Artifact[],
     pathPrefix: string,
     cruxKind?: string,
+    cruxId?: string,
   ): Promise<void> {
     const publishedBucket =
       process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published';
@@ -427,7 +428,9 @@ export class ArtifactService {
 
         // Apply publish injections to HTML files (SPA support, navigation sync, etc.)
         if (artifact.mimeType === 'text/html') {
-          const result = applyInjections(data, artifact, artifacts, cruxKind);
+          const result = applyInjections(data, artifact, artifacts, cruxKind, {
+            cruxId,
+          });
           data = result.data;
           if (result.applied.length > 0) {
             this.logger.info(`Publish injections applied to ${virtualPath}`, {
@@ -462,8 +465,10 @@ export class ArtifactService {
     const id = this.keyMaster.generateId();
     const createDto: CreateArtifactDto = {
       id,
-      type: extra.type,
-      kind: extra.kind,
+      // Columns are NOT NULL — default when the client omits per-file meta
+      // (e.g. built site output, which has no source artifact to inherit from)
+      type: extra.type || 'artifact',
+      kind: extra.kind || 'file',
       meta: extra.path ? { path: extra.path } : undefined,
       resourceId,
       resourceType,
@@ -496,6 +501,7 @@ export class ArtifactService {
     }>,
     pathPrefix: string,
     cruxKind?: string,
+    cruxId?: string,
   ): Promise<void> {
     const publishedBucket =
       process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published';
@@ -512,6 +518,7 @@ export class ArtifactService {
             artifact,
             artifactContexts,
             cruxKind,
+            { cruxId },
           );
           data = result.data;
           if (result.applied.length > 0) {

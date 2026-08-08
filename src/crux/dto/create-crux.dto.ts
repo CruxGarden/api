@@ -36,13 +36,15 @@ export class CreateCruxDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({
-    description: 'Main content/data of the crux',
+  @ApiPropertyOptional({
+    description:
+      'Main content/data of the crux. Empty for workspace cruxes, whose content lives in artifacts.',
     example: 'This is the content of my crux',
+    default: '',
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  data: string;
+  data?: string;
 
   @ApiPropertyOptional({
     description: 'Type of crux content',
@@ -103,6 +105,8 @@ export class CreateCruxDto {
 
   @ApiPropertyOptional({
     description: 'Optional metadata object for the crux',
+    type: 'object',
+    additionalProperties: true,
     example: { key: 'value', custom: 'data' },
   })
   @IsOptional()
