@@ -29,6 +29,9 @@ import { TagService } from '../tag/tag.service';
 import Tag from '../tag/entities/tag.entity';
 import { ArtifactService } from '../artifact/artifact.service';
 import { StoreService } from '../common/services/store.service';
+import { PublishStorageService } from '../common/services/publish-storage.service';
+import { UsageService } from '../usage/usage.service';
+import { DomainsService } from '../domains/domains.service';
 import Artifact from '../artifact/entities/artifact.entity';
 import { UploadArtifactDto } from '../artifact/dto/upload-artifact.dto';
 
@@ -44,8 +47,18 @@ export class CruxService {
     private readonly tagService: TagService,
     private readonly artifactService: ArtifactService,
     private readonly storeService: StoreService,
+    private readonly publishStorage: PublishStorageService,
+    private readonly usageService: UsageService,
+    private readonly domainsService: DomainsService,
   ) {
     this.logger = this.loggerService.createChildLogger('CruxService');
+  }
+
+  /** ADR 0011: `bucket-per-crux` once the origin router is deployed; `shared` is the legacy layout. */
+  private publishLayout(): 'shared' | 'bucket-per-crux' {
+    return process.env.PUBLISH_LAYOUT === 'bucket-per-crux'
+      ? 'bucket-per-crux'
+      : 'shared';
   }
 
   asCrux(data: CruxRaw): Crux {
@@ -349,27 +362,52 @@ export class CruxService {
       artifactRecords.push(record);
     }
 
-    // 3. Publish files directly to the published S3 bucket (cruxId only — per-crux subdomain isolation).
+    // 3. Publish the files.
+    const publishFiles = files.map((file, i) => ({
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+      path: fileMetas[i]?.path || file.originalname,
+      artifact: artifactRecords[i],
+    }));
     const pathPrefix = crux.id;
-    await this.artifactService.deleteFromStaticBucket(pathPrefix);
-    await this.artifactService.publishFilesDirectly(
-      files.map((file, i) => ({
-        buffer: file.buffer,
-        mimeType: file.mimetype,
-        path: fileMetas[i]?.path || file.originalname,
-        artifact: artifactRecords[i],
-      })),
-      pathPrefix,
-      crux.kind,
-      crux.id,
-    );
-
-    // 4. Invalidate CloudFront cache (best-effort, don't block publish)
-    this.storeService
-      .invalidateCache({ paths: [`/${pathPrefix}/*`] })
-      .catch((err) =>
-        this.logger.error(`CloudFront invalidation failed: ${err.message}`),
+    if (this.publishLayout() === 'bucket-per-crux') {
+      // ADR 0011: the crux's own website bucket; HTML has short cache, so no invalidation
+      await this.publishStorage.ensureBucket(crux.id, authorId);
+      await this.publishStorage.putFiles(
+        crux.id,
+        this.artifactService.preparePublishFiles(
+          publishFiles,
+          crux.kind,
+          crux.id,
+        ),
       );
+    } else {
+      await this.artifactService.deleteFromStaticBucket(pathPrefix);
+      await this.artifactService.publishFilesDirectly(
+        publishFiles,
+        pathPrefix,
+        crux.kind,
+        crux.id,
+      );
+      // 4. Invalidate CloudFront cache (best-effort, don't block publish)
+      this.storeService
+        .invalidateCache({ paths: [`/${pathPrefix}/*`] })
+        .catch((err) =>
+          this.logger.error(`CloudFront invalidation failed: ${err.message}`),
+        );
+    }
+
+    // Storage usage is exact at publish time (ADR 0011 §3)
+    const publishedBytes = files.reduce(
+      (sum, f) => sum + (f.size ?? f.buffer?.length ?? 0),
+      0,
+    );
+    await this.usageService.recordStorage(
+      crux.id,
+      authorId,
+      publishedBytes,
+      files.length,
+    );
 
     // 5. Update crux meta with publish info and set visibility to public
     const publishedVersion = (crux.meta?.publishedVersion || 0) + 1;
@@ -390,16 +428,22 @@ export class CruxService {
   async unpublishCrux(cruxId: string): Promise<Crux> {
     const crux = await this.findById(cruxId);
 
-    // 1. Delete published files from static S3 bucket
+    // 1. Delete published files — both layouts, so a crux published under the
+    //    legacy prefix and republished into its own bucket leaves nothing behind.
     const pathPrefix = crux.id;
     await this.artifactService.deleteFromStaticBucket(pathPrefix);
+    await this.publishStorage.deleteBucket(crux.id);
 
-    // 2. Invalidate CloudFront cache (best-effort)
+    // 2. Invalidate CloudFront cache (best-effort, legacy layout)
     this.storeService
       .invalidateCache({ paths: [`/${pathPrefix}/*`] })
       .catch((err) =>
         this.logger.error(`CloudFront invalidation failed: ${err.message}`),
       );
+
+    // Usage and custom domains go with it
+    await this.usageService.clearStorage(crux.id);
+    await this.domainsService.removeAllForCrux(crux.id);
 
     // 3. Hard delete crux and all related entities (artifacts, dimensions, tags)
     const { error: deleteError } = await this.cruxRepository.delete(

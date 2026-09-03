@@ -7,6 +7,8 @@ import { TagModule } from '../tag/tag.module';
 import { DimensionModule } from '../dimension/dimension.module';
 import { HomeModule } from '../home/home.module';
 import { ArtifactModule } from '../artifact/artifact.module';
+import { UsageModule } from '../usage/usage.module';
+import { DomainsModule } from '../domains/domains.module';
 
 @Module({
   imports: [
@@ -15,6 +17,8 @@ import { ArtifactModule } from '../artifact/artifact.module';
     forwardRef(() => DimensionModule),
     forwardRef(() => HomeModule),
     forwardRef(() => ArtifactModule),
+    UsageModule,
+    DomainsModule,
   ],
   controllers: [CruxController],
   providers: [CruxService, CruxRepository],

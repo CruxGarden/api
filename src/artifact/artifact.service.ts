@@ -492,6 +492,44 @@ export class ArtifactService {
    * Publish file buffers directly to the published S3 bucket (with HTML injections).
    * Bypasses working S3 storage entirely.
    */
+  /**
+   * The bytes that go live: HTML gets the publish injections (store client,
+   * basename, nav sync — see publish-injections.ts); everything else passes
+   * through. Shared by the legacy shared-bucket path and the per-crux bucket
+   * path (ADR 0011).
+   */
+  preparePublishFiles(
+    files: Array<{
+      buffer: Buffer;
+      mimeType: string;
+      path: string;
+      artifact: Artifact;
+    }>,
+    cruxKind?: string,
+    cruxId?: string,
+  ): Array<{ path: string; data: Buffer; contentType: string }> {
+    const artifactContexts = files.map((f) => f.artifact);
+    return files.map(({ buffer, mimeType, path, artifact }) => {
+      let data = buffer;
+      if (mimeType === 'text/html') {
+        const result = applyInjections(
+          data,
+          artifact,
+          artifactContexts,
+          cruxKind,
+          { cruxId },
+        );
+        data = result.data;
+        if (result.applied.length > 0) {
+          this.logger.info(`Publish injections applied to ${path}`, {
+            injections: result.applied,
+          });
+        }
+      }
+      return { path, data, contentType: mimeType };
+    });
+  }
+
   async publishFilesDirectly(
     files: Array<{
       buffer: Buffer;

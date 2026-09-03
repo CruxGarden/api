@@ -12,6 +12,9 @@ import { TagService } from '../tag/tag.service';
 import { ArtifactService } from '../artifact/artifact.service';
 import { StoreService } from '../common/services/store.service';
 import { DimensionType, ResourceType } from '../common/types/enums';
+import { PublishStorageService } from '../common/services/publish-storage.service';
+import { UsageService } from '../usage/usage.service';
+import { DomainsService } from '../domains/domains.service';
 
 describe('CruxService', () => {
   let service: CruxService;
@@ -60,6 +63,18 @@ describe('CruxService', () => {
       syncTags: jest.fn(),
     };
 
+    const mockPublishStorage = {
+      ensureBucket: jest.fn().mockResolvedValue('crux-x'),
+      putFiles: jest.fn().mockResolvedValue({ bytes: 0, files: 0 }),
+      deleteBucket: jest.fn().mockResolvedValue(undefined),
+    };
+    const mockUsageService = {
+      recordStorage: jest.fn().mockResolvedValue(undefined),
+      clearStorage: jest.fn().mockResolvedValue(undefined),
+    };
+    const mockDomainsService = {
+      removeAllForCrux: jest.fn().mockResolvedValue(undefined),
+    };
     const mockArtifactService = {
       findByResource: jest.fn(),
       createWithFile: jest.fn(),
@@ -97,6 +112,9 @@ describe('CruxService', () => {
         { provide: KeyMaster, useValue: mockKeyMaster },
         { provide: LoggerService, useValue: mockLoggerService },
         { provide: StoreService, useValue: mockStoreService },
+        { provide: PublishStorageService, useValue: mockPublishStorage },
+        { provide: UsageService, useValue: mockUsageService },
+        { provide: DomainsService, useValue: mockDomainsService },
       ],
     }).compile();
 

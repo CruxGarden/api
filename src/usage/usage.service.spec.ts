@@ -1,0 +1,175 @@
+import { UsageService } from './usage.service';
+import { gzipSync } from 'node:zlib';
+
+const logger = {
+  createChildLogger: () => ({
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  }),
+} as never;
+const CRUX = '550e8400-e29b-41d4-a716-446655440000';
+
+function fakeRepo() {
+  const storage = new Map<
+    string,
+    {
+      crux_id: string;
+      author_id: string;
+      bytes: number;
+      files: number;
+      updated: Date;
+    }
+  >();
+  const daily = new Map<
+    string,
+    {
+      author_id: string;
+      crux_id: string;
+      day: string;
+      bytes: number;
+      requests: number;
+    }
+  >();
+  const ingested = new Set<string>();
+  const ok = <T>(data: T) => Promise.resolve({ data, error: null });
+  return {
+    storage,
+    daily,
+    upsertStorage: jest.fn(
+      (c: string, a: string, bytes: number, files: number) => {
+        storage.set(c, {
+          crux_id: c,
+          author_id: a,
+          bytes,
+          files,
+          updated: new Date(),
+        });
+        return ok(undefined);
+      },
+    ),
+    deleteStorage: jest.fn((c: string) => {
+      storage.delete(c);
+      return ok(undefined);
+    }),
+    storageByAuthor: jest.fn((a: string) =>
+      ok([...storage.values()].filter((r) => r.author_id === a)),
+    ),
+    storageByCrux: jest.fn((c: string) => ok(storage.get(c))),
+    addDaily: jest.fn(
+      (a: string, c: string, day: string, bytes: number, requests: number) => {
+        const k = `${c}|${day}`;
+        const row = daily.get(k) ?? {
+          author_id: a,
+          crux_id: c,
+          day,
+          bytes: 0,
+          requests: 0,
+        };
+        row.bytes += bytes;
+        row.requests += requests;
+        daily.set(k, row);
+        return ok(undefined);
+      },
+    ),
+    dailyByAuthor: jest.fn((a: string, start: string, end: string) =>
+      ok(
+        [...daily.values()].filter(
+          (r) => r.author_id === a && r.day >= start && r.day < end,
+        ),
+      ),
+    ),
+    dailyByCrux: jest.fn((c: string, start: string, end: string) =>
+      ok(
+        [...daily.values()].filter(
+          (r) => r.crux_id === c && r.day >= start && r.day < end,
+        ),
+      ),
+    ),
+    ingestSeen: jest.fn((k: string) => ok(ingested.has(k))),
+    markIngested: jest.fn((k: string) => {
+      ingested.add(k);
+      return ok(undefined);
+    }),
+    cruxForHostname: jest.fn((h: string) =>
+      ok(
+        h === 'blog.someone.com'
+          ? { crux_id: 'c-custom', author_id: 'a1' }
+          : undefined,
+      ),
+    ),
+    authorForCrux: jest.fn((c: string) => ok(c === CRUX ? 'a1' : undefined)),
+    titlesFor: jest.fn((ids: string[]) =>
+      ok(Object.fromEntries(ids.map((i) => [i, i === CRUX ? 'My Crux' : '']))),
+    ),
+  };
+}
+
+describe('UsageService', () => {
+  it('storage is recorded at publish and cleared at unpublish; totals per period', async () => {
+    const repo = fakeRepo();
+    const svc = new UsageService(repo as never, logger);
+    await svc.recordStorage(CRUX, 'a1', 5000, 3);
+    await svc.recordStorage('c2', 'a1', 1000, 1);
+    await repo.addDaily('a1', CRUX, '2026-09-02', 700, 7);
+    await repo.addDaily('a1', CRUX, '2026-08-31', 999, 9); // last period
+    const u = await svc.forAuthor(
+      'a1',
+      { plan: 'free' },
+      new Date('2026-09-03T12:00:00Z'),
+    );
+    expect(u.period).toEqual({ start: '2026-09-01', end: '2026-10-01' });
+    expect(u.storageBytes).toBe(6000);
+    expect(u.bandwidthBytes).toBe(700);
+    expect(u.requests).toBe(7);
+    expect(u.plan.id).toBe('free');
+    expect(u.cruxes[0]).toMatchObject({
+      cruxId: CRUX,
+      storageBytes: 5000,
+      files: 3,
+      bandwidthBytes: 700,
+    });
+    const one = await svc.forCrux(CRUX, new Date('2026-09-03T12:00:00Z'));
+    expect(one).toMatchObject({
+      storageBytes: 5000,
+      bandwidthBytes: 700,
+      requests: 7,
+    });
+    await svc.clearStorage(CRUX);
+    expect(
+      (await svc.forAuthor('a1', null, new Date('2026-09-03T12:00:00Z')))
+        .storageBytes,
+    ).toBe(1000);
+  });
+
+  it('ingests each log file once, resolves subdomains and custom domains, skips unknown hosts', async () => {
+    const repo = fakeRepo();
+    const svc = new UsageService(repo as never, logger);
+    const log = [
+      '#Fields: date sc-bytes x-host-header',
+      `2026-09-03\t100\t${CRUX}.publish.crux.garden`,
+      `2026-09-03\t50\t${CRUX}.publish.crux.garden`,
+      '2026-09-03\t30\tblog.someone.com',
+      '2026-09-03\t999\tnobody.example',
+      '',
+    ].join('\n');
+    const files = new Map([['logs/a.gz', gzipSync(Buffer.from(log))]]);
+    const source = {
+      list: async () => [...files.keys()],
+      read: async (k: string) => files.get(k)!,
+    };
+    const first = await svc.ingest(source);
+    expect(first).toEqual({ files: 1, bytes: 180, requests: 3, skipped: 1 });
+    expect(repo.daily.get(`${CRUX}|2026-09-03`)).toMatchObject({
+      bytes: 150,
+      requests: 2,
+    });
+    expect(repo.daily.get('c-custom|2026-09-03')).toMatchObject({
+      bytes: 30,
+      author_id: 'a1',
+    });
+    const again = await svc.ingest(source);
+    expect(again.files).toBe(0);
+    expect(repo.daily.get(`${CRUX}|2026-09-03`)?.bytes).toBe(150);
+  });
+});

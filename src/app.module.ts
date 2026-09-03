@@ -22,6 +22,8 @@ import { AiModule } from './ai/ai.module';
 import { SyncModule } from './sync/sync.module';
 import { ExploreModule } from './explore/explore.module';
 import { StoreModule } from './crux-store/crux-store.module';
+import { UsageModule } from './usage/usage.module';
+import { DomainsModule } from './domains/domains.module';
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { StoreModule } from './crux-store/crux-store.module';
     SyncModule,
     ExploreModule,
     StoreModule,
+    UsageModule,
+    DomainsModule,
   ],
   controllers: [AppController],
   providers: [
