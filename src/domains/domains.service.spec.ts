@@ -106,8 +106,10 @@ describe('DomainsService', () => {
     dns.txt = [token];
     v = await svc.verify(added.id);
     expect(v.status).toBe('issuing');
-    expect(edge.mappings.get('blog.example.com')).toBe('c1');
     expect(edge.tenants.size).toBe(1);
+    // the edge can resolve it as soon as the tenant exists
+    expect(await svc.resolve('Blog.Example.com')).toBe('c1');
+    expect(await svc.resolve('nobody.example.com')).toBeNull();
 
     // verify already asked once (still issuing); the poller's next check sees it deployed
     expect(await svc.pollIssuing()).toBe(1);
@@ -120,7 +122,7 @@ describe('DomainsService', () => {
     );
     await svc.removeAllForCrux('c1');
     expect(edge.tenants.size).toBe(0);
-    expect(edge.mappings.size).toBe(0);
+    expect(await svc.resolve('blog.example.com')).toBeNull();
     expect(repo.rows.size).toBe(0);
   });
 

@@ -4,16 +4,12 @@ import {
   GetDistributionTenantCommand,
   DeleteDistributionTenantCommand,
 } from '@aws-sdk/client-cloudfront';
-import {
-  DynamoDBClient,
-  PutItemCommand,
-  DeleteItemCommand,
-} from '@aws-sdk/client-dynamodb';
 
 /**
  * What the edge needs to serve a custom domain: a tenant on the publish
- * distribution (its certificate) and a hostname → cruxId mapping the
- * origin-request function reads. Behind an interface so the CloudFront
+ * distribution (its certificate). The hostname → cruxId mapping is the
+ * custom_domains table itself — the origin-request function asks the API
+ * (GET /publish/resolve). Behind an interface so the CloudFront
  * SaaS Manager flow can be swapped for ACM + alternate domains (ADR 0011)
  * without touching the domain lifecycle.
  */
@@ -26,8 +22,6 @@ export interface EdgeProvider {
   ): Promise<{ tenantId: string; status: TenantStatus }>;
   tenantStatus(tenantId: string): Promise<TenantStatus>;
   deleteTenant(tenantId: string): Promise<void>;
-  putMapping(hostname: string, cruxId: string): Promise<void>;
-  deleteMapping(hostname: string): Promise<void>;
 }
 
 export class MockEdgeProvider implements EdgeProvider {
@@ -35,7 +29,6 @@ export class MockEdgeProvider implements EdgeProvider {
     string,
     { hostname: string; cruxId: string; checks: number }
   >();
-  mappings = new Map<string, string>();
   /** how many status checks before a tenant reports active */
   activeAfterChecks = 1;
   private n = 0;
@@ -53,26 +46,18 @@ export class MockEdgeProvider implements EdgeProvider {
   async deleteTenant(tenantId: string) {
     this.tenants.delete(tenantId);
   }
-  async putMapping(hostname: string, cruxId: string) {
-    this.mappings.set(hostname, cruxId);
-  }
-  async deleteMapping(hostname: string) {
-    this.mappings.delete(hostname);
-  }
 }
 
 export interface CloudFrontEdgeConfig {
   region: string;
   distributionId: string;
   connectionGroupId?: string;
-  domainTable: string;
 }
 
-/** CloudFront SaaS Manager tenant + DynamoDB mapping. Needs live validation (see ADR 0011). */
+/** CloudFront SaaS Manager tenant. Needs live validation (see ADR 0011). */
 export class CloudFrontEdgeProvider implements EdgeProvider {
   constructor(
     private readonly cf: CloudFrontClient,
-    private readonly ddb: DynamoDBClient,
     private readonly cfg: CloudFrontEdgeConfig,
   ) {}
 
@@ -113,24 +98,6 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
     );
   }
 
-  async putMapping(hostname: string, cruxId: string): Promise<void> {
-    await this.ddb.send(
-      new PutItemCommand({
-        TableName: this.cfg.domainTable,
-        Item: { hostname: { S: hostname }, cruxId: { S: cruxId } },
-      }),
-    );
-  }
-
-  async deleteMapping(hostname: string): Promise<void> {
-    await this.ddb.send(
-      new DeleteItemCommand({
-        TableName: this.cfg.domainTable,
-        Key: { hostname: { S: hostname } },
-      }),
-    );
-  }
-
   private mapStatus(status?: string): TenantStatus {
     if (!status) return 'issuing';
     const s = status.toLowerCase();
@@ -143,7 +110,6 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
 /** From env: the CloudFront provider when configured, else the mock. */
 export function edgeProviderFromEnv(): EdgeProvider {
   const distributionId = process.env.PUBLISH_DISTRIBUTION_ID;
-  const domainTable = process.env.PUBLISH_DOMAIN_TABLE;
   const creds =
     process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
       ? {
@@ -151,16 +117,14 @@ export function edgeProviderFromEnv(): EdgeProvider {
           secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
         }
       : null;
-  if (!distributionId || !domainTable || !creds) return new MockEdgeProvider();
+  if (!distributionId || !creds) return new MockEdgeProvider();
   const region = process.env.AWS_REGION || 'us-east-1';
   return new CloudFrontEdgeProvider(
     new CloudFrontClient({ region: 'us-east-1', credentials: creds }),
-    new DynamoDBClient({ region, credentials: creds }),
     {
       region,
       distributionId,
       connectionGroupId: process.env.PUBLISH_CONNECTION_GROUP_ID,
-      domainTable,
     },
   );
 }

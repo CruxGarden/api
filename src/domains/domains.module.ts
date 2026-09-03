@@ -5,13 +5,14 @@ import {
   type OnModuleDestroy,
 } from '@nestjs/common';
 import { DomainsController } from './domains.controller';
+import { PublishResolveController } from './publish-resolve.controller';
 import { DomainsService } from './domains.service';
 import { DomainsRepository } from './domains.repository';
 import { AuthorModule } from '../author/author.module';
 
 @Module({
   imports: [forwardRef(() => AuthorModule)],
-  controllers: [DomainsController],
+  controllers: [DomainsController, PublishResolveController],
   providers: [DomainsService, DomainsRepository],
   exports: [DomainsService],
 })

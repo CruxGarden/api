@@ -49,6 +49,21 @@ export class DomainsService {
     this.dns = nodeDnsVerifier;
   }
 
+  /**
+   * Edge lookup: which crux serves this hostname? Read by the origin-request
+   * function (GET /publish/resolve). A domain serves as soon as its tenant
+   * exists (issuing) — the certificate lands on the same tenant.
+   */
+  async resolve(host: string): Promise<string | null> {
+    const hostname = normalizeHostname(host);
+    if (!hostname) return null;
+    const r = await this.repo.findByHostname(hostname);
+    const row = r.data;
+    if (!row || (row.status !== 'active' && row.status !== 'issuing'))
+      return null;
+    return row.crux_id;
+  }
+
   /** tests */
   useProviders(edge: EdgeProvider, dns: DnsVerifier): void {
     this.edge = edge;
@@ -141,7 +156,6 @@ export class DomainsService {
       }
       try {
         const tenant = await this.edge.createTenant(row.hostname, row.crux_id);
-        await this.edge.putMapping(row.hostname, row.crux_id);
         const updated = await this.repo.update(id, {
           status: tenant.status === 'active' ? 'active' : 'issuing',
           tenant_id: tenant.tenantId,
@@ -191,7 +205,6 @@ export class DomainsService {
         );
       }
     }
-    await this.edge.deleteMapping(row.hostname).catch(() => {});
     const r = await this.repo.remove(id);
     if (r.error)
       throw new InternalServerErrorException('Could not remove the domain');
