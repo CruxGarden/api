@@ -11,6 +11,22 @@ export interface UsageStorageRow {
   files: number;
   updated: Date;
 }
+export interface UsageSyncObjectRow {
+  account_id: string;
+  kind: 'garden' | 'crux';
+  object_id: string;
+  bytes: string | number;
+  title: string | null;
+  updated: Date;
+}
+export interface UsageSyncDailyRow {
+  account_id: string;
+  day: string;
+  bytes_up: string | number;
+  bytes_down: string | number;
+  uploads: string | number;
+  downloads: string | number;
+}
 export interface UsageDailyRow {
   author_id: string;
   crux_id: string;
@@ -232,6 +248,142 @@ export class UsageRepository {
       return success((row as { author_id: string } | undefined)?.author_id);
     } catch (error) {
       this.logger.error('authorForCrux failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** Titles for a set of cruxes (for the account usage table). */
+  async titlesFor(
+    cruxIds: string[],
+  ): Promise<RepositoryResponse<Record<string, string>>> {
+    if (cruxIds.length === 0) return success({});
+    try {
+      const rows = await this.dbService
+        .query()
+        .from('cruxes')
+        .whereIn('id', cruxIds)
+        .select('id', 'title');
+      const out: Record<string, string> = {};
+      for (const r of rows as { id: string; title: string | null }[])
+        if (r.title) out[r.id] = r.title;
+      return success(out);
+    } catch (error) {
+      this.logger.error('titlesFor failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  // ── Sync (tied to the account) ──────────────────────────────────────────
+  async upsertSyncObject(
+    accountId: string,
+    kind: 'garden' | 'crux',
+    objectId: string,
+    bytes: number,
+    title: string | null,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()
+        .from('usage_sync_objects')
+        .insert({
+          account_id: accountId,
+          kind,
+          object_id: objectId,
+          bytes,
+          title,
+          updated: new Date(),
+        })
+        .onConflict(['account_id', 'kind', 'object_id'])
+        .merge({ bytes, title, updated: new Date() });
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('upsertSyncObject failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async deleteSyncObject(
+    accountId: string,
+    kind: 'garden' | 'crux',
+    objectId: string,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()
+        .from('usage_sync_objects')
+        .where({ account_id: accountId, kind, object_id: objectId })
+        .delete();
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('deleteSyncObject failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async syncObjectsByAccount(
+    accountId: string,
+  ): Promise<RepositoryResponse<UsageSyncObjectRow[]>> {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from<UsageSyncObjectRow>('usage_sync_objects')
+        .where({ account_id: accountId })
+        .select('*');
+      return success(rows);
+    } catch (error) {
+      this.logger.error('syncObjectsByAccount failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async addSyncDaily(
+    accountId: string,
+    day: string,
+    bytesUp: number,
+    bytesDown: number,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService.query().raw(
+        `INSERT INTO usage_sync_daily (account_id, day, bytes_up, bytes_down, uploads, downloads)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (account_id, day) DO UPDATE SET
+           bytes_up = usage_sync_daily.bytes_up + EXCLUDED.bytes_up,
+           bytes_down = usage_sync_daily.bytes_down + EXCLUDED.bytes_down,
+           uploads = usage_sync_daily.uploads + EXCLUDED.uploads,
+           downloads = usage_sync_daily.downloads + EXCLUDED.downloads,
+           updated = now()`,
+        [
+          accountId,
+          day,
+          bytesUp,
+          bytesDown,
+          bytesUp > 0 ? 1 : 0,
+          bytesDown > 0 ? 1 : 0,
+        ],
+      );
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('addSyncDaily failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async syncDailyByAccount(
+    accountId: string,
+    start: string,
+    end: string,
+  ): Promise<RepositoryResponse<UsageSyncDailyRow[]>> {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from<UsageSyncDailyRow>('usage_sync_daily')
+        .where({ account_id: accountId })
+        .andWhere('day', '>=', start)
+        .andWhere('day', '<', end)
+        .select('*');
+      return success(rows);
+    } catch (error) {
+      this.logger.error('syncDailyByAccount failed', error as Error);
       return failure(error);
     }
   }

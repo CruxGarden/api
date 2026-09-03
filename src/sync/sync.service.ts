@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { StoreService } from '../common/services/store.service';
 import { LoggerService } from '../common/services/logger.service';
+import { UsageService } from '../usage/usage.service';
 
 export interface GardenMeta {
   syncedAt: string;
@@ -24,6 +25,7 @@ export class SyncService {
   constructor(
     private readonly storeService: StoreService,
     private readonly loggerService: LoggerService,
+    private readonly usage: UsageService,
   ) {
     this.logger = this.loggerService.createChildLogger('SyncService');
   }
@@ -66,6 +68,14 @@ export class SyncService {
       contentType: 'application/json',
     });
 
+    await this.usage.recordSyncObject(
+      accountId,
+      'garden',
+      'garden',
+      meta.size,
+      'Garden backup',
+    );
+    await this.usage.recordTransfer(accountId, meta.size, 0);
     this.logger.info('Garden pushed', { accountId, size: meta.size });
     return meta;
   }
@@ -76,6 +86,7 @@ export class SyncService {
         path: this.gardenPath(accountId),
         namespace: this.bucket,
       });
+      await this.usage.recordTransfer(accountId, 0, result.data.length);
       return result.data;
     } catch (e) {
       this.logger.warn('Garden download failed', {
@@ -108,6 +119,7 @@ export class SyncService {
         path: this.gardenMetaPath(accountId),
         namespace: this.bucket,
       });
+      await this.usage.clearSyncObject(accountId, 'garden', 'garden');
       this.logger.info('Garden backup deleted', { accountId });
     } catch (e) {
       this.logger.warn('Garden delete failed', {
@@ -150,6 +162,14 @@ export class SyncService {
     }
     await this.saveCruxIndex(accountId, index);
 
+    await this.usage.recordSyncObject(
+      accountId,
+      'crux',
+      cruxId,
+      entry.size,
+      meta.title,
+    );
+    await this.usage.recordTransfer(accountId, entry.size, 0);
     this.logger.info('Crux pushed', { accountId, cruxId, size: entry.size });
     return entry;
   }
@@ -160,6 +180,7 @@ export class SyncService {
         path: this.cruxPath(accountId, cruxId),
         namespace: this.bucket,
       });
+      await this.usage.recordTransfer(accountId, 0, result.data.length);
       return result.data;
     } catch (e) {
       this.logger.warn('Crux download failed', {
@@ -186,6 +207,7 @@ export class SyncService {
       namespace: this.bucket,
     });
 
+    await this.usage.clearSyncObject(accountId, 'crux', cruxId);
     this.logger.info('Crux deleted from sync', { accountId, cruxId });
   }
 

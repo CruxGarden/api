@@ -32,10 +32,84 @@ function fakeRepo() {
     }
   >();
   const ingested = new Set<string>();
+  const syncObjects = new Map<
+    string,
+    {
+      account_id: string;
+      kind: 'garden' | 'crux';
+      object_id: string;
+      bytes: number;
+      title: string | null;
+      updated: Date;
+    }
+  >();
+  const syncDaily = new Map<
+    string,
+    {
+      account_id: string;
+      day: string;
+      bytes_up: number;
+      bytes_down: number;
+      uploads: number;
+      downloads: number;
+    }
+  >();
   const ok = <T>(data: T) => Promise.resolve({ data, error: null });
   return {
     storage,
     daily,
+    upsertSyncObject: jest.fn(
+      (
+        a: string,
+        kind: 'garden' | 'crux',
+        id: string,
+        bytes: number,
+        title: string | null,
+      ) => {
+        syncObjects.set(`${a}|${kind}|${id}`, {
+          account_id: a,
+          kind,
+          object_id: id,
+          bytes,
+          title,
+          updated: new Date('2026-09-03T10:00:00Z'),
+        });
+        return ok(undefined);
+      },
+    ),
+    deleteSyncObject: jest.fn((a: string, kind: string, id: string) => {
+      syncObjects.delete(`${a}|${kind}|${id}`);
+      return ok(undefined);
+    }),
+    syncObjectsByAccount: jest.fn((a: string) =>
+      ok([...syncObjects.values()].filter((r) => r.account_id === a)),
+    ),
+    addSyncDaily: jest.fn(
+      (a: string, day: string, up: number, down: number) => {
+        const k = `${a}|${day}`;
+        const row = syncDaily.get(k) ?? {
+          account_id: a,
+          day,
+          bytes_up: 0,
+          bytes_down: 0,
+          uploads: 0,
+          downloads: 0,
+        };
+        row.bytes_up += up;
+        row.bytes_down += down;
+        row.uploads += up > 0 ? 1 : 0;
+        row.downloads += down > 0 ? 1 : 0;
+        syncDaily.set(k, row);
+        return ok(undefined);
+      },
+    ),
+    syncDailyByAccount: jest.fn((a: string, start: string, end: string) =>
+      ok(
+        [...syncDaily.values()].filter(
+          (r) => r.account_id === a && r.day >= start && r.day < end,
+        ),
+      ),
+    ),
     upsertStorage: jest.fn(
       (c: string, a: string, bytes: number, files: number) => {
         storage.set(c, {
@@ -140,6 +214,47 @@ describe('UsageService', () => {
       (await svc.forAuthor('a1', null, new Date('2026-09-03T12:00:00Z')))
         .storageBytes,
     ).toBe(1000);
+  });
+
+  it('sync storage and transfer are tied to the account and count toward the plan totals', async () => {
+    const repo = fakeRepo();
+    const svc = new UsageService(repo as never, logger);
+    const now = new Date('2026-09-03T12:00:00Z');
+    await svc.recordStorage(CRUX, 'a1', 5000, 3);
+    await svc.recordSyncObject('acct1', 'garden', 'garden', 4000, 'Garden');
+    await svc.recordSyncObject('acct1', 'crux', 'c9', 1500, 'Notes');
+    await svc.recordTransfer('acct1', 4000, 0, now);
+    await svc.recordTransfer('acct1', 0, 2500, now);
+    await svc.recordTransfer('acct1', 0, 0, now); // no-op
+    await svc.recordTransfer('acct1', 900, 0, new Date('2026-08-30T00:00:00Z')); // last period
+
+    const u = await svc.forAuthor('a1', null, now, 'acct1');
+    expect(u.publish.storageBytes).toBe(5000);
+    expect(u.sync).toMatchObject({
+      storageBytes: 5500,
+      gardenBytes: 4000,
+      gardenSyncedAt: '2026-09-03T10:00:00.000Z',
+      cruxBytes: 1500,
+      cruxCount: 1,
+      uploadBytes: 4000,
+      downloadBytes: 2500,
+      transferBytes: 6500,
+      uploads: 1,
+      downloads: 1,
+    });
+    expect(u.sync.objects.map((o) => o.id)).toEqual(['garden', 'c9']);
+    expect(u.storageBytes).toBe(10500);
+    expect(u.bandwidthBytes).toBe(6500);
+
+    await svc.clearSyncObject('acct1', 'garden', 'garden');
+    const after = await svc.forAuthor('a1', null, now, 'acct1');
+    expect(after.sync.storageBytes).toBe(1500);
+    expect(after.sync.gardenSyncedAt).toBeNull();
+
+    // no account → sync is empty, publish totals unchanged
+    const noAcct = await svc.forAuthor('a1', null, now);
+    expect(noAcct.storageBytes).toBe(5000);
+    expect(noAcct.sync.cruxCount).toBe(0);
   });
 
   it('ingests each log file once, resolves subdomains and custom domains, skips unknown hosts', async () => {

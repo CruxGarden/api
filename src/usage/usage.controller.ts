@@ -44,6 +44,8 @@ export class UsageController {
     return this.usageService.forAuthor(
       author.id,
       author.meta as Record<string, unknown>,
+      new Date(),
+      req.account.id,
     );
   }
 

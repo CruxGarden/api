@@ -3,10 +3,12 @@ import { NotFoundException } from '@nestjs/common';
 import { SyncService } from './sync.service';
 import { StoreService } from '../common/services/store.service';
 import { LoggerService } from '../common/services/logger.service';
+import { UsageService } from '../usage/usage.service';
 
 describe('SyncService', () => {
   let service: SyncService;
   let storeService: jest.Mocked<StoreService>;
+  let usage: jest.Mocked<UsageService>;
 
   const mockLogger = {
     info: jest.fn(),
@@ -34,11 +36,20 @@ describe('SyncService', () => {
           provide: LoggerService,
           useValue: mockLogger,
         },
+        {
+          provide: UsageService,
+          useValue: {
+            recordSyncObject: jest.fn(),
+            clearSyncObject: jest.fn(),
+            recordTransfer: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
     service = module.get<SyncService>(SyncService);
     storeService = module.get(StoreService);
+    usage = module.get(UsageService);
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -64,6 +75,23 @@ describe('SyncService', () => {
       );
       expect(result.syncedAt).toBeDefined();
       expect(result.size).toBe(data.length);
+    });
+
+    it('meters the backup as account storage and upload transfer', async () => {
+      const data = Buffer.from('garden-zip-data');
+      await service.pushGarden(accountId, data);
+      expect(usage.recordSyncObject).toHaveBeenCalledWith(
+        accountId,
+        'garden',
+        'garden',
+        data.length,
+        'Garden backup',
+      );
+      expect(usage.recordTransfer).toHaveBeenCalledWith(
+        accountId,
+        data.length,
+        0,
+      );
     });
   });
 
