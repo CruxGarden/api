@@ -27,7 +27,7 @@ export class ExploreService {
     return this.exploreRepository.findAuthorsQuery(filters);
   }
 
-  async getPopularTags(limit?: number) {
-    return this.exploreRepository.findPopularTags(limit);
+  async getPopularTags(limit?: number, kind?: string) {
+    return this.exploreRepository.findPopularTags(limit, kind);
   }
 }

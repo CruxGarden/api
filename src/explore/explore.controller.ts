@@ -28,10 +28,20 @@ export class ExploreController {
     description: 'Filter by tag (exact, multiple = AND)',
   })
   @ApiQuery({
+    name: 'kind',
+    required: false,
+    description: 'Crux kind: webapp, page, document, image, notes, mood',
+  })
+  @ApiQuery({
+    name: 'author',
+    required: false,
+    description: 'Author username (exact)',
+  })
+  @ApiQuery({
     name: 'sort',
     required: false,
-    enum: ['recent', 'alpha'],
-    description: 'Sort order',
+    enum: ['recent', 'newest', 'alpha'],
+    description: 'Sort order (recent = last updated, newest = first published)',
   })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'perPage', required: false, type: Number })
@@ -39,7 +49,9 @@ export class ExploreController {
     @Query('q') q?: string,
     @Query('type') type: 'cruxes' | 'authors' = 'cruxes',
     @Query('tag') tag?: string | string[],
-    @Query('sort') sort: 'recent' | 'alpha' = 'recent',
+    @Query('sort') sort: 'recent' | 'newest' | 'alpha' = 'recent',
+    @Query('kind') kind?: string,
+    @Query('author') author?: string,
     @Req() req?: Request,
     @Res({ passthrough: true }) res?: Response,
   ) {
@@ -49,7 +61,13 @@ export class ExploreController {
     }
 
     const tags = tag ? (Array.isArray(tag) ? tag : [tag]) : undefined;
-    const query = this.exploreService.getCruxesQuery({ q, tag: tags, sort });
+    const query = this.exploreService.getCruxesQuery({
+      q,
+      tag: tags,
+      sort,
+      kind: kind || undefined,
+      author: author || undefined,
+    });
     return this.dbService.paginate({ query, request: req, response: res });
   }
 
@@ -61,9 +79,14 @@ export class ExploreController {
     type: Number,
     description: 'Max tags (default 50)',
   })
-  async tags(@Query('limit') limit?: string) {
+  @ApiQuery({
+    name: 'kind',
+    required: false,
+    description: 'Only tags on cruxes of this kind',
+  })
+  async tags(@Query('limit') limit?: string, @Query('kind') kind?: string) {
     const n = limit ? Math.min(parseInt(limit, 10) || 50, 200) : 50;
-    const data = await this.exploreService.getPopularTags(n);
+    const data = await this.exploreService.getPopularTags(n, kind || undefined);
     return { data };
   }
 }

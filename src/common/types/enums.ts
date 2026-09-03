@@ -19,6 +19,8 @@ export enum CruxKind {
   DOCUMENT = 'document',
   IMAGE = 'image',
   NOTES = 'notes',
+  /** A shareable Mood: theme + background + persona + soundscape (.cruxmood) */
+  MOOD = 'mood',
 }
 
 export enum CruxVisibility {

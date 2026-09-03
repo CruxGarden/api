@@ -3,15 +3,21 @@ import { Knex } from 'knex';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
 
+export type ExploreSort = 'recent' | 'newest' | 'alpha';
+
 export interface ExploreCruxFilters {
   q?: string;
   tag?: string[];
-  sort?: 'recent' | 'alpha';
+  /** Crux kind (webapp, page, document, image, notes, mood) */
+  kind?: string;
+  /** Author username (exact, case-insensitive) */
+  author?: string;
+  sort?: ExploreSort;
 }
 
 export interface ExploreAuthorFilters {
   q?: string;
-  sort?: 'recent' | 'alpha';
+  sort?: ExploreSort;
 }
 
 @Injectable()
@@ -47,6 +53,12 @@ export class ExploreRepository {
         'a.username as author_username',
         'a.display_name as author_display_name',
         'a.meta as author_meta',
+        // The crux's tags, so a result card can show them without N more requests
+        this.dbService
+          .query()
+          .raw(
+            `(SELECT COALESCE(array_agg(t.label ORDER BY t.label), '{}') FROM tags t WHERE t.resource_id = c.id AND t.resource_type = 'crux' AND t.deleted IS NULL) as tags`,
+          ),
       )
       .join('authors as a', 'a.id', 'c.author_id')
       .where('c.visibility', 'public')
@@ -60,6 +72,7 @@ export class ExploreRepository {
         this.where('c.title', 'ilike', term)
           .orWhere('c.description', 'ilike', term)
           .orWhere('c.slug', 'ilike', term)
+          .orWhere('a.username', 'ilike', term)
           .orWhereExists(function () {
             this.select('*')
               .from('tags as t')
@@ -69,6 +82,14 @@ export class ExploreRepository {
               .whereNull('t.deleted');
           });
       });
+    }
+
+    if (filters.kind) {
+      query.where('c.kind', filters.kind);
+    }
+
+    if (filters.author) {
+      query.whereRaw('lower(a.username) = ?', [filters.author.toLowerCase()]);
     }
 
     if (filters.tag && filters.tag.length > 0) {
@@ -86,6 +107,8 @@ export class ExploreRepository {
 
     if (filters.sort === 'alpha') {
       query.orderBy('c.title', 'asc');
+    } else if (filters.sort === 'newest') {
+      query.orderBy('c.created', 'desc');
     } else {
       query.orderBy('c.updated', 'desc');
     }
@@ -143,8 +166,9 @@ export class ExploreRepository {
    */
   async findPopularTags(
     limit: number = 50,
+    kind?: string,
   ): Promise<{ label: string; count: number }[]> {
-    const rows = await this.dbService
+    const query = this.dbService
       .query()
       .from('tags as t')
       .select('t.label')
@@ -154,7 +178,9 @@ export class ExploreRepository {
       .where('c.visibility', 'public')
       .where('c.discoverable', true)
       .whereNull('c.deleted')
-      .whereNull('t.deleted')
+      .whereNull('t.deleted');
+    if (kind) query.where('c.kind', kind);
+    const rows = await query
       .groupBy('t.label')
       .orderBy('count', 'desc')
       .orderBy('t.label', 'asc')
