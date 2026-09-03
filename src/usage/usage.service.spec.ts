@@ -103,6 +103,9 @@ function fakeRepo() {
         return ok(undefined);
       },
     ),
+    lastIngestAt: jest.fn(() =>
+      ok(ingested.size ? '2026-09-03T12:30:00.000Z' : null),
+    ),
     syncDailyByAccount: jest.fn((a: string, start: string, end: string) =>
       ok(
         [...syncDaily.values()].filter(

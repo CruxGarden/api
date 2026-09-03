@@ -273,6 +273,21 @@ export class UsageRepository {
     }
   }
 
+  /** When the newest log file was ingested (survives API restarts). */
+  async lastIngestAt(): Promise<RepositoryResponse<string | null>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('usage_ingest')
+        .max('processed_at as at')
+        .first<{ at: Date | string | null }>();
+      return success(row?.at ? new Date(row.at).toISOString() : null);
+    } catch (error) {
+      this.logger.error('lastIngestAt failed', error as Error);
+      return failure(error);
+    }
+  }
+
   // ── Sync (tied to the account) ──────────────────────────────────────────
   async upsertSyncObject(
     accountId: string,

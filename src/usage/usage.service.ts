@@ -209,12 +209,13 @@ export class UsageService {
     accountId?: string,
   ): Promise<AccountUsage> {
     const period = billingPeriod(now);
-    const [storage, daily, sync] = await Promise.all([
+    const [storage, daily, sync, lastIngest] = await Promise.all([
       this.repo.storageByAuthor(authorId),
       this.repo.dailyByAuthor(authorId, period.start, period.end),
       accountId
         ? this.syncForAccount(accountId, period)
         : Promise.resolve(emptySync()),
+      this.repo.lastIngestAt(),
     ]);
     const byCrux = new Map<string, CruxUsage>();
     for (const row of storage.data ?? []) {
@@ -259,7 +260,7 @@ export class UsageService {
       publish,
       cruxes,
       sync,
-      bandwidthAsOf: this.lastIngest,
+      bandwidthAsOf: lastIngest.data ?? this.lastIngest,
     };
   }
 
