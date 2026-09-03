@@ -80,7 +80,7 @@ Database uses `snake_case`, TypeScript uses `camelCase`:
 ### Key Generation
 The `KeyMaster` service provides two ID types:
 - `generateId()` - UUID v4 for internal IDs
-- `generateKey(length?)` - URL-safe short keys (11 chars, 64-char alphabet) for public-facing identifiers
+- (The legacy `key` field and `generateKey()` are gone — all public lookups use `slug` or `@username`.)
 
 ### Database Access
 - Use `DbService.query()` to get Knex instance
@@ -94,7 +94,7 @@ Dimensions connect Cruxes bidirectionally:
 - `targetId` - The related Crux
 - `type` - One of: 'gate', 'garden', 'growth', 'graft'
 - `weight` - Optional ordering/priority
-- Query via `/cruxes/:cruxKey/dimensions?type=<gate|garden|growth|graft>`
+- Query via `/cruxes/:id/dimensions?type=<gate|garden|growth|graft>`
 
 ### Tags & Markers
 - **Tags**: Resource-agnostic labels (attach to crux, path, theme)
@@ -124,7 +124,7 @@ this.logger = this.loggerService.createChildLogger('ClassName');
 
 ### Creating New Resources
 1. Generate UUID with `KeyMaster.generateId()`
-2. Generate URL-safe key with `KeyMaster.generateKey()`
+2. (No public `key` — slugs are the public identifier)
 3. Add `authorId` from `request.account.id`
 4. Convert DTO to table fields with `toTableFields()`
 5. Set `created` and `updated` timestamps

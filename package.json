@@ -74,7 +74,8 @@
     "docker:db:stop": "cd docker && docker-compose --env-file ../.env -f docker-compose.dev.yml stop postgres redis",
     "release:patch": "npm version patch && git push --follow-tag",
     "release:minor": "npm version minor && git push --follow-tag",
-    "release:major": "npm version major && git push --follow-tag"
+    "release:major": "npm version major && git push --follow-tag",
+    "verify": "eslint \"{src,test}/**/*.ts\" --max-warnings=0 && jest && nest build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
