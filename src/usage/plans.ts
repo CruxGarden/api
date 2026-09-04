@@ -1,6 +1,6 @@
 /**
- * Plans: what an account is allowed. Reported, not enforced (V1 §9-A); the
- * subscription system will enforce and add billing anchors.
+ * Plans: what an account is allowed. Enforced grace-first by LimitsService
+ * (ADR 0012): notices at 80 % and the soft limit, a 402 only past 2× storage.
  */
 export interface Plan {
   id: string;
