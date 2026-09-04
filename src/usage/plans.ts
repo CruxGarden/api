@@ -9,6 +9,8 @@ export interface Plan {
   storageBytes: number;
   /** bytes of bandwidth per billing period */
   bandwidthBytesPerPeriod: number;
+  /** Crux Store reads + writes per billing period */
+  storeRequestsPerPeriod: number;
 }
 
 const GB = 1024 * 1024 * 1024;
@@ -19,6 +21,7 @@ export const PLANS: Record<string, Plan> = {
     name: 'Free',
     storageBytes: 1 * GB,
     bandwidthBytesPerPeriod: 1 * GB,
+    storeRequestsPerPeriod: 100_000,
   },
 };
 

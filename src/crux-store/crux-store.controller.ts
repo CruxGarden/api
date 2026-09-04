@@ -21,6 +21,7 @@ import { AuthRequest } from '../common/types/interfaces';
 import { CruxService } from '../crux/crux.service';
 import { AuthorService } from '../author/author.service';
 import { StoreService } from './crux-store.service';
+import { UsageService } from '../usage/usage.service';
 import {
   SetStoreEntryDto,
   IncrementStoreEntryDto,
@@ -32,6 +33,7 @@ export class StoreController {
     private readonly storeService: StoreService,
     private readonly cruxService: CruxService,
     private readonly authorService: AuthorService,
+    private readonly usage: UsageService,
   ) {}
 
   /**
@@ -73,6 +75,7 @@ export class StoreController {
   ) {
     const visitorId = await this.getVisitorId(req);
     const entry = await this.storeService.get(cruxId, key, visitorId);
+    this.usage.noteStoreRequest(cruxId, 'read');
     if (!entry) return { value: null };
     return { value: entry.value, mode: entry.mode, updatedAt: entry.updatedAt };
   }
@@ -107,6 +110,7 @@ export class StoreController {
       mode,
       visitorId,
     );
+    this.usage.noteStoreRequest(cruxId, 'write');
     return { value: entry.value };
   }
 
@@ -132,6 +136,7 @@ export class StoreController {
       dto.by ?? 1,
       visitorId,
     );
+    this.usage.noteStoreRequest(cruxId, 'write');
     return { value };
   }
 

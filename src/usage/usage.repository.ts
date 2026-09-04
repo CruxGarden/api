@@ -56,6 +56,13 @@ export interface UsagePeriodRow {
   reconciliation_status: string | null;
   finalized_at?: Date | string;
 }
+export interface UsageStoreDailyRow {
+  author_id: string;
+  crux_id: string;
+  day: string;
+  reads: string | number;
+  writes: string | number;
+}
 export interface UsageDailyRow {
   author_id: string;
   crux_id: string;
@@ -313,6 +320,121 @@ export class UsageRepository {
       return success(row?.at ? new Date(row.at).toISOString() : null);
     } catch (error) {
       this.logger.error('lastIngestAt failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  // ── Crux Store (bytes at rest measured live; requests counted per day) ──
+  async storeBytesByAuthor(
+    authorId: string,
+  ): Promise<
+    RepositoryResponse<{ crux_id: string; bytes: number; keys: number }[]>
+  > {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from('store')
+        .where({ author_id: authorId })
+        .groupBy('crux_id')
+        .select('crux_id')
+        .sum({ bytes: this.dbService.query().raw('pg_column_size(value)') })
+        .count({ keys: '*' });
+      return success(
+        (rows as { crux_id: string; bytes: unknown; keys: unknown }[]).map(
+          (r) => ({
+            crux_id: r.crux_id,
+            bytes: Number(r.bytes ?? 0) || 0,
+            keys: Number(r.keys ?? 0) || 0,
+          }),
+        ),
+      );
+    } catch (error) {
+      this.logger.error('storeBytesByAuthor failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async storeBytesByCrux(
+    cruxId: string,
+  ): Promise<RepositoryResponse<{ bytes: number; keys: number }>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('store')
+        .where({ crux_id: cruxId })
+        .sum({ bytes: this.dbService.query().raw('pg_column_size(value)') })
+        .count({ keys: '*' })
+        .first<{ bytes: unknown; keys: unknown }>();
+      return success({
+        bytes: Number(row?.bytes ?? 0) || 0,
+        keys: Number(row?.keys ?? 0) || 0,
+      });
+    } catch (error) {
+      this.logger.error('storeBytesByCrux failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async addStoreDaily(
+    authorId: string,
+    cruxId: string,
+    day: string,
+    reads: number,
+    writes: number,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService.query().raw(
+        `INSERT INTO usage_store_daily (author_id, crux_id, day, reads, writes)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (crux_id, day) DO UPDATE SET
+           reads = usage_store_daily.reads + EXCLUDED.reads,
+           writes = usage_store_daily.writes + EXCLUDED.writes,
+           updated = now()`,
+        [authorId, cruxId, day, reads, writes],
+      );
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('addStoreDaily failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async storeDailyByAuthor(
+    authorId: string,
+    start: string,
+    end: string,
+  ): Promise<RepositoryResponse<UsageStoreDailyRow[]>> {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from<UsageStoreDailyRow>('usage_store_daily')
+        .where({ author_id: authorId })
+        .andWhere('day', '>=', start)
+        .andWhere('day', '<', end)
+        .select('*');
+      return success(rows);
+    } catch (error) {
+      this.logger.error('storeDailyByAuthor failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async storeDailyByCrux(
+    cruxId: string,
+    start: string,
+    end: string,
+  ): Promise<RepositoryResponse<UsageStoreDailyRow[]>> {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from<UsageStoreDailyRow>('usage_store_daily')
+        .where({ crux_id: cruxId })
+        .andWhere('day', '>=', start)
+        .andWhere('day', '<', end)
+        .select('*');
+      return success(rows);
+    } catch (error) {
+      this.logger.error('storeDailyByCrux failed', error as Error);
       return failure(error);
     }
   }

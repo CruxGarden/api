@@ -55,6 +55,20 @@ function fakeRepo() {
     }
   >();
   const reconRows = new Map<string, Record<string, unknown>>();
+  const storeBytesRows = new Map<
+    string,
+    { crux_id: string; bytes: number; keys: number }
+  >();
+  const storeDaily = new Map<
+    string,
+    {
+      author_id: string;
+      crux_id: string;
+      day: string;
+      reads: number;
+      writes: number;
+    }
+  >();
   const periodRows: Array<
     Record<string, unknown> & { author_id: string; period_start: string }
   > = [];
@@ -161,6 +175,41 @@ function fakeRepo() {
     ),
     periodsForAuthor: jest.fn((a: string) =>
       ok(periodRows.filter((p) => p.author_id === a)),
+    ),
+    storeBytesRows,
+    storeBytesByAuthor: jest.fn(() => ok([...storeBytesRows.values()])),
+    storeBytesByCrux: jest.fn((c: string) =>
+      ok(storeBytesRows.get(c) ?? { bytes: 0, keys: 0 }),
+    ),
+    addStoreDaily: jest.fn(
+      (a: string, c: string, day: string, reads: number, writes: number) => {
+        const k = `${c}|${day}`;
+        const row = storeDaily.get(k) ?? {
+          author_id: a,
+          crux_id: c,
+          day,
+          reads: 0,
+          writes: 0,
+        };
+        row.reads += reads;
+        row.writes += writes;
+        storeDaily.set(k, row);
+        return ok(undefined);
+      },
+    ),
+    storeDailyByAuthor: jest.fn((a: string, start: string, end: string) =>
+      ok(
+        [...storeDaily.values()].filter(
+          (r) => r.author_id === a && r.day >= start && r.day < end,
+        ),
+      ),
+    ),
+    storeDailyByCrux: jest.fn((c: string, start: string, end: string) =>
+      ok(
+        [...storeDaily.values()].filter(
+          (r) => r.crux_id === c && r.day >= start && r.day < end,
+        ),
+      ),
     ),
     lastIngestAt: jest.fn(() =>
       ok(ingested.size ? '2026-09-03T12:30:00.000Z' : null),
@@ -405,6 +454,52 @@ describe('UsageService', () => {
     ).toBe(0);
     expect((await svc.periodsForAuthor('a1')).length).toBe(1);
     expect((await svc.periodsForAuthor('a3')).length).toBe(0);
+  });
+
+  it('counts Crux Store requests in memory, flushes per crux per day, and reports bytes + requests', async () => {
+    const repo = fakeRepo();
+    const svc = new UsageService(repo as never, logger);
+    const now = new Date('2026-09-03T12:00:00Z');
+    repo.storeBytesRows.set(CRUX, { crux_id: CRUX, bytes: 2048, keys: 3 });
+    // authorForCrux in the fake resolves CRUX → 'a1' (see fakeRepo); unknown cruxes are dropped
+    svc.noteStoreRequest(CRUX, 'read', now);
+    svc.noteStoreRequest(CRUX, 'read', now);
+    svc.noteStoreRequest(CRUX, 'write', now);
+    svc.noteStoreRequest('00000000-0000-4000-8000-000000000000', 'read', now);
+    expect(await svc.flushStoreCounts()).toBe(1);
+    expect(repo.addStoreDaily).toHaveBeenCalledWith(
+      'a1',
+      CRUX,
+      '2026-09-03',
+      2,
+      1,
+    );
+    // a second flush with nothing buffered is a no-op
+    expect(await svc.flushStoreCounts()).toBe(0);
+
+    const u = await svc.forAuthor('a1', null, now);
+    expect(u.store).toEqual({
+      storageBytes: 2048,
+      keys: 3,
+      reads: 2,
+      writes: 1,
+      requests: 3,
+    });
+    expect(u.storageBytes).toBe(2048); // store bytes count toward storage
+    expect(u.budgets.storeRequests).toMatchObject({ used: 3, limit: 100_000 });
+    expect(u.cruxes[0]).toMatchObject({
+      cruxId: CRUX,
+      storeBytes: 2048,
+      storeKeys: 3,
+      storeReads: 2,
+      storeWrites: 1,
+    });
+    const one = await svc.forCrux(CRUX, now);
+    expect(one).toMatchObject({
+      storeBytes: 2048,
+      storeReads: 2,
+      storeWrites: 1,
+    });
   });
 
   it('ingests each log file once, resolves subdomains and custom domains, skips unknown hosts', async () => {

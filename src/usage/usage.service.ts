@@ -29,6 +29,19 @@ export interface CruxUsage {
   files: number;
   bandwidthBytes: number;
   requests: number;
+  /** Crux Store: bytes at rest now, keys, and reads/writes this period */
+  storeBytes: number;
+  storeKeys: number;
+  storeReads: number;
+  storeWrites: number;
+}
+
+export interface StoreUsage {
+  storageBytes: number;
+  keys: number;
+  reads: number;
+  writes: number;
+  requests: number;
 }
 
 /** One synced object (the garden backup, or one crux archive). */
@@ -98,7 +111,11 @@ export interface AccountUsage {
   plan: Plan;
   /** when this period's numbers stop moving (period end + grace) */
   settlement: { finalizesAt: string; isFinal: boolean; graceHours: number };
-  budgets: { storage: BudgetLine; bandwidth: BudgetLine };
+  budgets: {
+    storage: BudgetLine;
+    bandwidth: BudgetLine;
+    storeRequests: BudgetLine;
+  };
   /** latest daily check of our bandwidth count against CloudFront's */
   reconciliation: ReconciliationView | null;
   /** totals against the plan: publish + sync */
@@ -107,6 +124,8 @@ export interface AccountUsage {
   requests: number;
   /** published sites */
   publish: { storageBytes: number; bandwidthBytes: number; requests: number };
+  /** Crux Store across all of this author's cruxes */
+  store: StoreUsage;
   cruxes: CruxUsage[];
   /** garden backups and synced cruxes, tied to the account */
   sync: SyncUsage;
@@ -163,6 +182,18 @@ const periodView = (p: UsagePeriodRow): PeriodView => ({
   finalizedAt: new Date(p.finalized_at ?? Date.now()).toISOString(),
 });
 
+const emptyCrux = (cruxId: string): CruxUsage => ({
+  cruxId,
+  storageBytes: 0,
+  files: 0,
+  bandwidthBytes: 0,
+  requests: 0,
+  storeBytes: 0,
+  storeKeys: 0,
+  storeReads: 0,
+  storeWrites: 0,
+});
+
 const emptySync = (): SyncUsage => ({
   storageBytes: 0,
   gardenBytes: 0,
@@ -210,6 +241,63 @@ export class UsageService {
       this.logger.error(
         `clearStorage failed for ${cruxId}: ${String(r.error)}`,
       );
+  }
+
+  // ── Crux Store requests: counted in memory, flushed to usage_store_daily ─
+  /**
+   * Store endpoints are hot and anonymous; a DB write per request would double
+   * their cost. Counts accumulate per (crux, day) and flush every few seconds
+   * (and on shutdown). Author is resolved once per crux and cached.
+   */
+  private storeBuffer = new Map<
+    string,
+    { cruxId: string; day: string; reads: number; writes: number }
+  >();
+  private storeFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private storeAuthorCache = new Map<string, string | null>();
+  storeFlushMs = 5_000;
+
+  noteStoreRequest(
+    cruxId: string,
+    kind: 'read' | 'write',
+    now = new Date(),
+  ): void {
+    const day = now.toISOString().slice(0, 10);
+    const key = `${cruxId}|${day}`;
+    const b = this.storeBuffer.get(key) ?? { cruxId, day, reads: 0, writes: 0 };
+    if (kind === 'read') b.reads += 1;
+    else b.writes += 1;
+    this.storeBuffer.set(key, b);
+    if (!this.storeFlushTimer)
+      this.storeFlushTimer = setTimeout(
+        () => void this.flushStoreCounts(),
+        this.storeFlushMs,
+      );
+  }
+
+  async flushStoreCounts(): Promise<number> {
+    if (this.storeFlushTimer) clearTimeout(this.storeFlushTimer);
+    this.storeFlushTimer = null;
+    const batch = [...this.storeBuffer.values()];
+    this.storeBuffer.clear();
+    let flushed = 0;
+    for (const b of batch) {
+      let authorId = this.storeAuthorCache.get(b.cruxId);
+      if (authorId === undefined) {
+        authorId = (await this.repo.authorForCrux(b.cruxId)).data ?? null;
+        this.storeAuthorCache.set(b.cruxId, authorId);
+      }
+      if (!authorId) continue;
+      const r = await this.repo.addStoreDaily(
+        authorId,
+        b.cruxId,
+        b.day,
+        b.reads,
+        b.writes,
+      );
+      if (!r.error) flushed += 1;
+    }
+    return flushed;
   }
 
   // ── Sync (garden backups + synced cruxes, per account) ──────────────────
@@ -314,27 +402,35 @@ export class UsageService {
       this.repo.lastIngestAt(),
       this.repo.listReconciliation(1),
     ]);
+    const [storeBytes, storeDaily] = await Promise.all([
+      this.repo.storeBytesByAuthor(authorId),
+      this.repo.storeDailyByAuthor(authorId, period.start, period.end),
+    ]);
     const byCrux = new Map<string, CruxUsage>();
+    const entry = (cruxId: string): CruxUsage => {
+      const c = byCrux.get(cruxId) ?? emptyCrux(cruxId);
+      byCrux.set(cruxId, c);
+      return c;
+    };
     for (const row of storage.data ?? []) {
-      byCrux.set(row.crux_id, {
-        cruxId: row.crux_id,
-        storageBytes: n(row.bytes),
-        files: row.files,
-        bandwidthBytes: 0,
-        requests: 0,
-      });
+      const c = entry(row.crux_id);
+      c.storageBytes = n(row.bytes);
+      c.files = row.files;
     }
     for (const row of daily.data ?? []) {
-      const c = byCrux.get(row.crux_id) ?? {
-        cruxId: row.crux_id,
-        storageBytes: 0,
-        files: 0,
-        bandwidthBytes: 0,
-        requests: 0,
-      };
+      const c = entry(row.crux_id);
       c.bandwidthBytes += n(row.bytes);
       c.requests += n(row.requests);
-      byCrux.set(row.crux_id, c);
+    }
+    for (const row of storeBytes.data ?? []) {
+      const c = entry(row.crux_id);
+      c.storeBytes = row.bytes;
+      c.storeKeys = row.keys;
+    }
+    for (const row of storeDaily.data ?? []) {
+      const c = entry(row.crux_id);
+      c.storeReads += n(row.reads);
+      c.storeWrites += n(row.writes);
     }
     const titles = await this.repo.titlesFor([...byCrux.keys()]);
     for (const c of byCrux.values())
@@ -348,8 +444,17 @@ export class UsageService {
       bandwidthBytes: cruxes.reduce((s, c) => s + c.bandwidthBytes, 0),
       requests: cruxes.reduce((s, c) => s + c.requests, 0),
     };
+    const store: StoreUsage = {
+      storageBytes: cruxes.reduce((s, c) => s + c.storeBytes, 0),
+      keys: cruxes.reduce((s, c) => s + c.storeKeys, 0),
+      reads: cruxes.reduce((s, c) => s + c.storeReads, 0),
+      writes: cruxes.reduce((s, c) => s + c.storeWrites, 0),
+      requests: 0,
+    };
+    store.requests = store.reads + store.writes;
     const plan = planFor(authorMeta);
-    const storageBytes = publish.storageBytes + sync.storageBytes;
+    const storageBytes =
+      publish.storageBytes + sync.storageBytes + store.storageBytes;
     const bandwidthBytes = publish.bandwidthBytes + sync.transferBytes;
     const latest = recon.data?.[0];
     return {
@@ -359,12 +464,14 @@ export class UsageService {
       budgets: {
         storage: budget(plan.storageBytes, storageBytes),
         bandwidth: budget(plan.bandwidthBytesPerPeriod, bandwidthBytes),
+        storeRequests: budget(plan.storeRequestsPerPeriod, store.requests),
       },
       reconciliation: latest ? reconView(latest) : null,
       storageBytes,
       bandwidthBytes,
       requests: publish.requests,
       publish,
+      store,
       cruxes,
       sync,
       bandwidthAsOf: lastIngest.data ?? this.lastIngest,
@@ -373,9 +480,11 @@ export class UsageService {
 
   async forCrux(cruxId: string, now = new Date()): Promise<CruxUsage> {
     const period = billingPeriod(now);
-    const [storage, daily] = await Promise.all([
+    const [storage, daily, store, storeDaily] = await Promise.all([
       this.repo.storageByCrux(cruxId),
       this.repo.dailyByCrux(cruxId, period.start, period.end),
+      this.repo.storeBytesByCrux(cruxId),
+      this.repo.storeDailyByCrux(cruxId, period.start, period.end),
     ]);
     if (storage.error) throw new NotFoundException('Usage not found');
     return {
@@ -384,6 +493,10 @@ export class UsageService {
       files: storage.data?.files ?? 0,
       bandwidthBytes: (daily.data ?? []).reduce((s, r) => s + n(r.bytes), 0),
       requests: (daily.data ?? []).reduce((s, r) => s + n(r.requests), 0),
+      storeBytes: store.data?.bytes ?? 0,
+      storeKeys: store.data?.keys ?? 0,
+      storeReads: (storeDaily.data ?? []).reduce((s, r) => s + n(r.reads), 0),
+      storeWrites: (storeDaily.data ?? []).reduce((s, r) => s + n(r.writes), 0),
     };
   }
 
@@ -687,5 +800,6 @@ export class UsageService {
   stopScheduler(): void {
     if (this.ingestTimer) clearInterval(this.ingestTimer);
     this.ingestTimer = null;
+    void this.flushStoreCounts();
   }
 }
