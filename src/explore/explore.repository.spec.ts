@@ -29,10 +29,10 @@ describe('ExploreRepository query composition', () => {
       .toSQL()
       .toNative();
     expect(sql).toContain('"c"."kind" = ');
-    expect(sql).toContain('lower(a.username) like ');
+    expect(sql).toContain('lower(a.username) = ');
     expect(sql).toContain('"a"."username" ilike');
     expect(bindings).toEqual(
-      expect.arrayContaining(['mood', 'daniel%', '%rain%', 'ambient', 'dark']),
+      expect.arrayContaining(['mood', 'daniel', '%rain%', 'ambient', 'dark']),
     );
     expect((sql.match(/exists \(select \*/g) ?? []).length).toBe(3); // search-in-tags + 2 tag filters
   });

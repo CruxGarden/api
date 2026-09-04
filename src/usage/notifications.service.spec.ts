@@ -39,12 +39,14 @@ describe('NotificationsService', () => {
   it('sends each due notice once per period, with the plan named', async () => {
     const sent = new Set<string>();
     const repo = {
-      notificationSent: jest.fn(async (a: string, k: string, p: string) => ({
-        data: sent.has(`${a}|${k}|${p}`),
-        error: null,
-      })),
       markNotified: jest.fn(async (a: string, k: string, p: string) => {
-        sent.add(`${a}|${k}|${p}`);
+        const key = `${a}|${k}|${p}`;
+        if (sent.has(key)) return { data: false, error: null };
+        sent.add(key);
+        return { data: true, error: null };
+      }),
+      unmarkNotified: jest.fn(async (a: string, k: string, p: string) => {
+        sent.delete(`${a}|${k}|${p}`);
         return { data: undefined, error: null };
       }),
       accountEmailFor: jest.fn(async () => ({

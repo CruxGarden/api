@@ -18,6 +18,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { IsIn, IsString } from 'class-validator';
+import { SkipThrottle } from '@nestjs/throttler';
+import { isAdmin } from '../common/helpers/role-helpers';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
 import { BillingService } from './billing.service';
@@ -84,6 +86,7 @@ export class BillingController {
   }
 
   @Post('webhook/stripe')
+  @SkipThrottle() // Stripe bursts on retries; the signature is the auth
   @HttpCode(HttpStatus.OK)
   @ApiExcludeEndpoint()
   webhook(
@@ -99,8 +102,7 @@ export class BillingController {
   @UseGuards(AuthGuard)
   @ApiOperation({ summary: 'Admin: all subscriptions' })
   async all(@Req() req: AuthRequest) {
-    if (req.account.role !== 'admin')
-      throw new ForbiddenException('Admins only');
+    if (!isAdmin(req.account.role)) throw new ForbiddenException('Admins only');
     return this.billing.listAll();
   }
 }

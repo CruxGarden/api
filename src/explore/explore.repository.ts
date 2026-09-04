@@ -69,9 +69,11 @@ export class ExploreRepository {
     // "@name" searches authors only; "#tag" is a tag filter typed into the box.
     let q = (filters.q ?? '').trim();
     let author = filters.author;
+    let authorPrefix = false;
     const tags = [...(filters.tag ?? [])];
     if (q.startsWith('@') && q.length > 1) {
       author = q.slice(1);
+      authorPrefix = true;
       q = '';
     } else if (q.startsWith('#') && q.length > 1) {
       tags.push(q.slice(1));
@@ -102,10 +104,14 @@ export class ExploreRepository {
     }
 
     if (author) {
-      // exact username, or a prefix when typed as "@dan"
-      query.whereRaw('lower(a.username) like ?', [
-        `${author.toLowerCase().replace(/[%_]/g, '')}%`,
-      ]);
+      // ?author= is exact; "@dan" typed into the search box is a prefix
+      if (authorPrefix) {
+        query.whereRaw('lower(a.username) like ?', [
+          `${author.toLowerCase().replace(/[%_]/g, '')}%`,
+        ]);
+      } else {
+        query.whereRaw('lower(a.username) = ?', [author.toLowerCase()]);
+      }
     }
 
     if (tags.length > 0) {

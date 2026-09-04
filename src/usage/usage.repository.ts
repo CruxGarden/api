@@ -217,16 +217,73 @@ export class UsageRepository {
     }
   }
 
-  async ingestSeen(key: string): Promise<RepositoryResponse<boolean>> {
+  /**
+   * Claim a log file before reading it: the INSERT is the lock, so two
+   * schedulers (overlapping runs, two API instances) cannot both count it.
+   * Returns true when this caller owns the file.
+   */
+  async claimIngest(key: string): Promise<RepositoryResponse<boolean>> {
+    try {
+      const rows = await this.dbService.query().raw(
+        `INSERT INTO usage_ingest (key, bytes, requests) VALUES (?, 0, 0)
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
+        [key],
+      );
+      const list = (rows.rows ?? rows) as unknown[];
+      return success(list.length > 0);
+    } catch (error) {
+      this.logger.error('claimIngest failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** Give a claim back (the file could not be read); it will be retried next run. */
+  async releaseIngest(key: string): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()
+        .from('usage_ingest')
+        .where('key', key)
+        .delete();
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('releaseIngest failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** The highest key already processed — S3 lists lexically, log keys are date-prefixed. */
+  async lastIngestKey(): Promise<RepositoryResponse<string | null>> {
     try {
       const row = await this.dbService
         .query()
         .from('usage_ingest')
-        .where('key', key)
-        .first();
-      return success(!!row);
+        .max('key as k')
+        .first<{ k: string | null }>();
+      return success(row?.k ?? null);
     } catch (error) {
-      this.logger.error('ingestSeen failed', error as Error);
+      this.logger.error('lastIngestKey failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async addUnattributed(
+    day: string,
+    bytes: number,
+    requests: number,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService.query().raw(
+        `INSERT INTO usage_unattributed (day, bytes, requests) VALUES (?, ?, ?)
+         ON CONFLICT (day) DO UPDATE SET
+           bytes = usage_unattributed.bytes + EXCLUDED.bytes,
+           requests = usage_unattributed.requests + EXCLUDED.requests,
+           updated = now()`,
+        [day, bytes, requests],
+      );
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('addUnattributed failed', error as Error);
       return failure(error);
     }
   }
@@ -240,9 +297,8 @@ export class UsageRepository {
       await this.dbService
         .query()
         .from('usage_ingest')
-        .insert({ key, bytes, requests })
-        .onConflict('key')
-        .ignore();
+        .where('key', key)
+        .update({ bytes, requests, processed_at: new Date() });
       return success(undefined);
     } catch (error) {
       this.logger.error('markIngested failed', error as Error);
@@ -458,7 +514,28 @@ export class UsageRepository {
     }
   }
 
+  /** Claim the notice: true when this caller inserted the ledger row. */
   async markNotified(
+    accountId: string,
+    kind: string,
+    periodStart: string,
+  ): Promise<RepositoryResponse<boolean>> {
+    try {
+      const rows = await this.dbService.query().raw(
+        `INSERT INTO usage_notifications (account_id, kind, period_start) VALUES (?, ?, ?)
+         ON CONFLICT (account_id, kind, period_start) DO NOTHING RETURNING id`,
+        [accountId, kind, periodStart],
+      );
+      const list = (rows.rows ?? rows) as unknown[];
+      return success(list.length > 0);
+    } catch (error) {
+      this.logger.error('markNotified failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** Give a claimed notice back when the email failed to send. */
+  async unmarkNotified(
     accountId: string,
     kind: string,
     periodStart: string,
@@ -467,12 +544,11 @@ export class UsageRepository {
       await this.dbService
         .query()
         .from('usage_notifications')
-        .insert({ account_id: accountId, kind, period_start: periodStart })
-        .onConflict(['account_id', 'kind', 'period_start'])
-        .ignore();
+        .where({ account_id: accountId, kind, period_start: periodStart })
+        .delete();
       return success(undefined);
     } catch (error) {
-      this.logger.error('markNotified failed', error as Error);
+      this.logger.error('unmarkNotified failed', error as Error);
       return failure(error);
     }
   }
@@ -609,15 +685,25 @@ export class UsageRepository {
   }
 
   // ── Reconciliation (our count vs CloudFront's) ──────────────────────────
+  /** Everything we saw in the logs that day — attributed to cruxes or not — for reconciliation. */
   async meteredBytesForDay(day: string): Promise<RepositoryResponse<number>> {
     try {
-      const row = await this.dbService
-        .query()
-        .from('usage_daily')
-        .where({ day })
-        .sum('bytes as total')
-        .first<{ total: string | number | null }>();
-      return success(Number(row?.total ?? 0) || 0);
+      const [row, other] = await Promise.all([
+        this.dbService
+          .query()
+          .from('usage_daily')
+          .where({ day })
+          .sum('bytes as total')
+          .first<{ total: string | number | null }>(),
+        this.dbService
+          .query()
+          .from('usage_unattributed')
+          .where({ day })
+          .first<{ bytes: string | number | null }>('bytes'),
+      ]);
+      return success(
+        (Number(row?.total ?? 0) || 0) + (Number(other?.bytes ?? 0) || 0),
+      );
     } catch (error) {
       this.logger.error('meteredBytesForDay failed', error as Error);
       return failure(error);

@@ -64,6 +64,43 @@ export class DomainsRepository {
     }
   }
 
+  /** The live (issuing/active) row for a hostname — the one that owns it. */
+  async findLiveByHostname(
+    hostname: string,
+  ): Promise<RepositoryResponse<CustomDomainRow | undefined>> {
+    try {
+      const data = await this.dbService
+        .query()
+        .from<CustomDomainRow>(DomainsRepository.TABLE)
+        .where('hostname', hostname)
+        .whereIn('status', ['issuing', 'active'])
+        .whereNull('deleted')
+        .first();
+      return success(data);
+    } catch (error) {
+      this.logger.error('findLiveByHostname failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** Release pending_dns / failed claims older than `days` (soft delete). */
+  async expirePending(days: number): Promise<RepositoryResponse<number>> {
+    try {
+      const n = await this.dbService
+        .query()
+        .from(DomainsRepository.TABLE)
+        .whereIn('status', ['pending_dns', 'failed'])
+        .whereNull('deleted')
+        .where('updated', '<', new Date(Date.now() - days * 86_400_000))
+        .update({ deleted: new Date(), updated: new Date() });
+      return success(n);
+    } catch (error) {
+      this.logger.error('expirePending failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** Any live row for a hostname, live connection first (used by resolve). */
   async findByHostname(
     hostname: string,
   ): Promise<RepositoryResponse<CustomDomainRow | undefined>> {
@@ -73,6 +110,9 @@ export class DomainsRepository {
         .from<CustomDomainRow>(DomainsRepository.TABLE)
         .where('hostname', hostname)
         .whereNull('deleted')
+        .orderByRaw(
+          `CASE status WHEN 'active' THEN 0 WHEN 'issuing' THEN 1 ELSE 2 END`,
+        )
         .first();
       return success(data);
     } catch (error) {
@@ -147,14 +187,14 @@ export class DomainsRepository {
     }
   }
 
-  /** Soft delete; the hostname stays unique so the same name can't be re-added while a tenant lingers. Hard-deletes on purpose. */
+  /** Soft delete, like every other table; the live-hostname index ignores deleted rows. */
   async remove(id: string): Promise<RepositoryResponse<void>> {
     try {
       await this.dbService
         .query()
         .from(DomainsRepository.TABLE)
         .where('id', id)
-        .delete();
+        .update({ deleted: new Date(), updated: new Date() });
       return success(undefined);
     } catch (error) {
       this.logger.error('remove failed', error as Error);

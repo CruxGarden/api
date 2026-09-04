@@ -1,4 +1,4 @@
-import { UsageService } from './usage.service';
+import { UsageService, dayString } from './usage.service';
 import { gzipSync } from 'node:zlib';
 
 const logger = {
@@ -32,6 +32,7 @@ function fakeRepo() {
     }
   >();
   const ingested = new Set<string>();
+  const unattributed: { day: string; bytes: number; requests: number }[] = [];
   const syncObjects = new Map<
     string,
     {
@@ -75,6 +76,7 @@ function fakeRepo() {
   const ok = <T>(data: T) => Promise.resolve({ data, error: null });
   return {
     storage,
+    unattributed,
     daily,
     upsertSyncObject: jest.fn(
       (
@@ -271,9 +273,19 @@ function fakeRepo() {
         ),
       ),
     ),
-    ingestSeen: jest.fn((k: string) => ok(ingested.has(k))),
-    markIngested: jest.fn((k: string) => {
+    claimIngest: jest.fn((k: string) => {
+      if (ingested.has(k)) return ok(false);
       ingested.add(k);
+      return ok(true);
+    }),
+    releaseIngest: jest.fn((k: string) => {
+      ingested.delete(k);
+      return ok(undefined);
+    }),
+    lastIngestKey: jest.fn(() => ok([...ingested].sort().pop() ?? null)),
+    markIngested: jest.fn(() => ok(undefined)),
+    addUnattributed: jest.fn((day: string, bytes: number, requests: number) => {
+      unattributed.push({ day, bytes, requests });
       return ok(undefined);
     }),
     cruxForHostname: jest.fn((h: string) =>
@@ -289,6 +301,14 @@ function fakeRepo() {
     ),
   };
 }
+
+describe('dayString', () => {
+  it('renders a DATE column the same whether pg hands back a string or a Date', () => {
+    expect(dayString('2026-09-03')).toBe('2026-09-03');
+    expect(dayString(new Date('2026-09-03T00:00:00Z'))).toBe('2026-09-03');
+    expect(dayString('2026-09-03T00:00:00.000Z')).toBe('2026-09-03');
+  });
+});
 
 describe('UsageService', () => {
   it('storage is recorded at publish and cleared at unpublish; totals per period', async () => {
@@ -519,7 +539,12 @@ describe('UsageService', () => {
       read: async (k: string) => files.get(k)!,
     };
     const first = await svc.ingest(source);
-    expect(first).toEqual({ files: 1, bytes: 180, requests: 3, skipped: 1 });
+    // the summary is what the file contained (it reconciles against CloudFront);
+    // the unknown host is metered as unattributed, not billed to anyone
+    expect(first).toEqual({ files: 1, bytes: 1179, requests: 4, skipped: 1 });
+    expect(repo.unattributed).toEqual([
+      { day: '2026-09-03', bytes: 999, requests: 1 },
+    ]);
     expect(repo.daily.get(`${CRUX}|2026-09-03`)).toMatchObject({
       bytes: 150,
       requests: 2,

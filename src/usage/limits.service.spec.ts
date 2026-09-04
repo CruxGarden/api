@@ -24,24 +24,15 @@ describe('LimitsService (grace-first)', () => {
     await expect(
       svc('free', 1.9 * GB).assertStorage('a1', 'acct', 0.2 * GB),
     ).rejects.toThrow(OverLimitException);
-    try {
-      await svc('free', 1.9 * GB).assertStorage(
-        'a1',
-        'acct',
-        0.2 * GB,
-        0,
-        'publish',
-      );
-    } catch (e) {
-      const res = (e as OverLimitException).getResponse() as Record<
-        string,
-        unknown
-      >;
-      expect((e as OverLimitException).getStatus()).toBe(402);
-      expect(res.kind).toBe('storage');
-      expect(String(res.message)).toMatch(/Free plan/);
-      expect(String(res.message)).toMatch(/upgrade your plan/);
-    }
+    const err = (await svc('free', 1.9 * GB)
+      .assertStorage('a1', 'acct', 0.2 * GB, 0, 'publish')
+      .catch((e: unknown) => e)) as OverLimitException;
+    expect(err).toBeInstanceOf(OverLimitException);
+    const res = err.getResponse() as Record<string, unknown>;
+    expect(err.getStatus()).toBe(402);
+    expect(res.kind).toBe('storage');
+    expect(String(res.message)).toMatch(/Free plan/);
+    expect(String(res.message)).toMatch(/upgrade your plan/);
   });
 
   it('a replaced object only counts its growth; bigger plans have bigger lines', async () => {

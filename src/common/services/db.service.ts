@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 // import { Knex, knex } from 'knex';
+import { types } from 'pg';
 import knex, { Knex } from 'knex';
 import knexConfig from '../../../knexfile';
 import { attachPaginate } from 'knex-paginate';
@@ -32,6 +33,10 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         ? knexConfig.production
         : knexConfig.development;
 
+    // DATE columns (usage_daily.day, usage_periods.period_start…) are calendar
+    // days in UTC. node-pg would turn them into local-midnight Date objects and
+    // shift them across time zones; keep them as 'YYYY-MM-DD' strings.
+    types.setTypeParser(1082, (v: string) => v);
     this.client = knex(config);
 
     // Set up connection pool event listeners

@@ -33,8 +33,19 @@ function fakeRepo() {
     }),
     findById: jest.fn((id: string) => ok(rows.get(id))),
     findByHostname: jest.fn((h: string) =>
-      ok([...rows.values()].find((r) => r.hostname === h)),
+      ok([...rows.values()].find((r) => r.hostname === h && !r.deleted)),
     ),
+    findLiveByHostname: jest.fn((h: string) =>
+      ok(
+        [...rows.values()].find(
+          (r) =>
+            r.hostname === h &&
+            !r.deleted &&
+            (r.status === 'issuing' || r.status === 'active'),
+        ),
+      ),
+    ),
+    expirePending: jest.fn(() => ok(0)),
     findByCrux: jest.fn((c: string) =>
       ok([...rows.values()].filter((r) => r.crux_id === c)),
     ),
@@ -47,7 +58,8 @@ function fakeRepo() {
       return ok(row);
     }),
     remove: jest.fn((id: string) => {
-      rows.delete(id);
+      const row = rows.get(id);
+      if (row) rows.set(id, { ...row, deleted: new Date() });
       return ok(undefined);
     }),
     authorForCrux: jest.fn(() => ok('a1')),
@@ -123,7 +135,29 @@ describe('DomainsService', () => {
     await svc.removeAllForCrux('c1');
     expect(edge.tenants.size).toBe(0);
     expect(await svc.resolve('blog.example.com')).toBeNull();
-    expect(repo.rows.size).toBe(0);
+    // soft-deleted, like every other table
+    expect([...repo.rows.values()].every((r) => r.deleted)).toBe(true);
+  });
+
+  it('a pending claim by someone else does not block the hostname; a live one does', async () => {
+    const repo = fakeRepo();
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider();
+    svc.useProviders(edge, {
+      cnameTargets: async () => [],
+      txtValues: async () => [],
+    });
+    await svc.add('c-squatter', 'a-squatter', 'blog.example.com');
+    const mine = await svc.add('c1', 'a1', 'blog.example.com');
+    expect(mine.status).toBe('pending_dns');
+    // once mine is live, a third claim is refused
+    await repo.update(mine.id, { status: 'active' });
+    await expect(svc.add('c2', 'a2', 'blog.example.com')).rejects.toThrow(
+      /already connected/,
+    );
+    // pollIssuing sweeps stale claims
+    await svc.pollIssuing();
+    expect(repo.expirePending).toHaveBeenCalledWith(7);
   });
 
   it('records a failed certificate request and lets the user retry', async () => {

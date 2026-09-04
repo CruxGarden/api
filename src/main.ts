@@ -25,7 +25,9 @@ async function bootstrap() {
     json({
       limit: '5mb',
       verify: (req, _res, buf) => {
-        (req as unknown as { rawBody?: Buffer }).rawBody = buf;
+        // only the signature-checked webhook needs the raw bytes
+        if ((req as { url?: string }).url?.startsWith('/billing/webhook/'))
+          (req as unknown as { rawBody?: Buffer }).rawBody = buf;
       },
     }),
   );

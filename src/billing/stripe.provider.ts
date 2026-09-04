@@ -40,7 +40,16 @@ export class StripeBillingProvider implements BillingProvider {
       automatic_tax: { enabled: this.automaticTax },
       subscription_data: {
         metadata: { accountId: req.accountId },
-        ...(req.trialDays > 0 ? { trial_period_days: req.trialDays } : {}),
+        ...(req.trialDays > 0
+          ? {
+              trial_period_days: req.trialDays,
+              // card-free trial: when it ends without a payment method, end it — never
+              // leave a paused subscription that reads as a paid plan
+              trial_settings: {
+                end_behavior: { missing_payment_method: 'cancel' as const },
+              },
+            }
+          : {}),
       },
       // A card-free trial when trials are on; otherwise collect up front.
       payment_method_collection: req.trialDays > 0 ? 'if_required' : 'always',
@@ -103,9 +112,21 @@ export class StripeBillingProvider implements BillingProvider {
         const inv = event.data.object;
         const customerId =
           typeof inv.customer === 'string' ? inv.customer : inv.customer?.id;
-        const subField = (
+        // API 2025-08-27+: the subscription lives under invoice.parent; older
+        // shapes had invoice.subscription. Read both.
+        const parentSub = (
+          inv as unknown as {
+            parent?: {
+              subscription_details?: {
+                subscription?: string | { id: string } | null;
+              } | null;
+            } | null;
+          }
+        ).parent?.subscription_details?.subscription;
+        const legacySub = (
           inv as unknown as { subscription?: string | { id: string } | null }
         ).subscription;
+        const subField = parentSub ?? legacySub;
         const subscriptionId =
           typeof subField === 'string' ? subField : (subField?.id ?? null);
         return {
@@ -174,7 +195,8 @@ function status(s: Stripe.Subscription.Status): SubscriptionStatus {
     case 'incomplete_expired':
       return 'incomplete';
     case 'paused':
-      return 'past_due';
+      // a trial that ended without a card: no entitlement
+      return 'none';
     default:
       return 'none';
   }

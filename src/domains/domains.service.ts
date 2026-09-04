@@ -29,6 +29,9 @@ export interface CustomDomainView {
   updated: string;
 }
 
+/** A domain that is never verified is released after this long. */
+const PENDING_TTL_DAYS = 7;
+
 @Injectable()
 export class DomainsService {
   private readonly logger: LoggerService;
@@ -105,9 +108,11 @@ export class DomainsService {
     const hostname = normalizeHostname(input);
     if (!hostname)
       throw new BadRequestException(
-        'Enter a domain like blog.example.com (crux.garden names are not allowed)',
+        'Enter a subdomain like blog.example.com — it needs a CNAME record, so apex domains (example.com) are not supported yet; crux.garden names are not allowed',
       );
-    const existing = await this.repo.findByHostname(hostname);
+    // Only a live connection (issuing/active) owns a hostname; a stale claim
+    // somebody never verified cannot block the real owner.
+    const existing = await this.repo.findLiveByHostname(hostname);
     if (existing.data)
       throw new ConflictException('That domain is already connected to a crux');
     const token = randomBytes(16).toString('hex');
@@ -155,6 +160,9 @@ export class DomainsService {
         return this.view(updated.data ?? row);
       }
       try {
+        // a retry after a failed issue must not leave the old tenant behind
+        if (row.tenant_id)
+          await this.edge.deleteTenant(row.tenant_id).catch(() => undefined);
         const tenant = await this.edge.createTenant(row.hostname, row.crux_id);
         const updated = await this.repo.update(id, {
           status: tenant.status === 'active' ? 'active' : 'issuing',
@@ -219,6 +227,8 @@ export class DomainsService {
 
   /** Advance issuing tenants without a client asking. */
   async pollIssuing(): Promise<number> {
+    // unverified claims expire so nobody can squat a hostname forever
+    await this.repo.expirePending(PENDING_TTL_DAYS);
     const r = await this.repo.findIssuing();
     let advanced = 0;
     for (const row of r.data ?? []) {

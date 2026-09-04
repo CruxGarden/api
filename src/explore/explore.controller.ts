@@ -35,7 +35,8 @@ export class ExploreController {
   @ApiQuery({
     name: 'author',
     required: false,
-    description: 'Author username (exact)',
+    description:
+      'Author username (exact). Typing "@dan" into q searches usernames by prefix instead.',
   })
   @ApiQuery({
     name: 'sort',

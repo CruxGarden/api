@@ -209,6 +209,26 @@ export class CruxService {
     const cruxToDelete = await this.findById(cruxId);
     if (!cruxToDelete) throw new NotFoundException('Crux not found');
 
+    // 1b) a deleted crux must not stay live, billed, or reachable by a custom domain
+    if (cruxToDelete.meta?.published) {
+      await this.artifactService
+        .deleteFromStaticBucket(cruxToDelete.id)
+        .catch((err: Error) =>
+          this.logger.error(
+            `static cleanup failed for ${cruxId}: ${err.message}`,
+          ),
+        );
+      await this.publishStorage
+        .deleteBucket(cruxToDelete.id)
+        .catch((err: Error) =>
+          this.logger.error(
+            `bucket cleanup failed for ${cruxId}: ${err.message}`,
+          ),
+        );
+      await this.usageService.clearStorage(cruxToDelete.id);
+      await this.domainsService.removeAllForCrux(cruxToDelete.id);
+    }
+
     // 2) delete crux
     const { error: deleteError } = await this.cruxRepository.delete(
       cruxToDelete.id,
@@ -389,10 +409,11 @@ export class CruxService {
       artifact: artifactRecords[i],
     }));
     const pathPrefix = crux.id;
+    let storedBytes: number | null = null;
     if (this.publishLayout() === 'bucket-per-crux') {
       // ADR 0011: the crux's own website bucket; HTML has short cache, so no invalidation
       await this.publishStorage.ensureBucket(crux.id, authorId);
-      await this.publishStorage.putFiles(
+      const put = await this.publishStorage.putFiles(
         crux.id,
         this.artifactService.preparePublishFiles(
           publishFiles,
@@ -400,6 +421,7 @@ export class CruxService {
           crux.id,
         ),
       );
+      storedBytes = put.bytes; // exact: what actually sits in the bucket, injections included
     } else {
       await this.artifactService.deleteFromStaticBucket(pathPrefix);
       await this.artifactService.publishFilesDirectly(
@@ -417,10 +439,9 @@ export class CruxService {
     }
 
     // Storage usage is exact at publish time (ADR 0011 §3)
-    const publishedBytes = files.reduce(
-      (sum, f) => sum + (f.size ?? f.buffer?.length ?? 0),
-      0,
-    );
+    const publishedBytes =
+      storedBytes ??
+      files.reduce((sum, f) => sum + (f.size ?? f.buffer?.length ?? 0), 0);
     await this.usageService.recordStorage(
       crux.id,
       authorId,

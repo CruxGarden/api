@@ -136,7 +136,8 @@ export interface AccountUsage {
 
 /** Reads log files; abstracted so ingestion is testable without S3. */
 export interface LogSource {
-  list(): Promise<string[]>;
+  /** Keys in lexical order; `after` skips everything up to and including that key. */
+  list(after?: string | null): Promise<string[]>;
   read(key: string): Promise<Buffer>;
 }
 
@@ -153,8 +154,17 @@ const budget = (limit: number, used: number): BudgetLine => {
   };
 };
 
+/** A DATE column as 'YYYY-MM-DD' whether the driver gave us a string or a Date. */
+export const dayString = (v: unknown): string => {
+  // UTC on purpose: the API's calendar is UTC (period boundaries, log days),
+  // and DATE columns are parsed as plain strings (db.service) so a Date here
+  // is a timestamp, not a local-midnight DATE.
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+};
+
 const reconView = (r: UsageReconciliationRow): ReconciliationView => ({
-  day: String(r.day).slice(0, 10),
+  day: dayString(r.day),
   status: r.status,
   meteredBytes: n(r.metered_bytes),
   edgeBytes: r.edge_bytes === null ? null : n(r.edge_bytes),
@@ -163,10 +173,7 @@ const reconView = (r: UsageReconciliationRow): ReconciliationView => ({
 });
 
 const periodView = (p: UsagePeriodRow): PeriodView => ({
-  period: {
-    start: String(p.period_start).slice(0, 10),
-    end: String(p.period_end).slice(0, 10),
-  },
+  period: { start: dayString(p.period_start), end: dayString(p.period_end) },
   planId: p.plan_id,
   storageBytes: n(p.storage_bytes),
   publishStorageBytes: n(p.publish_storage_bytes),
@@ -256,7 +263,7 @@ export class UsageService {
     { cruxId: string; day: string; reads: number; writes: number }
   >();
   private storeFlushTimer: ReturnType<typeof setTimeout> | null = null;
-  private storeAuthorCache = new Map<string, string | null>();
+  private storeAuthorCache = new Map<string, string>();
   storeFlushMs = 5_000;
 
   noteStoreRequest(
@@ -287,7 +294,12 @@ export class UsageService {
       let authorId = this.storeAuthorCache.get(b.cruxId);
       if (authorId === undefined) {
         authorId = (await this.repo.authorForCrux(b.cruxId)).data ?? null;
-        this.storeAuthorCache.set(b.cruxId, authorId);
+        // Only real cruxes are remembered (junk ids from anonymous traffic are not),
+        // and the cache is bounded.
+        if (authorId) {
+          if (this.storeAuthorCache.size >= 5000) this.storeAuthorCache.clear();
+          this.storeAuthorCache.set(b.cruxId, authorId);
+        }
       }
       if (!authorId) continue;
       const r = await this.repo.addStoreDaily(
@@ -583,7 +595,7 @@ export class UsageService {
       [];
     const recon = (await this.repo.listReconciliation(40)).data ?? [];
     const inPeriod = recon.filter((r) => {
-      const d = String(r.day).slice(0, 10);
+      const d = dayString(r.day);
       return d >= period.start && d < period.end;
     });
     const reconciliationStatus = inPeriod.length
@@ -659,14 +671,16 @@ export class UsageService {
     requests: number;
     skipped: number;
   }> {
-    const keys = await source.list();
+    const after = (await this.repo.lastIngestKey()).data;
+    const keys = await source.list(after);
     let files = 0,
       bytes = 0,
       requests = 0,
       skipped = 0;
     for (const key of keys) {
-      const seen = await this.repo.ingestSeen(key);
-      if (seen.data) continue;
+      // The claim is the lock: whoever inserts the key owns the file.
+      const claimed = await this.repo.claimIngest(key);
+      if (!claimed.data) continue;
       let raw: Buffer;
       try {
         raw = await source.read(key);
@@ -674,6 +688,7 @@ export class UsageService {
         this.logger.error(
           `could not read log ${key}: ${(err as Error).message}`,
         );
+        await this.repo.releaseIngest(key);
         continue;
       }
       const totals = parseCloudFrontLog(raw);
@@ -682,7 +697,12 @@ export class UsageService {
       for (const t of totals) {
         const resolved = await this.resolveHost(t.host);
         if (!resolved) {
+          // Served by CloudFront but not ours to bill (deleted crux, raw distribution
+          // host, a domain removed mid-day). Kept so reconciliation still balances.
           skipped += t.requests;
+          await this.repo.addUnattributed(t.day, t.bytes, t.requests);
+          fileBytes += t.bytes;
+          fileReqs += t.requests;
           continue;
         }
         await this.repo.addDaily(
@@ -743,7 +763,7 @@ export class UsageService {
     });
     const prefix = process.env.AWS_CLOUDFRONT_LOG_PREFIX || '';
     return {
-      async list() {
+      async list(after?: string | null) {
         const keys: string[] = [];
         let token: string | undefined;
         do {
@@ -752,6 +772,8 @@ export class UsageService {
               Bucket: bucket,
               Prefix: prefix,
               ContinuationToken: token,
+              // log keys are date-prefixed, so everything up to the last processed key is done
+              StartAfter: token ? undefined : (after ?? undefined),
             }),
           );
           for (const o of res.Contents ?? [])
@@ -777,7 +799,10 @@ export class UsageService {
   startScheduler(intervalMs = 15 * 60 * 1000): void {
     const source = this.s3LogSource();
     if (!source || this.ingestTimer) return;
+    let running = false;
     const run = async () => {
+      if (running) return; // a backlog ingest may outlast the interval
+      running = true;
       try {
         await this.ingest(source);
       } catch (err) {
@@ -795,6 +820,8 @@ export class UsageService {
         await this.closePeriods();
       } catch (err) {
         this.logger.error(`closePeriods failed: ${(err as Error).message}`);
+      } finally {
+        running = false;
       }
     };
     this.ingestTimer = setInterval(() => void run(), intervalMs);

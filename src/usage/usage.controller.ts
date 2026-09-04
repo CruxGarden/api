@@ -16,6 +16,7 @@ import { AuthRequest } from '../common/types/interfaces';
 import { AuthorService } from '../author/author.service';
 import { UsageRepository } from './usage.repository';
 import { BillingService } from '../billing/billing.service';
+import { isAdmin } from '../common/helpers/role-helpers';
 import {
   UsageService,
   type AccountUsage,
@@ -74,8 +75,7 @@ export class UsageController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Admin: ingest new CloudFront logs now' })
   async ingest(@Req() req: AuthRequest) {
-    if (req.account.role !== 'admin')
-      throw new ForbiddenException('Admins only');
+    if (!isAdmin(req.account.role)) throw new ForbiddenException('Admins only');
     const source = this.usageService.s3LogSource();
     if (!source)
       return {
@@ -104,8 +104,7 @@ export class UsageController {
     summary: 'Admin: daily bandwidth reconciliation against CloudFront',
   })
   async reconciliation(@Req() req: AuthRequest) {
-    if (req.account.role !== 'admin')
-      throw new ForbiddenException('Admins only');
+    if (!isAdmin(req.account.role)) throw new ForbiddenException('Admins only');
     return this.usageService.reconciliationHistory();
   }
 
@@ -113,8 +112,7 @@ export class UsageController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Admin: reconcile the last days now' })
   async reconcile(@Req() req: AuthRequest) {
-    if (req.account.role !== 'admin')
-      throw new ForbiddenException('Admins only');
+    if (!isAdmin(req.account.role)) throw new ForbiddenException('Admins only');
     const metrics = this.usageService.edgeMetrics();
     if (!metrics)
       return {
@@ -130,8 +128,7 @@ export class UsageController {
     summary: 'Admin: finalize the previous billing period if grace has passed',
   })
   async closePeriods(@Req() req: AuthRequest) {
-    if (req.account.role !== 'admin')
-      throw new ForbiddenException('Admins only');
+    if (!isAdmin(req.account.role)) throw new ForbiddenException('Admins only');
     return this.usageService.closePeriods();
   }
 }

@@ -57,6 +57,10 @@ export class PublishStorageService {
       process.env.AWS_REGION
     );
     this.mockMode = !s3 && !hasCreds;
+    if (this.mockMode && process.env.NODE_ENV === 'production')
+      throw new Error(
+        'PublishStorageService: AWS credentials missing in production — publishing would silently go nowhere',
+      );
     if (s3) this.s3 = s3;
     else if (!this.mockMode) {
       this.s3 = new S3Client({
@@ -201,21 +205,33 @@ export class PublishStorageService {
     }
     const s3 = this.s3!;
     const wanted = new Set(files.map((f) => f.path));
-    await Promise.all(
-      files.map((f) =>
-        s3.send(
-          new PutObjectCommand({
-            Bucket: bucket,
-            Key: f.path,
-            Body: f.data,
-            ContentType: f.contentType,
-            CacheControl: f.path.endsWith('.html')
-              ? 'public, max-age=0, must-revalidate'
-              : 'public, max-age=31536000, immutable',
-          }),
-        ),
-      ),
+    // Only content-hashed build output may be cached for a year; a plain crux's
+    // style.css must revalidate or visitors keep the old file after a republish.
+    const cacheControl = (path: string) =>
+      path.endsWith('.html')
+        ? 'public, max-age=0, must-revalidate'
+        : isHashedAsset(path)
+          ? 'public, max-age=31536000, immutable'
+          : 'public, max-age=300, must-revalidate';
+    // Bounded concurrency: a large site must not open thousands of connections.
+    const queue = [...files];
+    const workers = Array.from(
+      { length: Math.min(16, queue.length) },
+      async () => {
+        for (let f = queue.shift(); f; f = queue.shift()) {
+          await s3.send(
+            new PutObjectCommand({
+              Bucket: bucket,
+              Key: f.path,
+              Body: f.data,
+              ContentType: f.contentType,
+              CacheControl: cacheControl(f.path),
+            }),
+          );
+        }
+      },
     );
+    await Promise.all(workers);
     const stale = (await this.listKeys(bucket)).filter((k) => !wanted.has(k));
     if (stale.length) await this.deleteKeys(bucket, stale);
     this.logger.info('Files published', {
@@ -281,4 +297,11 @@ export class PublishStorageService {
       );
     }
   }
+}
+
+/** Vite/Astro emit hashed filenames under _astro/ or assets/ (name.[hash].ext or name-[hash].ext). */
+export function isHashedAsset(path: string): boolean {
+  return /(^|\/)(_astro|assets)\/[^/]+[.-][A-Za-z0-9_]{6,}\.[a-z0-9]+$/i.test(
+    path,
+  );
 }

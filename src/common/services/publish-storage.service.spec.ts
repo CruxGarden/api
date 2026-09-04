@@ -1,4 +1,7 @@
-import { PublishStorageService } from './publish-storage.service';
+import {
+  PublishStorageService,
+  isHashedAsset,
+} from './publish-storage.service';
 
 const logger = {
   createChildLogger: () => ({
@@ -12,6 +15,15 @@ describe('PublishStorageService', () => {
   const env = { ...process.env };
   afterEach(() => {
     process.env = { ...env };
+  });
+
+  it('only content-hashed build output is treated as immutable', () => {
+    expect(isHashedAsset('_astro/index.Bx7f9Kq2.css')).toBe(true);
+    expect(isHashedAsset('assets/app-C3kd82ls.js')).toBe(true);
+    expect(isHashedAsset('_astro/hero.a1b2c3d4e5.webp')).toBe(true);
+    expect(isHashedAsset('style.css')).toBe(false);
+    expect(isHashedAsset('images/photo.jpg')).toBe(false);
+    expect(isHashedAsset('assets/logo.svg')).toBe(false);
   });
 
   it('names buckets and website endpoints from the crux id', () => {

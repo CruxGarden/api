@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { LoggerService } from '../common/services/logger.service';
+import { toEntityFields } from '../common/helpers/case-helpers';
 import { EmailService } from '../common/services/email.service';
 import { paymentFailedEmail, planChangedEmail } from './billing.emails';
 import { BillingRepository, type SubscriptionRow } from './billing.repository';
@@ -217,6 +218,9 @@ export class BillingService {
     let snap: SubscriptionSnapshot | null = null;
     if (row?.subscription_id)
       snap = await this.provider.fetchSubscription(row.subscription_id);
+    // A canceled subscription says nothing about a newer one on the same customer
+    if (snap && (snap.status === 'canceled' || snap.status === 'incomplete'))
+      snap = null;
     if (!snap && row?.customer_id)
       snap = await this.provider.fetchCustomerSubscription(row.customer_id);
     if (!snap && this.provider instanceof MockBillingProvider) {
@@ -244,16 +248,54 @@ export class BillingService {
         `Webhook rejected: ${(err as Error).message}`,
       );
     }
-    const seen = await this.repo.eventSeen(event.id);
-    if (seen.data) return { handled: 'duplicate' };
+    if (event.type === 'ignored') return { handled: 'ignored' };
+    const claimed = await this.repo.claimEvent(
+      event.id,
+      this.provider.name,
+      event.type,
+    );
+    if (!claimed.data) return { handled: 'duplicate' };
+    let accountId: string | null = null;
+    try {
+      accountId = await this.applyEvent(event);
+    } catch (err) {
+      await this.repo.releaseEvent(event.id);
+      throw err;
+    }
+    await this.repo.recordEvent(
+      event.id,
+      this.provider.name,
+      event.type,
+      accountId,
+      event,
+    );
+    return { handled: event.type };
+  }
+
+  /** Apply one normalized event; returns the account it touched. */
+  private async applyEvent(event: BillingEvent): Promise<string | null> {
     let accountId: string | null = null;
     switch (event.type) {
       case 'subscription.changed':
       case 'subscription.deleted': {
+        // Deliveries are not ordered; for a live subscription prefer the
+        // provider's current state over the payload's.
+        const fresh =
+          event.type === 'subscription.changed'
+            ? await this.provider
+                .fetchSubscription(event.subscription.subscriptionId)
+                .catch(() => null)
+            : null;
+        const base = fresh
+          ? {
+              ...fresh,
+              accountId: fresh.accountId ?? event.subscription.accountId,
+            }
+          : event.subscription;
         const snap =
           event.type === 'subscription.deleted'
-            ? { ...event.subscription, status: 'canceled' as const }
-            : event.subscription;
+            ? { ...base, status: 'canceled' as const }
+            : base;
         accountId = await this.applySnapshot(snap);
         break;
       }
@@ -264,26 +306,26 @@ export class BillingService {
           (await this.repo.byCustomer(event.customerId)).data;
         if (row) {
           accountId = row.account_id;
-          await this.repo.upsert({ ...stripUpdated(row), status: 'past_due' });
+          const firstFailure = row.status !== 'past_due';
+          await this.repo.upsert({
+            ...stripUpdated(row),
+            status: 'past_due',
+            // the grace clock starts once; retries do not restart it
+            past_due_since: row.past_due_since ?? new Date(),
+          });
           this.logger.warn('Payment failed', { accountId });
-          await this.notify(
-            accountId,
-            paymentFailedEmail(planById(row.plan_id).name),
-          );
+          if (firstFailure)
+            await this.notify(
+              accountId,
+              paymentFailedEmail(planById(row.plan_id).name),
+            );
         }
         break;
       }
       case 'ignored':
         break;
     }
-    await this.repo.recordEvent(
-      event.id,
-      this.provider.name,
-      event.type,
-      accountId,
-      event,
-    );
-    return { handled: event.type };
+    return accountId;
   }
 
   /** Write a normalized subscription to the account it belongs to. Returns the account id. */
@@ -318,6 +360,10 @@ export class BillingService {
       current_period_end: snap.currentPeriodEnd,
       cancel_at_period_end: snap.cancelAtPeriodEnd,
       trial_end: snap.trialEnd,
+      past_due_since:
+        snap.status === 'past_due'
+          ? (before?.past_due_since ?? new Date())
+          : null,
     });
     if (r.error)
       throw new InternalServerErrorException('Could not save subscription');
@@ -352,8 +398,10 @@ export class BillingService {
     }
   }
 
-  async listAll(): Promise<SubscriptionRow[]> {
-    return (await this.repo.list()).data ?? [];
+  async listAll(): Promise<Record<string, unknown>[]> {
+    return ((await this.repo.list()).data ?? []).map((r) =>
+      toEntityFields(r as unknown as Record<string, unknown>),
+    );
   }
 }
 
@@ -371,7 +419,7 @@ export function effectivePlanId(
   if (!row) return 'free';
   if (row.status === 'active' || row.status === 'trialing') return row.plan_id;
   if (row.status === 'past_due') {
-    const since = new Date(row.updated).getTime();
+    const since = new Date(row.past_due_since ?? row.updated).getTime();
     return now.getTime() - since <= PAST_DUE_GRACE_DAYS * 86_400_000
       ? row.plan_id
       : 'free';

@@ -79,18 +79,23 @@ export class NotificationsService {
   ): Promise<NoticeKind[]> {
     const sent: NoticeKind[] = [];
     for (const kind of NotificationsService.due(u)) {
-      // a soft-limit notice supersedes the 80 % one for the same budget
-      const seen = await this.repo.notificationSent(
+      const email = (await this.repo.accountEmailFor(accountId)).data;
+      if (!email) break;
+      // The ledger row is the lock: claim it first so two publishes in flight
+      // (or two API instances) cannot both send the same notice.
+      const claimed = await this.repo.markNotified(
         accountId,
         kind,
         u.period.start,
       );
-      if (seen.data) continue;
-      const email = (await this.repo.accountEmailFor(accountId)).data;
-      if (!email) break;
+      if (!claimed.data) continue;
       const msg = notice(kind, u);
-      await this.email.send({ email, subject: msg.subject, body: msg.body });
-      await this.repo.markNotified(accountId, kind, u.period.start);
+      try {
+        await this.email.send({ email, subject: msg.subject, body: msg.body });
+      } catch (err) {
+        await this.repo.unmarkNotified(accountId, kind, u.period.start);
+        throw err;
+      }
       sent.push(kind);
       this.logger.info('Usage notice sent', { accountId, kind });
     }
