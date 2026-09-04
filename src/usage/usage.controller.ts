@@ -19,6 +19,7 @@ import {
   UsageService,
   type AccountUsage,
   type CruxUsage,
+  type PeriodView,
 } from './usage.service';
 
 @ApiTags('usage')
@@ -82,5 +83,52 @@ export class UsageController {
         note: 'AWS_CLOUDFRONT_LOG_BUCKET not configured',
       };
     return this.usageService.ingest(source);
+  }
+
+  @Get('usage/periods')
+  @ApiOperation({
+    summary: 'Finalized billing periods for the current account (newest first)',
+  })
+  async periods(@Req() req: AuthRequest): Promise<PeriodView[]> {
+    const author = await this.authorService.findByAccountId(req.account.id);
+    if (!author)
+      throw new NotFoundException('Author not found for this account');
+    return this.usageService.periodsForAuthor(author.id);
+  }
+
+  @Get('usage/reconcile')
+  @ApiOperation({
+    summary: 'Admin: daily bandwidth reconciliation against CloudFront',
+  })
+  async reconciliation(@Req() req: AuthRequest) {
+    if (req.account.role !== 'admin')
+      throw new ForbiddenException('Admins only');
+    return this.usageService.reconciliationHistory();
+  }
+
+  @Post('usage/reconcile/run')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Admin: reconcile the last days now' })
+  async reconcile(@Req() req: AuthRequest) {
+    if (req.account.role !== 'admin')
+      throw new ForbiddenException('Admins only');
+    const metrics = this.usageService.edgeMetrics();
+    if (!metrics)
+      return {
+        days: [],
+        note: 'PUBLISH_DISTRIBUTION_ID / AWS keys not configured',
+      };
+    return { days: await this.usageService.reconcile(metrics) };
+  }
+
+  @Post('usage/periods/close')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Admin: finalize the previous billing period if grace has passed',
+  })
+  async closePeriods(@Req() req: AuthRequest) {
+    if (req.account.role !== 'admin')
+      throw new ForbiddenException('Admins only');
+    return this.usageService.closePeriods();
   }
 }

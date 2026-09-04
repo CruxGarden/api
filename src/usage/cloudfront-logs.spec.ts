@@ -43,6 +43,41 @@ describe('CloudFront standard logs', () => {
     ).toEqual([]);
   });
 
+  it('reads standard logging v2 JSON lines, with date or epoch timestamp', () => {
+    const json = [
+      JSON.stringify({
+        date: '2026-09-03',
+        time: '10:00:00',
+        'sc-bytes': 700,
+        'x-host-header': `${CRUX}.publish.crux.garden`,
+      }),
+      JSON.stringify({
+        timestamp: Date.UTC(2026, 8, 3, 8) / 1000, // 2026-09-03T08:00:00Z, seconds
+        'sc-bytes': '300',
+        'x-host-header': `${CRUX}.Publish.crux.garden`,
+      }),
+      JSON.stringify({
+        'timestamp(ms)': Date.UTC(2026, 8, 3, 9),
+        'sc-bytes': 50,
+        'x-host-header': 'blog.someone.com',
+      }),
+      '{not json',
+      '',
+    ].join('\n');
+    const totals = parseCloudFrontLog(gzipSync(Buffer.from(json)));
+    expect(totals).toHaveLength(2);
+    expect(totals.find((t) => t.host.startsWith(CRUX))).toMatchObject({
+      day: '2026-09-03',
+      bytes: 1000,
+      requests: 2,
+    });
+    expect(totals.find((t) => t.host === 'blog.someone.com')).toMatchObject({
+      day: '2026-09-03',
+      bytes: 50,
+      requests: 1,
+    });
+  });
+
   it('recognises crux subdomains and leaves custom domains to lookup', () => {
     expect(cruxIdFromPublishHost(`${CRUX}.publish.crux.garden`)).toBe(CRUX);
     expect(cruxIdFromPublishHost('blog.someone.com')).toBeNull();

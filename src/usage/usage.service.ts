@@ -5,9 +5,22 @@ import {
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { LoggerService } from '../common/services/logger.service';
-import { UsageRepository, type UsageSyncDailyRow } from './usage.repository';
+import {
+  UsageRepository,
+  type UsageSyncDailyRow,
+  type UsagePeriodRow,
+  type UsageReconciliationRow,
+} from './usage.repository';
 import { parseCloudFrontLog, cruxIdFromPublishHost } from './cloudfront-logs';
-import { billingPeriod, planFor, type Plan } from './plans';
+import {
+  SETTLEMENT,
+  billingPeriod,
+  planFor,
+  previousBillingPeriod,
+  settlementFor,
+  type Plan,
+} from './plans';
+import { type EdgeMetrics, edgeMetricsFromEnv } from './edge-metrics';
 
 export interface CruxUsage {
   cruxId: string;
@@ -43,9 +56,51 @@ export interface SyncUsage {
   objects: SyncObjectUsage[];
 }
 
+/** One budget line: what the plan allows, what's used, and where grace ends. */
+export interface BudgetLine {
+  limit: number;
+  used: number;
+  /** enforcement (future) triggers here, not at `limit` */
+  softLimit: number;
+  over: boolean;
+  overSoft: boolean;
+}
+
+export interface ReconciliationView {
+  day: string;
+  status: 'ok' | 'gap' | 'nodata';
+  meteredBytes: number;
+  edgeBytes: number | null;
+  gapPct: number | null;
+  checkedAt: string;
+}
+
+export interface PeriodView {
+  period: { start: string; end: string };
+  planId: string;
+  storageBytes: number;
+  publishStorageBytes: number;
+  syncStorageBytes: number;
+  bandwidthBytes: number;
+  publishBandwidthBytes: number;
+  syncTransferBytes: number;
+  requests: number;
+  storageLimit: number;
+  bandwidthLimit: number;
+  overStorage: boolean;
+  overBandwidth: boolean;
+  reconciliationStatus: string | null;
+  finalizedAt: string;
+}
+
 export interface AccountUsage {
   period: { start: string; end: string };
   plan: Plan;
+  /** when this period's numbers stop moving (period end + grace) */
+  settlement: { finalizesAt: string; isFinal: boolean; graceHours: number };
+  budgets: { storage: BudgetLine; bandwidth: BudgetLine };
+  /** latest daily check of our bandwidth count against CloudFront's */
+  reconciliation: ReconciliationView | null;
   /** totals against the plan: publish + sync */
   storageBytes: number;
   bandwidthBytes: number;
@@ -66,6 +121,47 @@ export interface LogSource {
 }
 
 const n = (v: string | number | null | undefined) => Number(v ?? 0) || 0;
+
+const budget = (limit: number, used: number): BudgetLine => {
+  const softLimit = Math.round(limit * SETTLEMENT.softLimitFactor);
+  return {
+    limit,
+    used,
+    softLimit,
+    over: limit > 0 && used > limit,
+    overSoft: limit > 0 && used > softLimit,
+  };
+};
+
+const reconView = (r: UsageReconciliationRow): ReconciliationView => ({
+  day: String(r.day).slice(0, 10),
+  status: r.status,
+  meteredBytes: n(r.metered_bytes),
+  edgeBytes: r.edge_bytes === null ? null : n(r.edge_bytes),
+  gapPct: r.gap_pct === null ? null : Number(r.gap_pct),
+  checkedAt: new Date(r.checked_at).toISOString(),
+});
+
+const periodView = (p: UsagePeriodRow): PeriodView => ({
+  period: {
+    start: String(p.period_start).slice(0, 10),
+    end: String(p.period_end).slice(0, 10),
+  },
+  planId: p.plan_id,
+  storageBytes: n(p.storage_bytes),
+  publishStorageBytes: n(p.publish_storage_bytes),
+  syncStorageBytes: n(p.sync_storage_bytes),
+  bandwidthBytes: n(p.bandwidth_bytes),
+  publishBandwidthBytes: n(p.publish_bandwidth_bytes),
+  syncTransferBytes: n(p.sync_transfer_bytes),
+  requests: n(p.requests),
+  storageLimit: n(p.storage_limit),
+  bandwidthLimit: n(p.bandwidth_limit),
+  overStorage: p.over_storage,
+  overBandwidth: p.over_bandwidth,
+  reconciliationStatus: p.reconciliation_status,
+  finalizedAt: new Date(p.finalized_at ?? Date.now()).toISOString(),
+});
 
 const emptySync = (): SyncUsage => ({
   storageBytes: 0,
@@ -209,13 +305,14 @@ export class UsageService {
     accountId?: string,
   ): Promise<AccountUsage> {
     const period = billingPeriod(now);
-    const [storage, daily, sync, lastIngest] = await Promise.all([
+    const [storage, daily, sync, lastIngest, recon] = await Promise.all([
       this.repo.storageByAuthor(authorId),
       this.repo.dailyByAuthor(authorId, period.start, period.end),
       accountId
         ? this.syncForAccount(accountId, period)
         : Promise.resolve(emptySync()),
       this.repo.lastIngestAt(),
+      this.repo.listReconciliation(1),
     ]);
     const byCrux = new Map<string, CruxUsage>();
     for (const row of storage.data ?? []) {
@@ -251,11 +348,21 @@ export class UsageService {
       bandwidthBytes: cruxes.reduce((s, c) => s + c.bandwidthBytes, 0),
       requests: cruxes.reduce((s, c) => s + c.requests, 0),
     };
+    const plan = planFor(authorMeta);
+    const storageBytes = publish.storageBytes + sync.storageBytes;
+    const bandwidthBytes = publish.bandwidthBytes + sync.transferBytes;
+    const latest = recon.data?.[0];
     return {
       period,
-      plan: planFor(authorMeta),
-      storageBytes: publish.storageBytes + sync.storageBytes,
-      bandwidthBytes: publish.bandwidthBytes + sync.transferBytes,
+      plan,
+      settlement: settlementFor(period, now),
+      budgets: {
+        storage: budget(plan.storageBytes, storageBytes),
+        bandwidth: budget(plan.bandwidthBytesPerPeriod, bandwidthBytes),
+      },
+      reconciliation: latest ? reconView(latest) : null,
+      storageBytes,
+      bandwidthBytes,
       requests: publish.requests,
       publish,
       cruxes,
@@ -278,6 +385,152 @@ export class UsageService {
       bandwidthBytes: (daily.data ?? []).reduce((s, r) => s + n(r.bytes), 0),
       requests: (daily.data ?? []).reduce((s, r) => s + n(r.requests), 0),
     };
+  }
+
+  // ── Reconciliation: our metered bytes vs CloudFront's BytesDownloaded ───
+  /**
+   * Check the last `days` complete UTC days. A day is `gap` when our count trails
+   * CloudFront's by more than SETTLEMENT.reconcileGapPct (lost or late log files),
+   * `nodata` when CloudWatch has nothing, `ok` otherwise.
+   */
+  async reconcile(
+    metrics: EdgeMetrics,
+    days = 3,
+    now = new Date(),
+  ): Promise<ReconciliationView[]> {
+    const out: ReconciliationView[] = [];
+    for (let i = 1; i <= days; i++) {
+      const day = new Date(now.getTime() - i * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const metered = (await this.repo.meteredBytesForDay(day)).data ?? 0;
+      let edge: number | null = null;
+      try {
+        edge = await metrics.bytesDownloaded(day);
+      } catch (err) {
+        this.logger.error(
+          `CloudWatch read failed for ${day}: ${(err as Error).message}`,
+        );
+      }
+      let status: ReconciliationView['status'] = 'nodata';
+      let gapPct: number | null = null;
+      if (edge !== null) {
+        if (edge < SETTLEMENT.reconcileMinBytes) {
+          status = 'ok';
+          gapPct = 0;
+        } else {
+          gapPct = Number((((edge - metered) / edge) * 100).toFixed(3));
+          status = gapPct > SETTLEMENT.reconcileGapPct ? 'gap' : 'ok';
+        }
+      }
+      const row = {
+        day,
+        metered_bytes: metered,
+        edge_bytes: edge,
+        gap_pct: gapPct,
+        status,
+      };
+      await this.repo.upsertReconciliation(row);
+      if (status === 'gap')
+        this.logger.warn('Bandwidth reconciliation gap', {
+          day,
+          metered,
+          edge,
+          gapPct,
+        });
+      out.push(reconView({ ...row, checked_at: now }));
+    }
+    return out;
+  }
+
+  async reconciliationHistory(limit = 31): Promise<ReconciliationView[]> {
+    const r = await this.repo.listReconciliation(limit);
+    return (r.data ?? []).map(reconView);
+  }
+
+  // ── Period close: finalize last period once the grace window has passed ──
+  /**
+   * Writes one usage_periods row per active author for the previous billing
+   * period, but only after period end + graceHours, so late log files are in.
+   * Idempotent: authors already finalized are skipped.
+   */
+  async closePeriods(now = new Date()): Promise<{
+    period: { start: string; end: string };
+    closed: number;
+    waitingUntil?: string;
+  }> {
+    const period = previousBillingPeriod(now);
+    const settle = settlementFor(period, now);
+    if (!settle.isFinal)
+      return { period, closed: 0, waitingUntil: settle.finalizesAt };
+    const authors =
+      (await this.repo.authorsActiveInPeriod(period.start, period.end)).data ??
+      [];
+    const recon = (await this.repo.listReconciliation(40)).data ?? [];
+    const inPeriod = recon.filter((r) => {
+      const d = String(r.day).slice(0, 10);
+      return d >= period.start && d < period.end;
+    });
+    const reconciliationStatus = inPeriod.length
+      ? inPeriod.some((r) => r.status === 'gap')
+        ? 'gap'
+        : inPeriod.every((r) => r.status === 'ok')
+          ? 'ok'
+          : 'partial'
+      : null;
+    let closed = 0;
+    for (const authorId of authors) {
+      const done = await this.repo.periodFinalized(authorId, period.start);
+      if (done.data) continue;
+      const acct = (await this.repo.authorAccount(authorId)).data;
+      const lastMoment = new Date(
+        new Date(`${period.end}T00:00:00Z`).getTime() - 1,
+      );
+      const u = await this.forAuthor(
+        authorId,
+        acct?.meta ?? null,
+        lastMoment,
+        acct?.account_id ?? undefined,
+      );
+      const row: UsagePeriodRow = {
+        author_id: authorId,
+        account_id: acct?.account_id ?? null,
+        period_start: period.start,
+        period_end: period.end,
+        plan_id: u.plan.id,
+        storage_limit: u.plan.storageBytes,
+        bandwidth_limit: u.plan.bandwidthBytesPerPeriod,
+        storage_bytes: u.storageBytes,
+        publish_storage_bytes: u.publish.storageBytes,
+        sync_storage_bytes: u.sync.storageBytes,
+        bandwidth_bytes: u.bandwidthBytes,
+        publish_bandwidth_bytes: u.publish.bandwidthBytes,
+        sync_transfer_bytes: u.sync.transferBytes,
+        requests: u.requests,
+        // grace: "over" is judged against the soft limit, not the plan line
+        over_storage: u.budgets.storage.overSoft,
+        over_bandwidth: u.budgets.bandwidth.overSoft,
+        reconciliation_status: reconciliationStatus,
+      };
+      const r = await this.repo.insertPeriod(row);
+      if (!r.error) closed += 1;
+    }
+    if (closed)
+      this.logger.info('Billing periods finalized', {
+        period,
+        closed,
+        reconciliationStatus,
+      });
+    return { period, closed };
+  }
+
+  async periodsForAuthor(authorId: string): Promise<PeriodView[]> {
+    const r = await this.repo.periodsForAuthor(authorId);
+    return (r.data ?? []).map(periodView);
+  }
+
+  edgeMetrics(): EdgeMetrics | null {
+    return edgeMetricsFromEnv();
   }
 
   // ── Bandwidth ingestion (CloudFront standard logs) ──────────────────────
@@ -384,7 +637,8 @@ export class UsageService {
             }),
           );
           for (const o of res.Contents ?? [])
-            if (o.Key?.endsWith('.gz')) keys.push(o.Key);
+            if (o.Key && /\.(gz|log|json|jsonl)$/i.test(o.Key))
+              keys.push(o.Key);
           token = res.IsTruncated ? res.NextContinuationToken : undefined;
         } while (token);
         return keys.sort();
@@ -405,12 +659,28 @@ export class UsageService {
   startScheduler(intervalMs = 15 * 60 * 1000): void {
     const source = this.s3LogSource();
     if (!source || this.ingestTimer) return;
-    const run = () =>
-      this.ingest(source).catch((err) =>
-        this.logger.error(`ingest failed: ${(err as Error).message}`),
-      );
-    this.ingestTimer = setInterval(run, intervalMs);
-    setTimeout(run, 10_000);
+    const run = async () => {
+      try {
+        await this.ingest(source);
+      } catch (err) {
+        this.logger.error(`ingest failed: ${(err as Error).message}`);
+      }
+      const metrics = this.edgeMetrics();
+      if (metrics) {
+        try {
+          await this.reconcile(metrics);
+        } catch (err) {
+          this.logger.error(`reconcile failed: ${(err as Error).message}`);
+        }
+      }
+      try {
+        await this.closePeriods();
+      } catch (err) {
+        this.logger.error(`closePeriods failed: ${(err as Error).message}`);
+      }
+    };
+    this.ingestTimer = setInterval(() => void run(), intervalMs);
+    setTimeout(() => void run(), 10_000);
     this.logger.info('Bandwidth ingestion scheduled', { intervalMs });
   }
 

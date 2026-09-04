@@ -54,6 +54,10 @@ function fakeRepo() {
       downloads: number;
     }
   >();
+  const reconRows = new Map<string, Record<string, unknown>>();
+  const periodRows: Array<
+    Record<string, unknown> & { author_id: string; period_start: string }
+  > = [];
   const ok = <T>(data: T) => Promise.resolve({ data, error: null });
   return {
     storage,
@@ -102,6 +106,61 @@ function fakeRepo() {
         syncDaily.set(k, row);
         return ok(undefined);
       },
+    ),
+    recon: new Map<string, Record<string, unknown>>(),
+    periods: [] as Record<string, unknown>[],
+    meteredBytesForDay: jest.fn((day: string) =>
+      ok(
+        [...daily.values()]
+          .filter((r) => r.day === day)
+          .reduce((s, r) => s + r.bytes, 0),
+      ),
+    ),
+    upsertReconciliation: jest.fn(function (
+      this: unknown,
+      row: { day: string },
+    ) {
+      reconRows.set(row.day, { ...row, checked_at: new Date() });
+      return ok(undefined);
+    }),
+    listReconciliation: jest.fn((limit = 31) =>
+      ok(
+        [...reconRows.values()]
+          .sort((a, b) => String(b.day).localeCompare(String(a.day)))
+          .slice(0, limit),
+      ),
+    ),
+    authorsActiveInPeriod: jest.fn((start: string, end: string) =>
+      ok([
+        ...new Set([
+          ...[...storage.values()].map((r) => r.author_id),
+          ...[...daily.values()]
+            .filter((r) => r.day >= start && r.day < end)
+            .map((r) => r.author_id),
+        ]),
+      ]),
+    ),
+    authorAccount: jest.fn((a: string) =>
+      ok({ account_id: `acct-${a}`, meta: { plan: 'free' } }),
+    ),
+    periodFinalized: jest.fn((a: string, start: string) =>
+      ok(periodRows.some((p) => p.author_id === a && p.period_start === start)),
+    ),
+    insertPeriod: jest.fn(
+      (row: { author_id: string; period_start: string }) => {
+        if (
+          !periodRows.some(
+            (p) =>
+              p.author_id === row.author_id &&
+              p.period_start === row.period_start,
+          )
+        )
+          periodRows.push({ ...row, finalized_at: new Date() });
+        return ok(undefined);
+      },
+    ),
+    periodsForAuthor: jest.fn((a: string) =>
+      ok(periodRows.filter((p) => p.author_id === a)),
     ),
     lastIngestAt: jest.fn(() =>
       ok(ingested.size ? '2026-09-03T12:30:00.000Z' : null),
@@ -258,6 +317,94 @@ describe('UsageService', () => {
     const noAcct = await svc.forAuthor('a1', null, now);
     expect(noAcct.storageBytes).toBe(5000);
     expect(noAcct.sync.cruxCount).toBe(0);
+  });
+
+  it('reconciles metered bytes against CloudFront and flags gaps, forgiving tiny days', async () => {
+    const repo = fakeRepo();
+    const svc = new UsageService(repo as never, logger);
+    const now = new Date('2026-09-04T06:00:00Z');
+    // 09-03: we saw 95 MB, CloudFront says 100 MB → 5% (at the line, ok)
+    await repo.addDaily('a1', CRUX, '2026-09-03', 95 * 1024 * 1024, 10);
+    // 09-02: we saw 80 MB of 100 MB → 20% gap
+    await repo.addDaily('a1', CRUX, '2026-09-02', 80 * 1024 * 1024, 10);
+    // 09-01: quiet day, 100 bytes at the edge → ok regardless
+    const edge = {
+      bytesDownloaded: async (day: string) =>
+        day === '2026-09-01'
+          ? 100
+          : day === '2026-08-31'
+            ? null
+            : 100 * 1024 * 1024,
+    };
+    const days = await svc.reconcile(edge, 4, now);
+    expect(days.map((d) => [d.day, d.status])).toEqual([
+      ['2026-09-03', 'ok'],
+      ['2026-09-02', 'gap'],
+      ['2026-09-01', 'ok'],
+      ['2026-08-31', 'nodata'],
+    ]);
+    expect(days[1].gapPct).toBe(20);
+    const u = await svc.forAuthor('a1', null, now, 'acct1');
+    expect(u.reconciliation?.day).toBe('2026-09-03');
+    expect(u.reconciliation?.status).toBe('ok');
+    expect((await svc.reconciliationHistory()).length).toBe(4);
+  });
+
+  it('budgets carry a soft limit and settlement waits for the grace window', async () => {
+    const repo = fakeRepo();
+    const svc = new UsageService(repo as never, logger);
+    const GB = 1024 * 1024 * 1024;
+    await svc.recordStorage(CRUX, 'a1', GB + 1, 1); // just over the plan line
+    const u = await svc.forAuthor('a1', null, new Date('2026-09-10T00:00:00Z'));
+    expect(u.budgets.storage).toMatchObject({
+      limit: GB,
+      used: GB + 1,
+      softLimit: Math.round(GB * 1.1),
+      over: true,
+      overSoft: false,
+    });
+    expect(u.settlement).toEqual({
+      finalizesAt: '2026-10-03T00:00:00.000Z',
+      isFinal: false,
+      graceHours: 48,
+    });
+  });
+
+  it('closes the previous period only after grace, once per author, judging "over" at the soft limit', async () => {
+    const repo = fakeRepo();
+    const svc = new UsageService(repo as never, logger);
+    await svc.recordStorage(CRUX, 'a1', 5000, 3);
+    await repo.addDaily('a1', CRUX, '2026-08-15', 1200 * 1024 * 1024, 99); // > 1.1 GB
+    await repo.addDaily('a2', 'c2', '2026-08-20', 10, 1);
+    await repo.addDaily('a3', 'c3', '2026-07-20', 10, 1); // not this period
+
+    // 2026-09-02T12:00 is inside the 48h grace → nothing closes yet
+    const early = await svc.closePeriods(new Date('2026-09-02T12:00:00Z'));
+    expect(early).toMatchObject({
+      period: { start: '2026-08-01', end: '2026-09-01' },
+      closed: 0,
+      waitingUntil: '2026-09-03T00:00:00.000Z',
+    });
+
+    const done = await svc.closePeriods(new Date('2026-09-03T00:00:01Z'));
+    expect(done.closed).toBe(2);
+    const a1 = (await svc.periodsForAuthor('a1'))[0];
+    expect(a1).toMatchObject({
+      period: { start: '2026-08-01', end: '2026-09-01' },
+      planId: 'free',
+      publishStorageBytes: 5000,
+      publishBandwidthBytes: 1200 * 1024 * 1024,
+      requests: 99,
+      overStorage: false,
+      overBandwidth: true,
+      reconciliationStatus: null,
+    });
+    // idempotent
+    expect(
+      (await svc.closePeriods(new Date('2026-09-04T00:00:00Z'))).closed,
+    ).toBe(0);
+    expect((await svc.periodsForAuthor('a1')).length).toBe(1);
+    expect((await svc.periodsForAuthor('a3')).length).toBe(0);
   });
 
   it('ingests each log file once, resolves subdomains and custom domains, skips unknown hosts', async () => {

@@ -1,10 +1,12 @@
 import { gunzipSync } from 'node:zlib';
 
 /**
- * CloudFront standard access logs (W3C extended format, gzipped, tab-separated):
- * two header lines (#Version, #Fields) then one request per line. We only
- * need the day, the viewer's Host, bytes to the client and the request count.
- * Pure: bytes in, totals per (host, day) out.
+ * CloudFront standard access logs. Two shapes, both gzipped or plain:
+ * - legacy / v2 "plain": W3C extended, tab-separated, a #Fields header line;
+ * - v2 "json": one JSON object per line, keys named like the W3C fields
+ *   (`date`, `sc-bytes`, `x-host-header`; some emit `timestamp` instead of date).
+ * We only need the day, the viewer's Host, bytes to the client and the request
+ * count. Pure: bytes in, totals per (host, day) out. Parquet is not read here.
  */
 export interface HostDayTotals {
   host: string;
@@ -20,8 +22,21 @@ export function parseCloudFrontLog(raw: Buffer): HostDayTotals[] {
   const lines = text.split('\n');
   let fields: string[] = [];
   const totals = new Map<string, HostDayTotals>();
+  const add = (day: string | undefined, host: string, bytes: number) => {
+    if (!day || !host || host === '-') return;
+    const key = `${host}|${day}`;
+    const t = totals.get(key) ?? { host, day, bytes: 0, requests: 0 };
+    t.bytes += Number.isFinite(bytes) ? bytes : 0;
+    t.requests += 1;
+    totals.set(key, t);
+  };
   for (const line of lines) {
-    if (!line) continue;
+    if (!line || !line.trim()) continue;
+    if (line.trimStart().startsWith('{')) {
+      const rec = parseJsonRecord(line);
+      if (rec) add(rec.day, rec.host, rec.bytes);
+      continue;
+    }
     if (line.startsWith('#Fields:')) {
       fields = line.slice('#Fields:'.length).trim().split(/\s+/);
       continue;
@@ -38,14 +53,38 @@ export function parseCloudFrontLog(raw: Buffer): HostDayTotals[] {
     // cs(Host) is the distribution's domain — only a fallback.
     const host = (get('x-host-header') || get('cs(Host)') || '').toLowerCase();
     const bytes = Number(get('sc-bytes') || 0);
-    if (!day || !host || host === '-') continue;
-    const key = `${host}|${day}`;
-    const t = totals.get(key) ?? { host, day, bytes: 0, requests: 0 };
-    t.bytes += Number.isFinite(bytes) ? bytes : 0;
-    t.requests += 1;
-    totals.set(key, t);
+    add(day, host, bytes);
   }
   return [...totals.values()];
+}
+
+function parseJsonRecord(
+  line: string,
+): { day: string | undefined; host: string; bytes: number } | null {
+  let o: Record<string, unknown>;
+  try {
+    o = JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const str = (k: string) => {
+    const v = o[k];
+    return v === undefined || v === null ? undefined : String(v);
+  };
+  let day = str('date');
+  if (!day) {
+    // v2 may emit `timestamp` (seconds, ms, or ISO) or `timestamp(ms)`
+    const ts = str('timestamp') ?? str('timestamp(ms)');
+    if (ts) {
+      const num = Number(ts);
+      const d = Number.isFinite(num)
+        ? new Date(num > 1e12 ? num : num * 1000)
+        : new Date(ts);
+      if (!Number.isNaN(d.getTime())) day = d.toISOString().slice(0, 10);
+    }
+  }
+  const host = (str('x-host-header') || str('cs(Host)') || '').toLowerCase();
+  return { day, host, bytes: Number(str('sc-bytes') || 0) };
 }
 
 function looksGzipped(b: Buffer): boolean {

@@ -1,4 +1,11 @@
-import { billingPeriod, planFor, PLANS } from './plans';
+import {
+  PLANS,
+  SETTLEMENT,
+  billingPeriod,
+  planFor,
+  previousBillingPeriod,
+  settlementFor,
+} from './plans';
 
 describe('plans', () => {
   it('defaults to free and honours author.meta.plan when known', () => {
@@ -16,5 +23,25 @@ describe('plans', () => {
       start: '2026-12-01',
       end: '2027-01-01',
     });
+  });
+
+  it('previous period, settlement and soft limits', () => {
+    expect(previousBillingPeriod(new Date('2026-09-03T12:00:00Z'))).toEqual({
+      start: '2026-08-01',
+      end: '2026-09-01',
+    });
+    expect(previousBillingPeriod(new Date('2026-01-15T00:00:00Z'))).toEqual({
+      start: '2025-12-01',
+      end: '2026-01-01',
+    });
+    const p = { start: '2026-08-01', end: '2026-09-01' };
+    expect(settlementFor(p, new Date('2026-09-02T23:59:59Z'))).toMatchObject({
+      finalizesAt: '2026-09-03T00:00:00.000Z',
+      isFinal: false,
+    });
+    expect(settlementFor(p, new Date('2026-09-03T00:00:00Z')).isFinal).toBe(
+      true,
+    );
+    expect(SETTLEMENT.softLimitFactor).toBeGreaterThan(1);
   });
 });

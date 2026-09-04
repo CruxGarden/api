@@ -27,6 +27,35 @@ export interface UsageSyncDailyRow {
   uploads: string | number;
   downloads: string | number;
 }
+export interface UsageReconciliationRow {
+  day: string;
+  metered_bytes: string | number;
+  edge_bytes: string | number | null;
+  gap_pct: string | number | null;
+  status: 'ok' | 'gap' | 'nodata';
+  checked_at: Date;
+}
+export interface UsagePeriodRow {
+  id?: string;
+  author_id: string;
+  account_id: string | null;
+  period_start: string;
+  period_end: string;
+  plan_id: string;
+  storage_limit: number;
+  bandwidth_limit: number;
+  storage_bytes: number;
+  publish_storage_bytes: number;
+  sync_storage_bytes: number;
+  bandwidth_bytes: number;
+  publish_bandwidth_bytes: number;
+  sync_transfer_bytes: number;
+  requests: number;
+  over_storage: boolean;
+  over_bandwidth: boolean;
+  reconciliation_status: string | null;
+  finalized_at?: Date | string;
+}
 export interface UsageDailyRow {
   author_id: string;
   crux_id: string;
@@ -399,6 +428,165 @@ export class UsageRepository {
       return success(rows);
     } catch (error) {
       this.logger.error('syncDailyByAccount failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  // ── Reconciliation (our count vs CloudFront's) ──────────────────────────
+  async meteredBytesForDay(day: string): Promise<RepositoryResponse<number>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('usage_daily')
+        .where({ day })
+        .sum('bytes as total')
+        .first<{ total: string | number | null }>();
+      return success(Number(row?.total ?? 0) || 0);
+    } catch (error) {
+      this.logger.error('meteredBytesForDay failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async upsertReconciliation(
+    row: Omit<UsageReconciliationRow, 'checked_at'>,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()
+        .from('usage_reconciliation')
+        .insert({ ...row, checked_at: new Date() })
+        .onConflict('day')
+        .merge({ ...row, checked_at: new Date() });
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('upsertReconciliation failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async listReconciliation(
+    limit = 31,
+  ): Promise<RepositoryResponse<UsageReconciliationRow[]>> {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from<UsageReconciliationRow>('usage_reconciliation')
+        .orderBy('day', 'desc')
+        .limit(limit)
+        .select('*');
+      return success(rows);
+    } catch (error) {
+      this.logger.error('listReconciliation failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  // ── Finalized periods ───────────────────────────────────────────────────
+  /** Authors with any publish or sync activity inside a period. */
+  async authorsActiveInPeriod(
+    start: string,
+    end: string,
+  ): Promise<RepositoryResponse<string[]>> {
+    try {
+      const rows = await this.dbService.query().raw(
+        `SELECT DISTINCT author_id FROM (
+           SELECT author_id FROM usage_storage
+           UNION
+           SELECT author_id FROM usage_daily WHERE day >= ? AND day < ?
+           UNION
+           SELECT a.id AS author_id FROM authors a
+             JOIN usage_sync_objects o ON o.account_id = a.account_id
+           UNION
+           SELECT a.id AS author_id FROM authors a
+             JOIN usage_sync_daily d ON d.account_id = a.account_id
+             WHERE d.day >= ? AND d.day < ?
+         ) x`,
+        [start, end, start, end],
+      );
+      const list = (rows.rows ?? rows) as { author_id: string }[];
+      return success(list.map((r) => r.author_id));
+    } catch (error) {
+      this.logger.error('authorsActiveInPeriod failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async authorAccount(authorId: string): Promise<
+    RepositoryResponse<{
+      account_id: string | null;
+      meta: Record<string, unknown> | null;
+    } | null>
+  > {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('authors')
+        .where({ id: authorId })
+        .whereNull('deleted')
+        .first<{
+          account_id: string | null;
+          meta: unknown;
+        }>('account_id', 'meta');
+      if (!row) return success(null);
+      const meta =
+        typeof row.meta === 'string'
+          ? (JSON.parse(row.meta) as Record<string, unknown>)
+          : ((row.meta as Record<string, unknown> | null) ?? null);
+      return success({ account_id: row.account_id, meta });
+    } catch (error) {
+      this.logger.error('authorAccount failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async periodFinalized(
+    authorId: string,
+    periodStart: string,
+  ): Promise<RepositoryResponse<boolean>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('usage_periods')
+        .where({ author_id: authorId, period_start: periodStart })
+        .first('id');
+      return success(!!row);
+    } catch (error) {
+      this.logger.error('periodFinalized failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async insertPeriod(row: UsagePeriodRow): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()
+        .from('usage_periods')
+        .insert({ ...row, finalized_at: new Date() })
+        .onConflict(['author_id', 'period_start'])
+        .ignore();
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('insertPeriod failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async periodsForAuthor(
+    authorId: string,
+    limit = 12,
+  ): Promise<RepositoryResponse<UsagePeriodRow[]>> {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from<UsagePeriodRow>('usage_periods')
+        .where({ author_id: authorId })
+        .orderBy('period_start', 'desc')
+        .limit(limit)
+        .select('*');
+      return success(rows);
+    } catch (error) {
+      this.logger.error('periodsForAuthor failed', error as Error);
       return failure(error);
     }
   }

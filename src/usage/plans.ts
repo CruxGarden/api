@@ -24,6 +24,51 @@ export const PLANS: Record<string, Plan> = {
 
 export const DEFAULT_PLAN_ID = 'free';
 
+/**
+ * How usage settles. Bandwidth comes from CloudFront logs, which arrive late and
+ * can only undercount, so the customer gets the benefit of the doubt:
+ * - a period is finalized only after `graceHours` past its end;
+ * - enforcement (when it comes) triggers at `softLimitFactor` × the plan limit;
+ * - a day whose metered bytes trail CloudFront's own count by more than
+ *   `reconcileGapPct` is flagged, never silently accepted.
+ */
+export const SETTLEMENT = {
+  graceHours: 48,
+  softLimitFactor: 1.1,
+  reconcileGapPct: 5,
+  /** below this many edge bytes a day, percentages are noise */
+  reconcileMinBytes: 1024 * 1024,
+} as const;
+
+/** The billing period before the one containing `now`. */
+export function previousBillingPeriod(now = new Date()): {
+  start: string;
+  end: string;
+} {
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  return {
+    start: new Date(Date.UTC(y, m - 1, 1)).toISOString().slice(0, 10),
+    end: new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10),
+  };
+}
+
+/** When a period's numbers stop moving, and whether that moment has passed. */
+export function settlementFor(
+  period: { start: string; end: string },
+  now = new Date(),
+): { finalizesAt: string; isFinal: boolean; graceHours: number } {
+  const finalizesAt = new Date(
+    new Date(`${period.end}T00:00:00Z`).getTime() +
+      SETTLEMENT.graceHours * 3_600_000,
+  );
+  return {
+    finalizesAt: finalizesAt.toISOString(),
+    isFinal: now.getTime() >= finalizesAt.getTime(),
+    graceHours: SETTLEMENT.graceHours,
+  };
+}
+
 export function planFor(
   meta: Record<string, unknown> | null | undefined,
 ): Plan {
