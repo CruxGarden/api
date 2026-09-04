@@ -5,6 +5,8 @@
 export interface Plan {
   id: string;
   name: string;
+  /** one line for the plan picker */
+  blurb: string;
   /** bytes of published storage */
   storageBytes: number;
   /** bytes of bandwidth per billing period */
@@ -19,11 +21,37 @@ export const PLANS: Record<string, Plan> = {
   free: {
     id: 'free',
     name: 'Free',
+    blurb: 'Publish a site, back up your garden.',
     storageBytes: 1 * GB,
     bandwidthBytesPerPeriod: 1 * GB,
     storeRequestsPerPeriod: 100_000,
   },
+  grower: {
+    id: 'grower',
+    name: 'Grower',
+    blurb: 'A real site with photos and media, and room to grow.',
+    storageBytes: 10 * GB,
+    bandwidthBytesPerPeriod: 25 * GB,
+    storeRequestsPerPeriod: 1_000_000,
+  },
+  gardener: {
+    id: 'gardener',
+    name: 'Gardener',
+    blurb: 'Several sites, video, an audience.',
+    storageBytes: 50 * GB,
+    bandwidthBytesPerPeriod: 250 * GB,
+    storeRequestsPerPeriod: 10_000_000,
+  },
 };
+
+/** Cheapest first — the order the picker shows and the order "upgrade" means. */
+export const PLAN_ORDER = ['free', 'grower', 'gardener'] as const;
+export type PaidPlanId = 'grower' | 'gardener';
+export type BillingInterval = 'month' | 'year';
+
+export function planById(id: string | null | undefined): Plan {
+  return (id && PLANS[id]) || PLANS[DEFAULT_PLAN_ID];
+}
 
 export const DEFAULT_PLAN_ID = 'free';
 

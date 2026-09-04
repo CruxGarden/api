@@ -19,8 +19,16 @@ const API_VERSION = version;
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Increase JSON body limit for large meta payloads (chat history)
-  app.use(json({ limit: '5mb' }));
+  // Increase JSON body limit for large meta payloads (chat history). `verify`
+  // keeps the raw bytes so Stripe webhook signatures can be checked.
+  app.use(
+    json({
+      limit: '5mb',
+      verify: (req, _res, buf) => {
+        (req as unknown as { rawBody?: Buffer }).rawBody = buf;
+      },
+    }),
+  );
 
   // CORS — validate origins against crux.garden and per-crux publish subdomains.
   // No credentials: true — auth uses Bearer tokens, not cookies.

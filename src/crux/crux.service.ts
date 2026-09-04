@@ -31,6 +31,7 @@ import { ArtifactService } from '../artifact/artifact.service';
 import { StoreService } from '../common/services/store.service';
 import { PublishStorageService } from '../common/services/publish-storage.service';
 import { UsageService } from '../usage/usage.service';
+import { LimitsService } from '../usage/limits.service';
 import { DomainsService } from '../domains/domains.service';
 import Artifact from '../artifact/entities/artifact.entity';
 import { UploadArtifactDto } from '../artifact/dto/upload-artifact.dto';
@@ -49,6 +50,7 @@ export class CruxService {
     private readonly storeService: StoreService,
     private readonly publishStorage: PublishStorageService,
     private readonly usageService: UsageService,
+    private readonly limits: LimitsService,
     private readonly domainsService: DomainsService,
   ) {
     this.logger = this.loggerService.createChildLogger('CruxService');
@@ -334,8 +336,23 @@ export class CruxService {
     files: Express.Multer.File[],
     fileMetas: Array<{ path?: string; type?: string; kind?: string }>,
     authorId: string,
+    accountId?: string,
   ): Promise<Crux> {
     const crux = await this.findById(cruxId);
+
+    // 0. Plan limits (grace-first): refuse only past 2× the plan's storage.
+    const incoming = files.reduce(
+      (sum, f) => sum + (f.size ?? f.buffer?.length ?? 0),
+      0,
+    );
+    const previous = await this.usageService.forCrux(crux.id).catch(() => null);
+    await this.limits.assertStorage(
+      authorId,
+      accountId,
+      incoming,
+      previous?.storageBytes ?? 0,
+      'publish',
+    );
 
     // 1. Replace existing artifact records (working + any old snapshots).
     //    deleteWorkingArtifactsByResource handles missing S3 files gracefully.

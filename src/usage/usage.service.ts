@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
   S3Client,
   ListObjectsV2Command,
@@ -21,6 +21,7 @@ import {
   type Plan,
 } from './plans';
 import { type EdgeMetrics, edgeMetricsFromEnv } from './edge-metrics';
+import { BillingService } from '../billing/billing.service';
 
 export interface CruxUsage {
   cruxId: string;
@@ -217,6 +218,7 @@ export class UsageService {
   constructor(
     private readonly repo: UsageRepository,
     loggerService: LoggerService,
+    @Optional() private readonly planResolver?: BillingService,
   ) {
     this.logger = loggerService.createChildLogger('UsageService');
   }
@@ -599,9 +601,12 @@ export class UsageService {
       const lastMoment = new Date(
         new Date(`${period.end}T00:00:00Z`).getTime() - 1,
       );
+      const planMeta = this.planResolver
+        ? { plan: await this.planResolver.planIdFor(acct?.account_id) }
+        : (acct?.meta ?? null);
       const u = await this.forAuthor(
         authorId,
-        acct?.meta ?? null,
+        planMeta,
         lastMoment,
         acct?.account_id ?? undefined,
       );

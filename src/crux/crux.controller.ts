@@ -313,7 +313,13 @@ export class CruxController {
       }
     }
 
-    return this.cruxService.publishCrux(id, files || [], fileMetas, author.id);
+    return this.cruxService.publishCrux(
+      id,
+      files || [],
+      fileMetas,
+      author.id,
+      req.account.id,
+    );
   }
 
   @Post(':id/unpublish')

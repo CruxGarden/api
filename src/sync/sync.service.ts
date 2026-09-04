@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { StoreService } from '../common/services/store.service';
 import { LoggerService } from '../common/services/logger.service';
 import { UsageService } from '../usage/usage.service';
+import { LimitsService } from '../usage/limits.service';
+import { AuthorService } from '../author/author.service';
 
 export interface GardenMeta {
   syncedAt: string;
@@ -26,6 +28,8 @@ export class SyncService {
     private readonly storeService: StoreService,
     private readonly loggerService: LoggerService,
     private readonly usage: UsageService,
+    private readonly limits: LimitsService,
+    private readonly authorService: AuthorService,
   ) {
     this.logger = this.loggerService.createChildLogger('SyncService');
   }
@@ -48,7 +52,34 @@ export class SyncService {
 
   // --- Garden ---
 
+  /** Plan limits (grace-first) before a push; a replaced object only counts its growth. */
+  private async assertRoom(
+    accountId: string,
+    incoming: number,
+    replacing: number,
+    what: string,
+  ): Promise<void> {
+    const author = await this.authorService
+      .findByAccountId(accountId)
+      .catch(() => null);
+    if (!author) return; // no author yet → nothing metered yet
+    await this.limits.assertStorage(
+      author.id,
+      accountId,
+      incoming,
+      replacing,
+      what,
+    );
+  }
+
   async pushGarden(accountId: string, data: Buffer): Promise<GardenMeta> {
+    const previous = await this.getGardenStatus(accountId);
+    await this.assertRoom(
+      accountId,
+      data.length,
+      previous?.size ?? 0,
+      'backup',
+    );
     const meta: GardenMeta = {
       syncedAt: new Date().toISOString(),
       size: data.length,
@@ -137,6 +168,10 @@ export class SyncService {
     data: Buffer,
     meta: { slug: string; title: string },
   ): Promise<CruxIndexEntry> {
+    const before = (await this.loadCruxIndex(accountId)).find(
+      (e) => e.cruxId === cruxId,
+    );
+    await this.assertRoom(accountId, data.length, before?.size ?? 0, 'sync');
     const entry: CruxIndexEntry = {
       cruxId,
       slug: meta.slug,

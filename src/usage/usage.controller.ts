@@ -15,6 +15,7 @@ import { AuthGuard } from '../common/guards/auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
 import { AuthorService } from '../author/author.service';
 import { UsageRepository } from './usage.repository';
+import { BillingService } from '../billing/billing.service';
 import {
   UsageService,
   type AccountUsage,
@@ -31,6 +32,7 @@ export class UsageController {
     private readonly usageService: UsageService,
     private readonly authorService: AuthorService,
     private readonly usageRepo: UsageRepository,
+    private readonly billing: BillingService,
   ) {}
 
   @Get('usage/me')
@@ -42,9 +44,10 @@ export class UsageController {
     const author = await this.authorService.findByAccountId(req.account.id);
     if (!author)
       throw new NotFoundException('Author not found for this account');
+    const planId = await this.billing.planIdFor(req.account.id);
     return this.usageService.forAuthor(
       author.id,
-      author.meta as Record<string, unknown>,
+      { plan: planId },
       new Date(),
       req.account.id,
     );

@@ -24,6 +24,7 @@ import { ExploreModule } from './explore/explore.module';
 import { StoreModule } from './crux-store/crux-store.module';
 import { UsageModule } from './usage/usage.module';
 import { DomainsModule } from './domains/domains.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { DomainsModule } from './domains/domains.module';
     StoreModule,
     UsageModule,
     DomainsModule,
+    BillingModule,
   ],
   controllers: [AppController],
   providers: [

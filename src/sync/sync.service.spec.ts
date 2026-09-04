@@ -4,6 +4,8 @@ import { SyncService } from './sync.service';
 import { StoreService } from '../common/services/store.service';
 import { LoggerService } from '../common/services/logger.service';
 import { UsageService } from '../usage/usage.service';
+import { LimitsService } from '../usage/limits.service';
+import { AuthorService } from '../author/author.service';
 
 describe('SyncService', () => {
   let service: SyncService;
@@ -42,6 +44,13 @@ describe('SyncService', () => {
             recordSyncObject: jest.fn(),
             clearSyncObject: jest.fn(),
             recordTransfer: jest.fn(),
+          },
+        },
+        { provide: LimitsService, useValue: { assertStorage: jest.fn() } },
+        {
+          provide: AuthorService,
+          useValue: {
+            findByAccountId: jest.fn(async () => ({ id: 'author-1' })),
           },
         },
       ],
