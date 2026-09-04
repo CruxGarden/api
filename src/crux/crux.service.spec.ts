@@ -15,6 +15,7 @@ import { DimensionType, ResourceType } from '../common/types/enums';
 import { PublishStorageService } from '../common/services/publish-storage.service';
 import { UsageService } from '../usage/usage.service';
 import { LimitsService } from '../usage/limits.service';
+import { NotificationsService } from '../usage/notifications.service';
 import { DomainsService } from '../domains/domains.service';
 
 describe('CruxService', () => {
@@ -116,6 +117,7 @@ describe('CruxService', () => {
         { provide: PublishStorageService, useValue: mockPublishStorage },
         { provide: UsageService, useValue: mockUsageService },
         { provide: LimitsService, useValue: { assertStorage: jest.fn() } },
+        { provide: NotificationsService, useValue: { afterWrite: jest.fn() } },
         { provide: DomainsService, useValue: mockDomainsService },
       ],
     }).compile();

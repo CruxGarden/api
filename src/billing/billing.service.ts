@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { LoggerService } from '../common/services/logger.service';
+import { EmailService } from '../common/services/email.service';
+import { paymentFailedEmail, planChangedEmail } from './billing.emails';
 import { BillingRepository, type SubscriptionRow } from './billing.repository';
 import {
   MockBillingProvider,
@@ -70,6 +72,7 @@ export class BillingService {
   constructor(
     private readonly repo: BillingRepository,
     loggerService: LoggerService,
+    private readonly email: EmailService,
   ) {
     this.logger = loggerService.createChildLogger('BillingService');
     const stripe = stripeProviderFromEnv();
@@ -263,6 +266,10 @@ export class BillingService {
           accountId = row.account_id;
           await this.repo.upsert({ ...stripUpdated(row), status: 'past_due' });
           this.logger.warn('Payment failed', { accountId });
+          await this.notify(
+            accountId,
+            paymentFailedEmail(planById(row.plan_id).name),
+          );
         }
         break;
       }
@@ -297,6 +304,7 @@ export class BillingService {
     const mapped = snap.priceId ? this.priceMap.get(snap.priceId) : undefined;
     const planId =
       snap.status === 'canceled' ? 'free' : (mapped?.planId ?? 'free');
+    const before = (await this.repo.byAccount(accountId)).data;
     const r = await this.repo.upsert({
       account_id: accountId,
       provider: this.provider.name,
@@ -318,7 +326,30 @@ export class BillingService {
       planId,
       status: snap.status,
     });
+    const beforePlan = effectivePlanId(before);
+    const afterPlan = effectivePlanId(r.data);
+    if (beforePlan !== afterPlan)
+      await this.notify(
+        accountId,
+        planChangedEmail(
+          planById(beforePlan).name,
+          planById(afterPlan).name,
+          snap.currentPeriodEnd,
+        ),
+      );
     return accountId;
+  }
+
+  private async notify(
+    accountId: string,
+    msg: { subject: string; body: string },
+  ): Promise<void> {
+    try {
+      const email = (await this.repo.accountEmail(accountId)).data;
+      if (email) await this.email.send({ email, ...msg });
+    } catch (err) {
+      this.logger.error(`billing email failed: ${(err as Error).message}`);
+    }
   }
 
   async listAll(): Promise<SubscriptionRow[]> {

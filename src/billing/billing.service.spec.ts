@@ -44,6 +44,9 @@ function fakeRepo() {
   };
 }
 
+const email = { send: jest.fn(async () => null) };
+beforeEach(() => email.send.mockClear());
+
 const PRICES = {
   price_g_m: { planId: 'grower' as const, interval: 'month' as const },
   price_g_y: { planId: 'grower' as const, interval: 'year' as const },
@@ -58,7 +61,7 @@ describe('BillingService', () => {
 
   it('free by default; catalog lists paid plans with prices', async () => {
     const repo = fakeRepo();
-    const svc = new BillingService(repo as never, logger);
+    const svc = new BillingService(repo as never, logger, email as never);
     const provider = new MockBillingProvider();
     svc.useProvider(provider, PRICES);
     expect(await svc.planIdFor('acct-1')).toBe('free');
@@ -82,7 +85,7 @@ describe('BillingService', () => {
 
   it('checkout → (mock pays instantly) → plan is live; portal works; second checkout refused', async () => {
     const repo = fakeRepo();
-    const svc = new BillingService(repo as never, logger);
+    const svc = new BillingService(repo as never, logger, email as never);
     svc.useProvider(new MockBillingProvider(), PRICES);
     const { url } = await svc.checkout('acct-1', 'grower', 'month');
     expect(url).toContain('/billing/success');
@@ -105,7 +108,7 @@ describe('BillingService', () => {
 
   it('webhooks drive state: created → updated to gardener → payment failed → deleted; duplicates ignored', async () => {
     const repo = fakeRepo();
-    const svc = new BillingService(repo as never, logger);
+    const svc = new BillingService(repo as never, logger, email as never);
     const provider = new MockBillingProvider();
     svc.useProvider(provider, PRICES);
     const base = {
@@ -128,6 +131,12 @@ describe('BillingService', () => {
       handled: 'subscription.changed',
     });
     expect(await svc.planIdFor('acct-1')).toBe('grower');
+    expect(email.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'd@example.com',
+        subject: "You're on Crux Garden Grower",
+      }),
+    );
 
     // replay of the same event id is a no-op
     provider.emit({
@@ -158,6 +167,11 @@ describe('BillingService', () => {
     });
     await svc.handleWebhook(Buffer.from('{}'), 'sig');
     expect((await svc.me('acct-1')).status).toBe('past_due');
+    expect(email.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: expect.stringMatching(/didn.t go through/),
+      }),
+    );
     expect(await svc.planIdFor('acct-1')).toBe('gardener');
     const row = repo.rows.get('acct-1')!;
     expect(
@@ -176,6 +190,9 @@ describe('BillingService', () => {
     await svc.handleWebhook(Buffer.from('{}'), 'sig');
     expect(await svc.planIdFor('acct-1')).toBe('free');
     expect((await svc.me('acct-1')).canManage).toBe(true);
+    expect(email.send).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: 'Your Crux Garden plan is now Free' }),
+    );
 
     // bad signature → 400
     svc.useProvider(
@@ -195,7 +212,7 @@ describe('BillingService', () => {
 
   it('sync re-pulls from the provider when a webhook was missed', async () => {
     const repo = fakeRepo();
-    const svc = new BillingService(repo as never, logger);
+    const svc = new BillingService(repo as never, logger, email as never);
     const provider = new MockBillingProvider();
     svc.useProvider(provider, PRICES);
     // a checkout happened at the provider but no webhook arrived

@@ -3,6 +3,7 @@ import { StoreService } from '../common/services/store.service';
 import { LoggerService } from '../common/services/logger.service';
 import { UsageService } from '../usage/usage.service';
 import { LimitsService } from '../usage/limits.service';
+import { NotificationsService } from '../usage/notifications.service';
 import { AuthorService } from '../author/author.service';
 
 export interface GardenMeta {
@@ -30,6 +31,7 @@ export class SyncService {
     private readonly usage: UsageService,
     private readonly limits: LimitsService,
     private readonly authorService: AuthorService,
+    private readonly notifications: NotificationsService,
   ) {
     this.logger = this.loggerService.createChildLogger('SyncService');
   }
@@ -72,6 +74,13 @@ export class SyncService {
     );
   }
 
+  private async notifyAfterPush(accountId: string): Promise<void> {
+    const author = await this.authorService
+      .findByAccountId(accountId)
+      .catch(() => null);
+    if (author) await this.notifications.afterWrite(author.id, accountId);
+  }
+
   async pushGarden(accountId: string, data: Buffer): Promise<GardenMeta> {
     const previous = await this.getGardenStatus(accountId);
     await this.assertRoom(
@@ -107,6 +116,7 @@ export class SyncService {
       'Garden backup',
     );
     await this.usage.recordTransfer(accountId, meta.size, 0);
+    void this.notifyAfterPush(accountId);
     this.logger.info('Garden pushed', { accountId, size: meta.size });
     return meta;
   }
@@ -205,6 +215,7 @@ export class SyncService {
       meta.title,
     );
     await this.usage.recordTransfer(accountId, entry.size, 0);
+    void this.notifyAfterPush(accountId);
     this.logger.info('Crux pushed', { accountId, cruxId, size: entry.size });
     return entry;
   }

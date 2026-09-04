@@ -32,6 +32,7 @@ import { StoreService } from '../common/services/store.service';
 import { PublishStorageService } from '../common/services/publish-storage.service';
 import { UsageService } from '../usage/usage.service';
 import { LimitsService } from '../usage/limits.service';
+import { NotificationsService } from '../usage/notifications.service';
 import { DomainsService } from '../domains/domains.service';
 import Artifact from '../artifact/entities/artifact.entity';
 import { UploadArtifactDto } from '../artifact/dto/upload-artifact.dto';
@@ -51,6 +52,7 @@ export class CruxService {
     private readonly publishStorage: PublishStorageService,
     private readonly usageService: UsageService,
     private readonly limits: LimitsService,
+    private readonly notifications: NotificationsService,
     private readonly domainsService: DomainsService,
   ) {
     this.logger = this.loggerService.createChildLogger('CruxService');
@@ -425,6 +427,7 @@ export class CruxService {
       publishedBytes,
       files.length,
     );
+    void this.notifications.afterWrite(authorId, accountId);
 
     // 5. Update crux meta with publish info and set visibility to public
     const publishedVersion = (crux.meta?.publishedVersion || 0) + 1;

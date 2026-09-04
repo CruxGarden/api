@@ -439,6 +439,60 @@ export class UsageRepository {
     }
   }
 
+  // ── Usage notices ledger ────────────────────────────────────────────────
+  async notificationSent(
+    accountId: string,
+    kind: string,
+    periodStart: string,
+  ): Promise<RepositoryResponse<boolean>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('usage_notifications')
+        .where({ account_id: accountId, kind, period_start: periodStart })
+        .first('id');
+      return success(!!row);
+    } catch (error) {
+      this.logger.error('notificationSent failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async markNotified(
+    accountId: string,
+    kind: string,
+    periodStart: string,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()
+        .from('usage_notifications')
+        .insert({ account_id: accountId, kind, period_start: periodStart })
+        .onConflict(['account_id', 'kind', 'period_start'])
+        .ignore();
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('markNotified failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async accountEmailFor(
+    accountId: string,
+  ): Promise<RepositoryResponse<string | null>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('accounts')
+        .where({ id: accountId })
+        .first<{ email: string }>('email');
+      return success(row?.email ?? null);
+    } catch (error) {
+      this.logger.error('accountEmailFor failed', error as Error);
+      return failure(error);
+    }
+  }
+
   // ── Sync (tied to the account) ──────────────────────────────────────────
   async upsertSyncObject(
     accountId: string,

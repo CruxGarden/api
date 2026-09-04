@@ -5,6 +5,7 @@ import { StoreService } from '../common/services/store.service';
 import { LoggerService } from '../common/services/logger.service';
 import { UsageService } from '../usage/usage.service';
 import { LimitsService } from '../usage/limits.service';
+import { NotificationsService } from '../usage/notifications.service';
 import { AuthorService } from '../author/author.service';
 
 describe('SyncService', () => {
@@ -47,6 +48,7 @@ describe('SyncService', () => {
           },
         },
         { provide: LimitsService, useValue: { assertStorage: jest.fn() } },
+        { provide: NotificationsService, useValue: { afterWrite: jest.fn() } },
         {
           provide: AuthorService,
           useValue: {
