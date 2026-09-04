@@ -30,7 +30,7 @@ This project adheres to a code of conduct that all contributors are expected to 
 
 ### Prerequisites
 
-- Node.js (v18 or higher)
+- Node.js 22 (see `.nvmrc`)
 - Docker (recommended) or PostgreSQL and Redis
 
 ### Installation

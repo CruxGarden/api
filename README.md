@@ -25,7 +25,7 @@ Will Stepp, October 2025
 
 ### Prerequisites
 
-- Node.js (v18 or higher)
+- Node.js 22 (see `.nvmrc`)
 - Docker (recommended) or PostgreSQL and Redis
 
 ### Quick Start
