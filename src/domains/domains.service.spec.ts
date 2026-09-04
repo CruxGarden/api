@@ -63,6 +63,15 @@ function fakeRepo() {
       return ok(undefined);
     }),
     authorForCrux: jest.fn(() => ok('a1')),
+    publishState: jest.fn((cruxId: string) =>
+      ok(
+        cruxId === 'c-legacy'
+          ? { published: true, layout: null }
+          : cruxId === 'c-gone'
+            ? { published: false, layout: null }
+            : { published: true, layout: 'bucket-per-crux' },
+      ),
+    ),
   };
 }
 
@@ -158,6 +167,42 @@ describe('DomainsService', () => {
     // pollIssuing sweeps stale claims
     await svc.pollIssuing();
     expect(repo.expirePending).toHaveBeenCalledWith(7);
+  });
+
+  it('resolveHost answers subdomains and custom domains with the publish layout', async () => {
+    const repo = fakeRepo();
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider();
+    svc.useProviders(edge, {
+      cnameTargets: async () => ['publish.crux.garden'],
+      txtValues: async () => [],
+    });
+    const NEW = '550e8400-e29b-41d4-a716-446655440000';
+    expect(await svc.resolveHost(`${NEW}.publish.crux.garden`)).toEqual({
+      cruxId: NEW,
+      legacy: false,
+    });
+    repo.publishState.mockImplementationOnce(async () => ({
+      data: { published: true, layout: null },
+      error: null,
+    }));
+    expect(await svc.resolveHost(`${NEW}.publish.crux.garden`)).toEqual({
+      cruxId: NEW,
+      legacy: true,
+    });
+    repo.publishState.mockImplementationOnce(async () => ({
+      data: { published: false, layout: 'bucket-per-crux' },
+      error: null,
+    }));
+    expect(await svc.resolveHost(`${NEW}.publish.crux.garden`)).toBeNull();
+    // custom domain: only a live connection to a published crux answers
+    const added = await svc.add('c-legacy', 'a1', 'blog.example.com');
+    await repo.update(added.id, { status: 'active' });
+    expect(await svc.resolveHost('Blog.Example.com')).toEqual({
+      cruxId: 'c-legacy',
+      legacy: true,
+    });
+    expect(await svc.resolveHost('nobody.example.com')).toBeNull();
   });
 
   it('records a failed certificate request and lets the user retry', async () => {

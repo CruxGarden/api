@@ -12,8 +12,9 @@ import { timingSafeEqual } from 'node:crypto';
 import { DomainsService } from './domains.service';
 
 /**
- * Edge-facing: the origin-request function resolves a custom hostname to the
- * crux it serves. Authenticated by the publish origin secret (the same value
+ * Edge-facing: the origin-request function resolves a viewer Host (custom
+ * domain or {cruxId}.publish… subdomain) to the crux it serves and whether the
+ * files are still under the legacy shared-bucket prefix. Authenticated by the publish origin secret (the same value
  * the function presents to the buckets), not by a user token.
  */
 @ApiExcludeController()
@@ -26,13 +27,13 @@ export class PublishResolveController {
   async resolve(
     @Query('host') host: string,
     @Headers('x-crux-origin-secret') secret: string | undefined,
-  ): Promise<{ cruxId: string }> {
+  ): Promise<{ cruxId: string; legacy: boolean }> {
     const expected = process.env.PUBLISH_ORIGIN_SECRET;
     if (!expected || !secret || !safeEqual(secret, expected))
       throw new UnauthorizedException('Bad origin secret');
-    const cruxId = await this.domains.resolve(host ?? '');
-    if (!cruxId) throw new NotFoundException('No crux for this host');
-    return { cruxId };
+    const found = await this.domains.resolveHost(host ?? '');
+    if (!found) throw new NotFoundException('No crux for this host');
+    return found;
   }
 }
 

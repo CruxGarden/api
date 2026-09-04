@@ -170,6 +170,38 @@ export class DomainsRepository {
     }
   }
 
+  /**
+   * Is the crux live, and under which publish layout? Read from cruxes.meta so
+   * the edge can be told where the files are without a module cycle.
+   */
+  async publishState(
+    cruxId: string,
+  ): Promise<
+    RepositoryResponse<
+      { published: boolean; layout: string | null } | undefined
+    >
+  > {
+    try {
+      const row = (await this.dbService
+        .query()
+        .from('cruxes')
+        .select('meta')
+        .where('id', cruxId)
+        .whereNull('deleted')
+        .first()) as { meta?: Record<string, unknown> | null } | undefined;
+      if (!row) return success(undefined);
+      const meta = row.meta ?? {};
+      return success({
+        published: !!meta.publishedAt,
+        layout:
+          typeof meta.publishLayout === 'string' ? meta.publishLayout : null,
+      });
+    } catch (error) {
+      this.logger.error('publishState failed', error as Error);
+      return failure(error);
+    }
+  }
+
   async authorForCrux(
     cruxId: string,
   ): Promise<RepositoryResponse<string | undefined>> {

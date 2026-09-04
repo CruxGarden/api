@@ -455,7 +455,13 @@ export class CruxService {
     const publishedAt = new Date().toISOString();
 
     const updated = await this.cruxRepository.update(crux.id, {
-      meta: { ...crux.meta, publishedAt, publishedVersion },
+      meta: {
+        ...crux.meta,
+        publishedAt,
+        publishedVersion,
+        // where the files live — the origin router asks (ADR 0011 migration)
+        publishLayout: this.publishLayout(),
+      },
       visibility: CruxVisibility.PUBLIC,
     });
 

@@ -16,6 +16,7 @@ import {
   norm,
 } from './dns-verifier';
 import { type EdgeProvider, edgeProviderFromEnv } from './edge-provider';
+import { cruxIdFromPublishHost } from '../usage/cloudfront-logs';
 
 /** What the client shows: the domain, its state, and the DNS records to create. */
 export interface CustomDomainView {
@@ -65,6 +66,25 @@ export class DomainsService {
     if (!row || (row.status !== 'active' && row.status !== 'issuing'))
       return null;
     return row.crux_id;
+  }
+
+  /**
+   * Full edge answer for any viewer Host: the crux and whether its files still
+   * sit under the legacy shared-bucket prefix (published before ADR 0011's
+   * bucket-per-crux layout and not republished since). A `{cruxId}.publish…`
+   * host is answered from the crux itself; anything else is a custom domain.
+   * Unpublished or deleted cruxes resolve to nothing, whatever the host.
+   */
+  async resolveHost(
+    host: string,
+  ): Promise<{ cruxId: string; legacy: boolean } | null> {
+    const hostname = normalizeHostname(host) ?? host.trim().toLowerCase();
+    const cruxId =
+      cruxIdFromPublishHost(hostname) ?? (await this.resolve(hostname));
+    if (!cruxId) return null;
+    const state = (await this.repo.publishState(cruxId)).data;
+    if (!state?.published) return null;
+    return { cruxId, legacy: state.layout !== 'bucket-per-crux' };
   }
 
   /** tests */

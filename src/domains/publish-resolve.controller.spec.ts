@@ -5,8 +5,8 @@ import { DomainsService } from './domains.service';
 describe('PublishResolveController', () => {
   const env = { ...process.env };
   const domains = {
-    resolve: async (host: string) =>
-      host === 'blog.example.com' ? 'crux-1' : null,
+    resolveHost: async (host: string) =>
+      host === 'blog.example.com' ? { cruxId: 'crux-1', legacy: false } : null,
   } as unknown as DomainsService;
   const ctrl = new PublishResolveController(domains);
 
@@ -36,6 +36,7 @@ describe('PublishResolveController', () => {
   it('resolves a connected hostname and 404s an unknown one', async () => {
     expect(await ctrl.resolve('blog.example.com', 's3cret')).toEqual({
       cruxId: 'crux-1',
+      legacy: false,
     });
     await expect(ctrl.resolve('other.example.com', 's3cret')).rejects.toThrow(
       NotFoundException,
