@@ -3,7 +3,7 @@ import { Knex } from 'knex';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
 
-export type ExploreSort = 'recent' | 'newest' | 'alpha';
+export type ExploreSort = 'relevant' | 'recent' | 'newest' | 'alpha';
 
 export interface ExploreCruxFilters {
   q?: string;
@@ -66,13 +66,26 @@ export class ExploreRepository {
       .whereNull('c.deleted')
       .whereNull('a.deleted');
 
-    if (filters.q) {
-      const term = `%${filters.q}%`;
+    // "@name" searches authors only; "#tag" is a tag filter typed into the box.
+    let q = (filters.q ?? '').trim();
+    let author = filters.author;
+    const tags = [...(filters.tag ?? [])];
+    if (q.startsWith('@') && q.length > 1) {
+      author = q.slice(1);
+      q = '';
+    } else if (q.startsWith('#') && q.length > 1) {
+      tags.push(q.slice(1));
+      q = '';
+    }
+
+    if (q) {
+      const term = `%${q}%`;
       query.where(function () {
         this.where('c.title', 'ilike', term)
           .orWhere('c.description', 'ilike', term)
           .orWhere('c.slug', 'ilike', term)
           .orWhere('a.username', 'ilike', term)
+          .orWhere('a.display_name', 'ilike', term)
           .orWhereExists(function () {
             this.select('*')
               .from('tags as t')
@@ -88,12 +101,15 @@ export class ExploreRepository {
       query.where('c.kind', filters.kind);
     }
 
-    if (filters.author) {
-      query.whereRaw('lower(a.username) = ?', [filters.author.toLowerCase()]);
+    if (author) {
+      // exact username, or a prefix when typed as "@dan"
+      query.whereRaw('lower(a.username) like ?', [
+        `${author.toLowerCase().replace(/[%_]/g, '')}%`,
+      ]);
     }
 
-    if (filters.tag && filters.tag.length > 0) {
-      for (const tag of filters.tag) {
+    if (tags.length > 0) {
+      for (const tag of tags) {
         query.whereExists(function () {
           this.select('*')
             .from('tags as t')
@@ -105,9 +121,25 @@ export class ExploreRepository {
       }
     }
 
-    if (filters.sort === 'alpha') {
+    const sort = filters.sort ?? (q ? 'relevant' : 'recent');
+    if (sort === 'relevant' && q) {
+      // Exact title, then title starts with, then title contains, then a tag
+      // matches, then description/author — recency breaks ties. Cheap CASE
+      // ranking; no extension needed at this scale.
+      const lower = q.toLowerCase();
+      query.orderByRaw(
+        `CASE
+           WHEN lower(c.title) = ? THEN 0
+           WHEN lower(c.title) LIKE ? THEN 1
+           WHEN lower(c.title) LIKE ? THEN 2
+           WHEN EXISTS (SELECT 1 FROM tags t WHERE t.resource_id = c.id AND t.resource_type = 'crux' AND t.deleted IS NULL AND lower(t.label) = ?) THEN 3
+           ELSE 4
+         END ASC, c.updated DESC`,
+        [lower, `${lower}%`, `%${lower}%`, lower],
+      );
+    } else if (sort === 'alpha') {
       query.orderBy('c.title', 'asc');
-    } else if (filters.sort === 'newest') {
+    } else if (sort === 'newest') {
       query.orderBy('c.created', 'desc');
     } else {
       query.orderBy('c.updated', 'desc');

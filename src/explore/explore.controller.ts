@@ -40,8 +40,9 @@ export class ExploreController {
   @ApiQuery({
     name: 'sort',
     required: false,
-    enum: ['recent', 'newest', 'alpha'],
-    description: 'Sort order (recent = last updated, newest = first published)',
+    enum: ['relevant', 'recent', 'newest', 'alpha'],
+    description:
+      'Sort order (relevant = best match, default when q is given; recent = last updated; newest = first published)',
   })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'perPage', required: false, type: Number })
@@ -49,14 +50,17 @@ export class ExploreController {
     @Query('q') q?: string,
     @Query('type') type: 'cruxes' | 'authors' = 'cruxes',
     @Query('tag') tag?: string | string[],
-    @Query('sort') sort: 'recent' | 'newest' | 'alpha' = 'recent',
+    @Query('sort') sort?: 'relevant' | 'recent' | 'newest' | 'alpha',
     @Query('kind') kind?: string,
     @Query('author') author?: string,
     @Req() req?: Request,
     @Res({ passthrough: true }) res?: Response,
   ) {
     if (type === 'authors') {
-      const query = this.exploreService.getAuthorsQuery({ q, sort });
+      const query = this.exploreService.getAuthorsQuery({
+        q: q?.replace(/^@/, ''),
+        sort: sort === 'alpha' ? 'alpha' : 'recent',
+      });
       return this.dbService.paginate({ query, request: req, response: res });
     }
 

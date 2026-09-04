@@ -29,10 +29,10 @@ describe('ExploreRepository query composition', () => {
       .toSQL()
       .toNative();
     expect(sql).toContain('"c"."kind" = ');
-    expect(sql).toContain('lower(a.username) = ');
+    expect(sql).toContain('lower(a.username) like ');
     expect(sql).toContain('"a"."username" ilike');
     expect(bindings).toEqual(
-      expect.arrayContaining(['mood', 'daniel', '%rain%', 'ambient', 'dark']),
+      expect.arrayContaining(['mood', 'daniel%', '%rain%', 'ambient', 'dark']),
     );
     expect((sql.match(/exists \(select \*/g) ?? []).length).toBe(3); // search-in-tags + 2 tag filters
   });
@@ -44,5 +44,35 @@ describe('ExploreRepository query composition', () => {
     expect(repo().findCruxesQuery({ sort: 'alpha' }).toSQL().sql).toContain(
       'order by "c"."title" asc',
     );
+  });
+
+  it('ranks by relevance when there is a search term, unless another sort is asked for', () => {
+    const { sql, bindings } = repo()
+      .findCruxesQuery({ q: 'Rain' })
+      .toSQL()
+      .toNative();
+    expect(sql).toContain('CASE');
+    expect(sql).toContain('lower(c.title) = ');
+    expect(sql).toMatch(/END ASC, c\.updated DESC/);
+    expect(bindings).toEqual(
+      expect.arrayContaining(['rain', 'rain%', '%rain%']),
+    );
+    expect(
+      repo().findCruxesQuery({ q: 'rain', sort: 'alpha' }).toSQL().sql,
+    ).toContain('order by "c"."title" asc');
+    // no term → relevant falls back to recency
+    expect(repo().findCruxesQuery({ sort: 'relevant' }).toSQL().sql).toContain(
+      'order by "c"."updated" desc',
+    );
+  });
+
+  it('"@name" searches authors by prefix and "#tag" filters by tag', () => {
+    const at = repo().findCruxesQuery({ q: '@Dan' }).toSQL().toNative();
+    expect(at.sql).toContain('lower(a.username) like ');
+    expect(at.bindings).toEqual(expect.arrayContaining(['dan%']));
+    expect(at.sql).not.toContain('"c"."title" ilike');
+    const hash = repo().findCruxesQuery({ q: '#ambient' }).toSQL().toNative();
+    expect(hash.bindings).toEqual(expect.arrayContaining(['ambient']));
+    expect(hash.sql).not.toContain('"c"."title" ilike');
   });
 });
