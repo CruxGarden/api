@@ -164,6 +164,17 @@ export class StripeBillingProvider implements BillingProvider {
     return live ? snapshot(live) : null;
   }
 
+  async fetchCheckoutSession(sessionId: string) {
+    const s = await this.stripe.checkout.sessions.retrieve(sessionId);
+    const id = (v: string | { id: string } | null | undefined) =>
+      typeof v === 'string' ? v : (v?.id ?? null);
+    return {
+      customerId: id(s.customer),
+      subscriptionId: id(s.subscription),
+      complete: s.status === 'complete',
+    };
+  }
+
   async prices(priceIds: string[]): Promise<PriceInfo[]> {
     const out: PriceInfo[] = [];
     for (const id of priceIds) {

@@ -31,7 +31,35 @@ function fakeRepo() {
       rows.set(row.account_id, saved);
       return ok(saved);
     }),
-    setCustomer: jest.fn(() => ok(undefined)),
+    setCustomer: jest.fn((accountId: string, customerId: string) => {
+      const row = rows.get(accountId);
+      if (row) rows.set(accountId, { ...row, customer_id: customerId });
+      return ok(undefined);
+    }),
+    setPendingSession: jest.fn(
+      (accountId: string, sessionId: string | null) => {
+        const row = rows.get(accountId) ?? {
+          account_id: accountId,
+          provider: 'mock',
+          customer_id: null,
+          subscription_id: null,
+          plan_id: 'free',
+          price_id: null,
+          interval: null,
+          status: 'none',
+          current_period_start: null,
+          current_period_end: null,
+          cancel_at_period_end: false,
+          trial_end: null,
+          updated: new Date(),
+        };
+        rows.set(accountId, {
+          ...(row as SubscriptionRow),
+          pending_session_id: sessionId,
+        });
+        return ok(undefined);
+      },
+    ),
     accountEmail: jest.fn((a: string) =>
       ok(a === 'acct-1' ? 'd@example.com' : null),
     ),
@@ -310,6 +338,30 @@ describe('BillingService', () => {
     });
     await svc.sync('acct-1');
     expect(await svc.planIdFor('acct-1')).toBe('gardener');
+  });
+
+  it('sync recovers from the checkout session when no webhook ever arrived', async () => {
+    const repo = fakeRepo();
+    const svc = new BillingService(repo as never, logger, email as never);
+    const provider = new MockBillingProvider();
+    svc.useProvider(provider, PRICES);
+    // checkout opened; the mock completes it at the provider, but pretend the
+    // webhook never reached us and nothing else remembers the customer
+    await svc.checkout('acct-1', 'gardener', 'month');
+    const row = repo.rows.get('acct-1')!;
+    expect(row.pending_session_id).toMatch(/^cs_mock_/);
+    repo.rows.set('acct-1', {
+      ...row,
+      customer_id: null,
+      subscription_id: null,
+      plan_id: 'free',
+      status: 'none',
+    });
+    provider.customersByAccount.clear();
+    expect(await svc.planIdFor('acct-1')).toBe('free');
+    await svc.sync('acct-1');
+    expect(await svc.planIdFor('acct-1')).toBe('gardener');
+    expect(repo.rows.get('acct-1')!.pending_session_id).toBeNull();
   });
 
   it('sync re-pulls from the provider when a webhook was missed', async () => {

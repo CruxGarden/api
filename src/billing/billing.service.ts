@@ -186,7 +186,7 @@ export class BillingService {
         'You already have a plan — use “Manage billing” to change it',
       );
     const base = returnBase();
-    const { url } = await this.provider.createCheckout({
+    const { url, sessionId } = await this.provider.createCheckout({
       accountId,
       email,
       customerId: existing?.customer_id ?? null,
@@ -198,6 +198,8 @@ export class BillingService {
     this.logger.info('Checkout started', { accountId, planId, interval });
     // Mock provider: the "payment" already happened — reflect it now.
     if (this.provider.name === 'mock') await this.sync(accountId);
+    // Sync can finish the job from this if the webhook never reaches us
+    await this.repo.setPendingSession(accountId, sessionId);
     return { url };
   }
 
@@ -223,15 +225,33 @@ export class BillingService {
       snap = null;
     if (!snap && row?.customer_id)
       snap = await this.provider.fetchCustomerSubscription(row.customer_id);
+    // No webhook yet (local API, missed delivery): the checkout session we
+    // opened knows the customer and the subscription it created.
+    if (!snap && row?.pending_session_id) {
+      const session = await this.provider
+        .fetchCheckoutSession(row.pending_session_id)
+        .catch(() => null);
+      if (session?.customerId)
+        await this.repo.setCustomer(accountId, session.customerId);
+      if (session?.subscriptionId)
+        snap = await this.provider.fetchSubscription(session.subscriptionId);
+      else if (session?.customerId)
+        snap = await this.provider.fetchCustomerSubscription(
+          session.customerId,
+        );
+    }
     if (!snap && this.provider instanceof MockBillingProvider) {
       const cus = this.provider.customersByAccount.get(accountId);
       if (cus) snap = await this.provider.fetchCustomerSubscription(cus);
     }
-    if (snap)
+    if (snap) {
       await this.applySnapshot({
         ...snap,
         accountId: snap.accountId ?? accountId,
       });
+      if (row?.pending_session_id)
+        await this.repo.setPendingSession(accountId, null);
+    }
     return this.me(accountId);
   }
 

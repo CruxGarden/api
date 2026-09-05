@@ -19,6 +19,8 @@ export interface SubscriptionRow {
   trial_end: Date | string | null;
   /** when the account first went past_due (the grace clock); null when not past due */
   past_due_since?: Date | string | null;
+  /** the checkout session last opened; sync recovers from it if no webhook came */
+  pending_session_id?: string | null;
   updated: Date | string;
 }
 
@@ -94,6 +96,31 @@ export class BillingRepository {
       return success(saved as SubscriptionRow);
     } catch (error) {
       this.logger.error('upsert failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** Remember (or clear) the checkout session an account just opened. */
+  async setPendingSession(
+    accountId: string,
+    sessionId: string | null,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()
+        .from('subscriptions')
+        .insert({
+          account_id: accountId,
+          pending_session_id: sessionId,
+          plan_id: 'free',
+          status: 'none',
+          updated: new Date(),
+        })
+        .onConflict('account_id')
+        .merge({ pending_session_id: sessionId, updated: new Date() });
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('setPendingSession failed', error as Error);
       return failure(error);
     }
   }

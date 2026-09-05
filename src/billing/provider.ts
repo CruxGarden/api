@@ -84,6 +84,11 @@ export interface BillingProvider {
   fetchCustomerSubscription(
     customerId: string,
   ): Promise<SubscriptionSnapshot | null>;
+  /**
+   * What a checkout session produced — the customer and subscription ids once
+   * it completed. Lets sync recover an account whose webhook never arrived.
+   */
+  fetchCheckoutSession(sessionId: string): Promise<CheckoutSessionInfo | null>;
   /** Amounts for the catalog. */
   prices(priceIds: string[]): Promise<PriceInfo[]>;
 }
@@ -93,10 +98,19 @@ export interface BillingProvider {
  * success page and the subscription exists when the app re-syncs). Tests drive
  * webhooks by calling `emit`.
  */
+export interface CheckoutSessionInfo {
+  customerId: string | null;
+  subscriptionId: string | null;
+  /** the session finished and payment (or trial) is in place */
+  complete: boolean;
+}
+
 export class MockBillingProvider implements BillingProvider {
   readonly name = 'mock';
   subscriptions = new Map<string, SubscriptionSnapshot>();
   customersByAccount = new Map<string, string>();
+  /** sessionId → what it produced (the mock completes checkout instantly) */
+  sessions = new Map<string, CheckoutSessionInfo>();
   private n = 0;
   /** queued events for parseWebhook (tests) */
   queue: BillingEvent[] = [];
@@ -122,10 +136,19 @@ export class MockBillingProvider implements BillingProvider {
           : null,
       accountId: req.accountId,
     });
+    const sessionId = `cs_mock_${this.n}`;
+    this.sessions.set(sessionId, {
+      customerId,
+      subscriptionId,
+      complete: true,
+    });
     return {
-      url: `${req.successUrl.replace('{CHECKOUT_SESSION_ID}', 'cs_mock')}`,
-      sessionId: 'cs_mock',
+      url: `${req.successUrl.replace('{CHECKOUT_SESSION_ID}', sessionId)}`,
+      sessionId,
     };
+  }
+  async fetchCheckoutSession(sessionId: string) {
+    return this.sessions.get(sessionId) ?? null;
   }
   async portalUrl(customerId: string, returnUrl: string) {
     return `https://billing.mock/portal/${customerId}?return=${encodeURIComponent(returnUrl)}`;
