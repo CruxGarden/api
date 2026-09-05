@@ -5861,8 +5861,7 @@
             "type": "string",
             "description": "A paid plan id",
             "enum": [
-              "grower",
-              "gardener"
+              "grower"
             ]
           },
           "interval": {

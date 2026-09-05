@@ -456,8 +456,6 @@ function priceMapFromEnv(): Map<
   const pairs: [PaidPlanId, BillingInterval, string][] = [
     ['grower', 'month', 'STRIPE_PRICE_GROWER_MONTHLY'],
     ['grower', 'year', 'STRIPE_PRICE_GROWER_YEARLY'],
-    ['gardener', 'month', 'STRIPE_PRICE_GARDENER_MONTHLY'],
-    ['gardener', 'year', 'STRIPE_PRICE_GARDENER_YEARLY'],
   ];
   const anyEnv = pairs.some(([, , k]) => !!process.env[k]);
   for (const [planId, interval, key] of pairs) {

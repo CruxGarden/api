@@ -59,7 +59,6 @@ beforeEach(() => email.send.mockClear());
 const PRICES = {
   price_g_m: { planId: 'grower' as const, interval: 'month' as const },
   price_g_y: { planId: 'grower' as const, interval: 'year' as const },
-  price_d_m: { planId: 'gardener' as const, interval: 'month' as const },
 };
 
 describe('BillingService', () => {
@@ -79,16 +78,11 @@ describe('BillingService', () => {
     expect(me.plan.id).toBe('free');
     expect(me.canManage).toBe(false);
     const cat = await svc.catalog();
-    expect(cat.plans.map((p) => p.plan.id)).toEqual([
-      'free',
-      'grower',
-      'gardener',
-    ]);
+    expect(cat.plans.map((p) => p.plan.id)).toEqual(['free', 'grower']);
     expect(cat.plans[1].prices.map((p) => p.interval)).toEqual([
       'month',
       'year',
     ]);
-    expect(cat.plans[2].prices).toHaveLength(1);
     expect(cat.instant).toBe(true);
   });
 
@@ -107,7 +101,7 @@ describe('BillingService', () => {
     });
     expect(me.renewsAt).toBeTruthy();
     expect((await svc.portal('acct-1')).url).toContain('/portal/');
-    await expect(svc.checkout('acct-1', 'gardener', 'month')).rejects.toThrow(
+    await expect(svc.checkout('acct-1', 'grower', 'year')).rejects.toThrow(
       BadRequestException,
     );
     await expect(
@@ -115,7 +109,7 @@ describe('BillingService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('webhooks drive state: created → updated to gardener → payment failed → deleted; duplicates ignored', async () => {
+  it('webhooks drive state: created → switched to yearly → payment failed → deleted; duplicates ignored', async () => {
     const repo = fakeRepo();
     const svc = new BillingService(repo as never, logger, email as never);
     const provider = new MockBillingProvider();
@@ -151,7 +145,7 @@ describe('BillingService', () => {
     provider.emit({
       id: 'evt_1',
       type: 'subscription.changed',
-      subscription: { ...base, priceId: 'price_d_m' },
+      subscription: { ...base, priceId: 'price_g_y' },
     });
     expect(await svc.handleWebhook(Buffer.from('{}'), 'sig')).toEqual({
       handled: 'duplicate',
@@ -162,10 +156,10 @@ describe('BillingService', () => {
     provider.emit({
       id: 'evt_2',
       type: 'subscription.changed',
-      subscription: { ...base, priceId: 'price_d_m', accountId: null },
+      subscription: { ...base, priceId: 'price_g_y', accountId: null },
     });
     await svc.handleWebhook(Buffer.from('{}'), 'sig');
-    expect(await svc.planIdFor('acct-1')).toBe('gardener');
+    expect(await svc.planIdFor('acct-1')).toBe('grower');
 
     // payment failed → past_due keeps the plan for a week, then free
     provider.emit({
@@ -181,7 +175,7 @@ describe('BillingService', () => {
         subject: expect.stringMatching(/didn.t go through/),
       }),
     );
-    expect(await svc.planIdFor('acct-1')).toBe('gardener');
+    expect(await svc.planIdFor('acct-1')).toBe('grower');
     const row = repo.rows.get('acct-1')!;
     expect(
       effectivePlanId(
@@ -235,9 +229,9 @@ describe('BillingService', () => {
       trialEnd: null,
       accountId: 'acct-1',
     };
-    // the provider already knows this subscription is on gardener; the
+    // the provider already knows this subscription is yearly; the
     // delivery in flight is an older "grower" payload
-    provider.subscriptions.set('sub_1', { ...snap, priceId: 'price_d_m' });
+    provider.subscriptions.set('sub_1', { ...snap, priceId: 'price_g_y' });
     provider.emit({
       id: 'evt_1',
       type: 'subscription.changed',
@@ -259,7 +253,7 @@ describe('BillingService', () => {
     expect(await svc.handleWebhook(Buffer.from('{}'), 'sig')).toEqual({
       handled: 'subscription.changed',
     });
-    expect(await svc.planIdFor('acct-1')).toBe('gardener');
+    expect(await svc.planIdFor('acct-1')).toBe('grower');
   });
 
   it('the past-due grace clock starts at the first failure and is not reset by retries', async () => {
@@ -309,13 +303,13 @@ describe('BillingService', () => {
       accountId: 'acct-1',
       email: 'd@example.com',
       customerId: old.customer_id!,
-      priceId: 'price_d_m',
+      priceId: 'price_g_y',
       trialDays: 0,
       successUrl: 'https://x/ok',
       cancelUrl: 'https://x/no',
     });
     await svc.sync('acct-1');
-    expect(await svc.planIdFor('acct-1')).toBe('gardener');
+    expect(await svc.planIdFor('acct-1')).toBe('grower');
   });
 
   it('sync re-pulls from the provider when a webhook was missed', async () => {
