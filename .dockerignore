@@ -1,0 +1,15 @@
+# Build context for docker/Dockerfile: the image installs its own dependencies
+# and builds dist itself. Never ship local state or secrets into the context.
+node_modules
+dist
+coverage
+.env
+.env.*
+!.env.example
+.git
+.github
+docker/*.yml
+*.log
+.DS_Store
+test/
+**/*.spec.ts
