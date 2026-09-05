@@ -24,7 +24,6 @@ import { ExploreModule } from './explore/explore.module';
 import { StoreModule } from './crux-store/crux-store.module';
 import { UsageModule } from './usage/usage.module';
 import { DomainsModule } from './domains/domains.module';
-import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { BillingModule } from './billing/billing.module';
 
 @Module({
@@ -52,7 +51,6 @@ import { BillingModule } from './billing/billing.module';
     StoreModule,
     UsageModule,
     DomainsModule,
-    LeaderboardModule,
     BillingModule,
   ],
   controllers: [AppController],

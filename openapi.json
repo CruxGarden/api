@@ -5303,83 +5303,6 @@
           "Store"
         ]
       }
-    },
-    "/cruxes/{cruxId}/leaderboard/{day}": {
-      "get": {
-        "operationId": "LeaderboardController_board",
-        "parameters": [
-          {
-            "name": "cruxId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "day",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "A shelf's board for a day ('today' or YYYY-MM-DD)",
-        "tags": [
-          "leaderboard"
-        ]
-      },
-      "post": {
-        "operationId": "LeaderboardController_post",
-        "parameters": [
-          {
-            "name": "cruxId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "day",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PostScoreDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Record the caller's first round of the day",
-        "tags": [
-          "leaderboard"
-        ]
-      }
     }
   },
   "info": {
@@ -6205,27 +6128,6 @@
             "default": 1
           }
         }
-      },
-      "PostScoreDto": {
-        "type": "object",
-        "properties": {
-          "score": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 10,
-            "description": "Points left at the end of the round"
-          },
-          "seconds": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 330,
-            "description": "Round duration in seconds"
-          }
-        },
-        "required": [
-          "score",
-          "seconds"
-        ]
       }
     }
   }
