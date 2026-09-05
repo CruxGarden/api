@@ -140,6 +140,12 @@ const SPA_NAVIGATE_SYNC: PublishInjection = {
 // Exposes window.crux.store with get/set/increment/delete/list methods.
 // In live mode, calls the crux.garden API. In local mode (workspace preview),
 // routes all calls back to the parent via postMessage.
+//
+// Key modes (fixed by the first write; see StoreService):
+//   public    — open: anyone reads/writes one shared value
+//   protected — authenticated, per user: signed-in; one private slot each
+//   common    — authenticated, shared: one value per key; signed-in to
+//               set/increment/delete, anyone reads (get returns the value)
 
 const CRUX_STORE_CLIENT: PublishInjection = {
   id: 'crux-store-client',
@@ -180,6 +186,9 @@ const CRUX_STORE_CLIENT: PublishInjection = {
     }
   });
   function hdr(){var h={'Content-Type':'application/json'};if(_token)h['Authorization']='Bearer '+_token;return h;}
+  // Surface the API's plain message (401 "Common keys require a signed-in
+  // account to write", 409 mode conflict) instead of a bare status code.
+  function fail(r,what){return r.json().catch(function(){return {};}).then(function(d){throw new Error(d&&d.message?d.message:what+' failed: '+r.status);});}
   function localCall(type,payload){
     return new Promise(function(res){
       var id=Math.random().toString(36).slice(2);
@@ -206,26 +215,28 @@ const CRUX_STORE_CLIENT: PublishInjection = {
       var m=(opts&&opts.mode)||'protected';
       return _ready.then(function(){
         if(_mode==='local'){window.parent.postMessage({type:'crux:store:set',key:key,value:value,mode:m},'*');return;}
-        return fetch(BASE+'/'+encodeURIComponent(key),{method:'PUT',headers:hdr(),body:JSON.stringify({value:value,mode:m})}).then(function(r){if(!r.ok)throw new Error('Store set failed: '+r.status)});
+        return fetch(BASE+'/'+encodeURIComponent(key),{method:'PUT',headers:hdr(),body:JSON.stringify({value:value,mode:m})}).then(function(r){if(!r.ok)return fail(r,'Store set')});
       });
     },
-    increment:function(key,by){
+    increment:function(key,by,opts){
       if(by===undefined)by=1;
+      var m=opts&&opts.mode;
       return _ready.then(function(){
-        if(_mode==='local')return localCall('crux:store:inc',{key:key,by:by});
-        return fetch(BASE+'/'+encodeURIComponent(key)+'/inc',{method:'POST',headers:hdr(),body:JSON.stringify({by:by})}).then(function(r){if(!r.ok)throw new Error('Store increment failed: '+r.status);return r.json().then(function(d){return d.value})});
+        if(_mode==='local')return localCall('crux:store:inc',{key:key,by:by,mode:m});
+        var body={by:by};if(m)body.mode=m;
+        return fetch(BASE+'/'+encodeURIComponent(key)+'/inc',{method:'POST',headers:hdr(),body:JSON.stringify(body)}).then(function(r){if(!r.ok)return fail(r,'Store increment');return r.json().then(function(d){return d.value})});
       });
     },
     delete:function(key){
       return _ready.then(function(){
         if(_mode==='local'){window.parent.postMessage({type:'crux:store:del',key:key},'*');return;}
-        return fetch(BASE+'/'+encodeURIComponent(key),{method:'DELETE',headers:hdr()}).then(function(r){if(!r.ok)throw new Error('Store delete failed: '+r.status)});
+        return fetch(BASE+'/'+encodeURIComponent(key),{method:'DELETE',headers:hdr()}).then(function(r){if(!r.ok)return fail(r,'Store delete')});
       });
     },
     list:function(){
       return _ready.then(function(){
         if(_mode==='local')return localCall('crux:store:list',{});
-        return fetch(BASE,{headers:hdr()}).then(function(r){if(!r.ok)throw new Error('Store list failed: '+r.status);return r.json()});
+        return fetch(BASE,{headers:hdr()}).then(function(r){if(!r.ok)return fail(r,'Store list');return r.json()});
       });
     }
   };

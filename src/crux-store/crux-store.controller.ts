@@ -12,7 +12,6 @@ import {
   HttpStatus,
   ForbiddenException,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '../common/guards/auth.guard';
@@ -21,6 +20,7 @@ import { AuthRequest } from '../common/types/interfaces';
 import { CruxService } from '../crux/crux.service';
 import { AuthorService } from '../author/author.service';
 import { StoreService } from './crux-store.service';
+import { StoreSwagger } from './crux-store.swagger';
 import { UsageService } from '../usage/usage.service';
 import {
   SetStoreEntryDto,
@@ -28,6 +28,7 @@ import {
 } from './dto/set-store-entry.dto';
 
 @Controller('store')
+@StoreSwagger.Controller()
 export class StoreController {
   constructor(
     private readonly storeService: StoreService,
@@ -63,11 +64,12 @@ export class StoreController {
 
   /**
    * GET /store/:cruxId/:key
-   * Read a value. Public keys work without auth.
-   * Protected keys require a token (scoped to visitor).
+   * Public and common keys: `{ value, mode, updatedAt }` for anyone.
+   * Protected keys: the caller's own slot (token), else `{ value: null }`.
    */
   @Get(':cruxId/:key')
   @UseGuards(OptionalAuthGuard)
+  @StoreSwagger.Get()
   async get(
     @Param('cruxId') cruxId: string,
     @Param('key') key: string,
@@ -82,12 +84,15 @@ export class StoreController {
 
   /**
    * PUT /store/:cruxId/:key
-   * Write a value. Public keys work without auth.
-   * Protected keys require a token.
+   * Public keys work without auth. Protected keys require a token and write
+   * the caller's own slot; common keys require a token and write the one
+   * shared value. A key's mode is fixed by its first write; a different mode
+   * later is a 409.
    */
   @Put(':cruxId/:key')
   @UseGuards(OptionalAuthGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
+  @StoreSwagger.Set()
   async set(
     @Param('cruxId') cruxId: string,
     @Param('key') key: string,
@@ -97,10 +102,6 @@ export class StoreController {
     const authorId = await this.getCruxAuthorId(cruxId);
     const visitorId = await this.getVisitorId(req);
     const mode = dto.mode ?? 'protected';
-
-    if (mode === 'protected' && !visitorId) {
-      throw new UnauthorizedException('Protected keys require authentication');
-    }
 
     const entry = await this.storeService.set(
       cruxId,
@@ -116,11 +117,14 @@ export class StoreController {
 
   /**
    * POST /store/:cruxId/:key/inc
-   * Atomic increment. Works without auth for public keys.
+   * Atomic increment. Public keys: the shared value, no auth needed.
+   * Common keys: the shared value, token required. Protected keys: the
+   * caller's own slot.
    */
   @Post(':cruxId/:key/inc')
   @UseGuards(OptionalAuthGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
+  @StoreSwagger.Increment()
   async increment(
     @Param('cruxId') cruxId: string,
     @Param('key') key: string,
@@ -135,9 +139,36 @@ export class StoreController {
       key,
       dto.by ?? 1,
       visitorId,
+      dto.mode,
     );
     this.usage.noteStoreRequest(cruxId, 'write');
     return { value };
+  }
+
+  /**
+   * DELETE /store/:cruxId/:key
+   * The crux author deletes the whole key (every slot). Anyone else deletes
+   * the shared value of a public key, the shared value of a common key
+   * (token required), or their own slot on a protected key (token required).
+   */
+  @Delete(':cruxId/:key')
+  @UseGuards(OptionalAuthGuard)
+  @Throttle({ default: { ttl: 60000, limit: 60 } })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @StoreSwagger.Delete()
+  async deleteEntry(
+    @Param('cruxId') cruxId: string,
+    @Param('key') key: string,
+    @Req() req: AuthRequest,
+  ) {
+    const authorId = await this.getCruxAuthorId(cruxId);
+    const visitorId = await this.getVisitorId(req);
+    if (visitorId && visitorId === authorId) {
+      await this.storeService.delete(cruxId, key);
+    } else {
+      await this.storeService.deleteSlot(cruxId, key, visitorId);
+    }
+    this.usage.noteStoreRequest(cruxId, 'write');
   }
 
   // ── Author endpoints (full JWT required) ────────────────
@@ -148,6 +179,7 @@ export class StoreController {
    */
   @Get(':cruxId')
   @UseGuards(AuthGuard)
+  @StoreSwagger.List()
   async list(@Param('cruxId') cruxId: string, @Req() req: AuthRequest) {
     await this.assertCruxOwner(cruxId, req);
     const entries = await this.storeService.list(cruxId);
@@ -161,28 +193,13 @@ export class StoreController {
   }
 
   /**
-   * DELETE /store/:cruxId/:key
-   * Delete a key. Author only.
-   */
-  @Delete(':cruxId/:key')
-  @UseGuards(AuthGuard)
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteEntry(
-    @Param('cruxId') cruxId: string,
-    @Param('key') key: string,
-    @Req() req: AuthRequest,
-  ) {
-    await this.assertCruxOwner(cruxId, req);
-    await this.storeService.delete(cruxId, key);
-  }
-
-  /**
    * DELETE /store/:cruxId
    * Clear all keys. Author only.
    */
   @Delete(':cruxId')
   @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
+  @StoreSwagger.ClearAll()
   async clearAll(@Param('cruxId') cruxId: string, @Req() req: AuthRequest) {
     await this.assertCruxOwner(cruxId, req);
     await this.storeService.clearAll(cruxId);

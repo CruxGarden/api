@@ -55,6 +55,22 @@ describe('publish injections', () => {
     );
   });
 
+  it('lets a page pass a store mode (common included) on set and increment, and surfaces the API message on failure', () => {
+    const { text } = inject('index.html');
+    // set(key, value, { mode }) forwards the mode verbatim, defaulting to protected.
+    expect(text).toContain("var m=(opts&&opts.mode)||'protected';");
+    expect(text).toContain('body:JSON.stringify({value:value,mode:m})');
+    // increment(key, by, { mode }) forwards a mode only when given.
+    expect(text).toContain('increment:function(key,by,opts)');
+    expect(text).toContain('var body={by:by};if(m)body.mode=m;');
+    // A 401/409 rejects with the server's plain message, not a bare status.
+    expect(text).toContain('function fail(r,what)');
+    expect(text).toContain("if(!r.ok)return fail(r,'Store set')");
+    expect(text).toContain("if(!r.ok)return fail(r,'Store increment')");
+    // get() still resolves the bare value for every mode.
+    expect(text).toContain('function(d){return d.value}');
+  });
+
   it('ignores session messages that do not come from the opener', () => {
     const { text } = inject('index.html');
     expect(text).toContain('e.source!==window.parent');

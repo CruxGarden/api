@@ -4,6 +4,7 @@ import { LoggerService } from '../common/services/logger.service';
 import { RepositoryResponse } from '../common/types/interfaces';
 import { success, failure } from '../common/helpers/repository-helpers';
 import StoreRaw from './entities/crux-store-raw.entity';
+import { SharedStoreMode, StoreMode } from './entities/crux-store.entity';
 
 @Injectable()
 export class StoreRepository {
@@ -18,7 +19,33 @@ export class StoreRepository {
 
   private static readonly TABLE = 'store';
 
-  async findPublicEntry(
+  /**
+   * The distinct modes rows of this key carry. Empty when the key has never
+   * been written. One mode is the rule; two (`public` + `protected`) can only
+   * be legacy data from before modes were fixed per key.
+   */
+  async findKeyModes(
+    cruxId: string,
+    key: string,
+  ): Promise<RepositoryResponse<StoreMode[]>> {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from(StoreRepository.TABLE)
+        .where('crux_id', cruxId)
+        .where('key', key)
+        .distinct('mode');
+      return success(
+        (rows as { mode: StoreMode }[]).map((r) => r.mode).filter(Boolean),
+      );
+    } catch (error) {
+      this.logger.error('Store query failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** The single shared row of a key (`public` or `common`): `visitor_id IS NULL`. */
+  async findSharedEntry(
     cruxId: string,
     key: string,
   ): Promise<RepositoryResponse<StoreRaw>> {
@@ -37,6 +64,7 @@ export class StoreRepository {
     }
   }
 
+  /** One account's private slot on a `protected` key. */
   async findProtectedEntry(
     cruxId: string,
     key: string,
@@ -71,12 +99,17 @@ export class StoreRepository {
     }
   }
 
-  async upsertPublic(
+  /**
+   * Write the shared row of a `public` or `common` key. `mode` is set on
+   * insert and never changed by a later write — a key's mode is fixed.
+   */
+  async upsertShared(
     id: string,
     cruxId: string,
     authorId: string,
     key: string,
     value: any,
+    mode: SharedStoreMode,
   ): Promise<RepositoryResponse<StoreRaw>> {
     try {
       const now = new Date();
@@ -90,7 +123,7 @@ export class StoreRepository {
           visitor_id: null,
           key,
           value: JSON.stringify(value),
-          mode: 'public',
+          mode,
           created_at: now,
           updated_at: now,
         })
@@ -117,6 +150,7 @@ export class StoreRepository {
     }
   }
 
+  /** Write one account's private slot on a `protected` key. */
   async upsertProtected(
     id: string,
     cruxId: string,
@@ -208,6 +242,7 @@ export class StoreRepository {
     }
   }
 
+  /** Delete one row: the shared value, or one account's protected slot. */
   async deleteEntry(
     cruxId: string,
     key: string,
@@ -227,6 +262,25 @@ export class StoreRepository {
       }
 
       await query.del();
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('Store query failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** Delete every row of a key — the shared value and all protected slots. */
+  async deleteKey(
+    cruxId: string,
+    key: string,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()
+        .from(StoreRepository.TABLE)
+        .where('crux_id', cruxId)
+        .where('key', key)
+        .del();
       return success(undefined);
     } catch (error) {
       this.logger.error('Store query failed', error as Error);

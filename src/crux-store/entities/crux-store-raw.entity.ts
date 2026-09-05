@@ -1,3 +1,5 @@
+import type { StoreMode } from './crux-store.entity';
+
 export default interface StoreRaw {
   id: string;
   crux_id: string;
@@ -5,7 +7,7 @@ export default interface StoreRaw {
   visitor_id: string | null;
   key: string;
   value: any;
-  mode: string;
+  mode: StoreMode;
   created_at: Date;
   updated_at: Date;
 }

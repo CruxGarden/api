@@ -5122,12 +5122,14 @@
     },
     "/store/{cruxId}/{key}": {
       "get": {
+        "description": "Public and common keys need no token and return the shared value. Protected keys return the caller’s own slot (token needed; otherwise `{ value: null }`). A key has one mode, fixed by its first write. `public` — open: anyone reads and writes one shared value. `protected` — authenticated, per user: signed-in account required; one private slot per account. `common` — authenticated, shared: one value per key belonging to the crux; signed-in account required to write, increment or delete; anyone reads.",
         "operationId": "StoreController_get",
         "parameters": [
           {
             "name": "cruxId",
             "required": true,
             "in": "path",
+            "description": "The published crux whose store this is",
             "schema": {
               "type": "string"
             }
@@ -5136,6 +5138,7 @@
             "name": "key",
             "required": true,
             "in": "path",
+            "description": "Store key",
             "schema": {
               "type": "string"
             }
@@ -5143,20 +5146,53 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "`{ value, mode, updatedAt }`, or `{ value: null }` when unset or not readable by the caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "nullable": true
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "public",
+                        "protected",
+                        "common"
+                      ]
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Crux not found"
           }
         },
+        "summary": "Read a store key",
         "tags": [
           "Store"
         ]
       },
       "put": {
+        "description": "Public keys need no token. Protected keys need a token and write the caller’s own slot. Common keys need a token and write the one shared value. A key has one mode, fixed by its first write. `public` — open: anyone reads and writes one shared value. `protected` — authenticated, per user: signed-in account required; one private slot per account. `common` — authenticated, shared: one value per key belonging to the crux; signed-in account required to write, increment or delete; anyone reads.",
         "operationId": "StoreController_set",
         "parameters": [
           {
             "name": "cruxId",
             "required": true,
             "in": "path",
+            "description": "The published crux whose store this is",
             "schema": {
               "type": "string"
             }
@@ -5165,6 +5201,7 @@
             "name": "key",
             "required": true,
             "in": "path",
+            "description": "Store key",
             "schema": {
               "type": "string"
             }
@@ -5182,20 +5219,42 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "The stored value",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "value": {}
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Protected or common key written without a token"
+          },
+          "404": {
+            "description": "Crux not found"
+          },
+          "409": {
+            "description": "The key already has a different mode"
           }
         },
+        "summary": "Write a store key",
         "tags": [
           "Store"
         ]
       },
       "delete": {
+        "description": "The crux author deletes the whole key (every slot). Anyone else deletes the shared value of a public key, the shared value of a common key (token required), or their own slot on a protected key (token required).",
         "operationId": "StoreController_deleteEntry",
         "parameters": [
           {
             "name": "cruxId",
             "required": true,
             "in": "path",
+            "description": "The published crux whose store this is",
             "schema": {
               "type": "string"
             }
@@ -5204,6 +5263,7 @@
             "name": "key",
             "required": true,
             "in": "path",
+            "description": "Store key",
             "schema": {
               "type": "string"
             }
@@ -5211,9 +5271,16 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Deleted"
+          },
+          "401": {
+            "description": "Protected or common key deleted without a token"
+          },
+          "404": {
+            "description": "Crux not found"
           }
         },
+        "summary": "Delete a store key or the caller’s slot",
         "tags": [
           "Store"
         ]
@@ -5221,12 +5288,14 @@
     },
     "/store/{cruxId}/{key}/inc": {
       "post": {
+        "description": "Public and common keys increment the shared value (common needs a token). Protected keys increment the caller’s own slot. A missing value is created at `by`. A key that does not exist is created in `mode`, else protected when signed in and public otherwise.",
         "operationId": "StoreController_increment",
         "parameters": [
           {
             "name": "cruxId",
             "required": true,
             "in": "path",
+            "description": "The published crux whose store this is",
             "schema": {
               "type": "string"
             }
@@ -5235,6 +5304,7 @@
             "name": "key",
             "required": true,
             "in": "path",
+            "description": "Store key",
             "schema": {
               "type": "string"
             }
@@ -5252,9 +5322,31 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "The new value",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Protected or common key incremented without a token"
+          },
+          "404": {
+            "description": "Crux not found"
+          },
+          "409": {
+            "description": "The key already has a different mode"
           }
         },
+        "summary": "Atomically increment a store key",
         "tags": [
           "Store"
         ]
@@ -5262,12 +5354,14 @@
     },
     "/store/{cruxId}": {
       "get": {
+        "description": "Every row, all slots included. Modes: public, protected, common.",
         "operationId": "StoreController_list",
         "parameters": [
           {
             "name": "cruxId",
             "required": true,
             "in": "path",
+            "description": "The published crux whose store this is",
             "schema": {
               "type": "string"
             }
@@ -5275,9 +5369,24 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "Store rows"
+          },
+          "401": {
+            "description": "Token required"
+          },
+          "403": {
+            "description": "Not the crux author"
+          },
+          "404": {
+            "description": "Crux not found"
           }
         },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List every store row of a crux (author only)",
         "tags": [
           "Store"
         ]
@@ -5289,6 +5398,7 @@
             "name": "cruxId",
             "required": true,
             "in": "path",
+            "description": "The published crux whose store this is",
             "schema": {
               "type": "string"
             }
@@ -5296,9 +5406,24 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Cleared"
+          },
+          "401": {
+            "description": "Token required"
+          },
+          "403": {
+            "description": "Not the crux author"
+          },
+          "404": {
+            "description": "Crux not found"
           }
         },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Clear every store key of a crux (author only)",
         "tags": [
           "Store"
         ]
@@ -6107,10 +6232,11 @@
           },
           "mode": {
             "type": "string",
-            "description": "Access mode for this key",
+            "description": "Access mode for this key. Fixed by the first write; a later write with a different mode is refused (409). `public`: anyone reads and writes one shared value. `protected`: needs a signed-in account; one private slot per account. `common`: one shared value that needs a signed-in account to write, increment or delete, and that anyone can read.",
             "enum": [
               "public",
-              "protected"
+              "protected",
+              "common"
             ],
             "default": "protected"
           }
@@ -6126,6 +6252,15 @@
             "type": "number",
             "description": "Amount to increment by (default: 1)",
             "default": 1
+          },
+          "mode": {
+            "type": "string",
+            "description": "Mode for a key this increment creates. Ignored when the key exists unless it disagrees with the key’s mode (409). Defaults to `protected` when signed in, `public` otherwise.",
+            "enum": [
+              "public",
+              "protected",
+              "common"
+            ]
           }
         }
       }
