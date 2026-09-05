@@ -26,9 +26,9 @@ export const PLANS: Record<string, Plan> = {
     bandwidthBytesPerPeriod: 1 * GB,
     storeRequestsPerPeriod: 100_000,
   },
-  grower: {
-    id: 'grower',
-    name: 'Grower',
+  gardener: {
+    id: 'gardener',
+    name: 'Gardener',
     blurb: 'A real site with photos and media, and room to grow.',
     storageBytes: 10 * GB,
     bandwidthBytesPerPeriod: 25 * GB,
@@ -39,8 +39,8 @@ export const PLANS: Record<string, Plan> = {
 /** Cheapest first — the order the picker shows and the order "upgrade" means. */
 // One paid plan at launch (Daniel, 2026-09-05: "$5 a month or $50 a year"). The
 // table stays a table so a second tier is a row, not a refactor.
-export const PLAN_ORDER = ['free', 'grower'] as const;
-export type PaidPlanId = 'grower';
+export const PLAN_ORDER = ['free', 'gardener'] as const;
+export type PaidPlanId = 'gardener';
 export type BillingInterval = 'month' | 'year';
 
 export function planById(id: string | null | undefined): Plan {

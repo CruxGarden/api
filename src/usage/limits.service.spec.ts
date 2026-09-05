@@ -40,8 +40,8 @@ describe('LimitsService (grace-first)', () => {
     await expect(
       svc('free', 1.95 * GB).assertStorage('a1', 'acct', 1.1 * GB, 1 * GB),
     ).rejects.toThrow();
-    // same numbers on Grower (10 GB) are nowhere near the line
-    const r = await svc('grower', 1.95 * GB).assertStorage(
+    // same numbers on Gardener (10 GB) are nowhere near the line
+    const r = await svc('gardener', 1.95 * GB).assertStorage(
       'a1',
       'acct',
       1.1 * GB,
