@@ -5856,11 +5856,40 @@
       },
       "CheckoutDto": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "planId": {
+            "type": "string",
+            "description": "A paid plan id",
+            "enum": [
+              "grower",
+              "gardener"
+            ]
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "month",
+              "year"
+            ]
+          }
+        },
+        "required": [
+          "planId",
+          "interval"
+        ]
       },
       "AddDomainDto": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "hostname": {
+            "type": "string",
+            "description": "A subdomain you control, e.g. blog.example.com (apex domains are not supported yet)",
+            "maxLength": 253
+          }
+        },
+        "required": [
+          "hostname"
+        ]
       },
       "CreatePathDto": {
         "type": "object",

@@ -12,7 +12,12 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiTags,
+  ApiProperty,
+} from '@nestjs/swagger';
 import { IsString, MaxLength } from 'class-validator';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
@@ -21,6 +26,11 @@ import { DomainsRepository } from './domains.repository';
 import { DomainsService, type CustomDomainView } from './domains.service';
 
 export class AddDomainDto {
+  @ApiProperty({
+    description:
+      'A subdomain you control, e.g. blog.example.com (apex domains are not supported yet)',
+    maxLength: 253,
+  })
   @IsString()
   @MaxLength(253)
   hostname!: string;

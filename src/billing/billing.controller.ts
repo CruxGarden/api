@@ -16,6 +16,7 @@ import {
   ApiExcludeEndpoint,
   ApiOperation,
   ApiTags,
+  ApiProperty,
 } from '@nestjs/swagger';
 import { IsIn, IsString } from 'class-validator';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -26,10 +27,15 @@ import { BillingService } from './billing.service';
 import { PLAN_ORDER } from '../usage/plans';
 
 export class CheckoutDto {
+  @ApiProperty({
+    description: 'A paid plan id',
+    enum: PLAN_ORDER.filter((p) => p !== 'free'),
+  })
   @IsString()
   @IsIn(PLAN_ORDER.filter((p) => p !== 'free'))
   planId!: string;
 
+  @ApiProperty({ enum: ['month', 'year'] })
   @IsString()
   @IsIn(['month', 'year'])
   interval!: 'month' | 'year';
