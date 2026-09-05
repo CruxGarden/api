@@ -4,7 +4,11 @@ import { LoggerService } from '../common/services/logger.service';
 import { RepositoryResponse } from '../common/types/interfaces';
 import { success, failure } from '../common/helpers/repository-helpers';
 import StoreRaw from './entities/crux-store-raw.entity';
-import { SharedStoreMode, StoreMode } from './entities/crux-store.entity';
+import {
+  normalizeStoreMode,
+  SharedStoreMode,
+  StoreMode,
+} from './entities/crux-store.entity';
 
 @Injectable()
 export class StoreRepository {
@@ -22,7 +26,8 @@ export class StoreRepository {
   /**
    * The distinct modes rows of this key carry. Empty when the key has never
    * been written. One mode is the rule; two (`public` + `protected`) can only
-   * be legacy data from before modes were fixed per key.
+   * be legacy data from before modes were fixed per key. A row still marked
+   * `common` (before migration 20260905160000 ran) reads as `public`.
    */
   async findKeyModes(
     cruxId: string,
@@ -35,16 +40,17 @@ export class StoreRepository {
         .where('crux_id', cruxId)
         .where('key', key)
         .distinct('mode');
-      return success(
-        (rows as { mode: StoreMode }[]).map((r) => r.mode).filter(Boolean),
-      );
+      const modes = (rows as { mode: string }[])
+        .map((r) => normalizeStoreMode(r.mode) as StoreMode)
+        .filter(Boolean);
+      return success([...new Set(modes)]);
     } catch (error) {
       this.logger.error('Store query failed', error as Error);
       return failure(error);
     }
   }
 
-  /** The single shared row of a key (`public` or `common`): `visitor_id IS NULL`. */
+  /** The single shared row of a `public` key: `visitor_id IS NULL`. */
   async findSharedEntry(
     cruxId: string,
     key: string,
@@ -100,8 +106,8 @@ export class StoreRepository {
   }
 
   /**
-   * Write the shared row of a `public` or `common` key. `mode` is set on
-   * insert and never changed by a later write — a key's mode is fixed.
+   * Write the shared row of a `public` key. `mode` is set on insert and never
+   * changed by a later write — a key's mode is fixed.
    */
   async upsertShared(
     id: string,

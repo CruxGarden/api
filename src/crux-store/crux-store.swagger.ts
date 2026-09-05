@@ -8,6 +8,7 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiConflictResponse,
+  ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
 import { STORE_MODES } from './entities/crux-store.entity';
 
@@ -28,13 +29,18 @@ const cruxIdParam = ApiParam({
 });
 const keyParam = ApiParam({ name: 'key', description: 'Store key' });
 
+const writeRateLimited = ApiTooManyRequestsResponse({
+  description:
+    'This account wrote more than STORE_WRITES_PER_MINUTE_PER_ACCOUNT ' +
+    '(default 60) times in the last minute',
+});
+
 const MODE_DOC =
-  'A key has one mode, fixed by its first write. ' +
-  '`public` — open: anyone reads and writes one shared value. ' +
-  '`protected` — authenticated, per user: signed-in account required; one ' +
-  'private slot per account. ' +
-  '`common` — authenticated, shared: one value per key belonging to the crux; ' +
-  'signed-in account required to write, increment or delete; anyone reads.';
+  'A key has one mode, fixed by its first write. Every write (set, increment, ' +
+  'delete) needs a signed-in account. ' +
+  '`public` — open: one shared value belonging to the crux that anyone reads. ' +
+  '`protected` — per user: one private slot per account, read and written ' +
+  'only by its owner.';
 
 const VALUE_SHAPE = {
   type: 'object',
@@ -54,7 +60,7 @@ export const StoreSwagger = {
       ApiOperation({
         summary: 'Read a store key',
         description:
-          'Public and common keys need no token and return the shared value. ' +
+          'Public keys need no token and return the shared value. ' +
           'Protected keys return the caller’s own slot (token needed; ' +
           'otherwise `{ value: null }`). ' +
           MODE_DOC,
@@ -76,9 +82,8 @@ export const StoreSwagger = {
       ApiOperation({
         summary: 'Write a store key',
         description:
-          'Public keys need no token. Protected keys need a token and write ' +
-          'the caller’s own slot. Common keys need a token and write the one ' +
-          'shared value. ' +
+          'Token required. Public keys write the one shared value; protected ' +
+          'keys write the caller’s own slot. ' +
           MODE_DOC,
       }),
       cruxIdParam,
@@ -89,8 +94,9 @@ export const StoreSwagger = {
         schema: { type: 'object', properties: { value: {} } },
       }),
       ApiUnauthorizedResponse({
-        description: 'Protected or common key written without a token',
+        description: 'Written without a token',
       }),
+      writeRateLimited,
       ApiConflictResponse({
         description: 'The key already has a different mode',
       }),
@@ -102,10 +108,10 @@ export const StoreSwagger = {
       ApiOperation({
         summary: 'Atomically increment a store key',
         description:
-          'Public and common keys increment the shared value (common needs a ' +
-          'token). Protected keys increment the caller’s own slot. A missing ' +
-          'value is created at `by`. A key that does not exist is created in ' +
-          '`mode`, else protected when signed in and public otherwise.',
+          'Token required. Public keys increment the shared value; protected ' +
+          'keys increment the caller’s own slot. A missing value is created ' +
+          'at `by`. A key that does not exist is created in `mode`, else ' +
+          'protected.',
       }),
       cruxIdParam,
       keyParam,
@@ -118,8 +124,9 @@ export const StoreSwagger = {
         },
       }),
       ApiUnauthorizedResponse({
-        description: 'Protected or common key incremented without a token',
+        description: 'Incremented without a token',
       }),
+      writeRateLimited,
       ApiConflictResponse({
         description: 'The key already has a different mode',
       }),
@@ -131,17 +138,17 @@ export const StoreSwagger = {
       ApiOperation({
         summary: 'Delete a store key or the caller’s slot',
         description:
-          'The crux author deletes the whole key (every slot). Anyone else ' +
-          'deletes the shared value of a public key, the shared value of a ' +
-          'common key (token required), or their own slot on a protected key ' +
-          '(token required).',
+          'Token required. The crux author deletes the whole key (every ' +
+          'slot). Anyone else deletes the shared value of a public key or ' +
+          'their own slot on a protected key.',
       }),
       cruxIdParam,
       keyParam,
       ApiResponse({ status: 204, description: 'Deleted' }),
       ApiUnauthorizedResponse({
-        description: 'Protected or common key deleted without a token',
+        description: 'Deleted without a token',
       }),
+      writeRateLimited,
       ApiNotFoundResponse({ description: 'Crux not found' }),
     ),
 

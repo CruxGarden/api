@@ -141,11 +141,11 @@ const SPA_NAVIGATE_SYNC: PublishInjection = {
 // In live mode, calls the crux.garden API. In local mode (workspace preview),
 // routes all calls back to the parent via postMessage.
 //
-// Key modes (fixed by the first write; see StoreService):
-//   public    — open: anyone reads/writes one shared value
-//   protected — authenticated, per user: signed-in; one private slot each
-//   common    — authenticated, shared: one value per key; signed-in to
-//               set/increment/delete, anyone reads (get returns the value)
+// Key modes (fixed by the first write; see StoreService). Every write —
+// set/increment/delete — needs a signed-in account; without one the API
+// answers 401 and the promise rejects with its message:
+//   public    — open: one shared value; anyone reads (get returns the value)
+//   protected — per user: one private slot each, read only by its owner
 
 const CRUX_STORE_CLIENT: PublishInjection = {
   id: 'crux-store-client',
@@ -186,8 +186,8 @@ const CRUX_STORE_CLIENT: PublishInjection = {
     }
   });
   function hdr(){var h={'Content-Type':'application/json'};if(_token)h['Authorization']='Bearer '+_token;return h;}
-  // Surface the API's plain message (401 "Common keys require a signed-in
-  // account to write", 409 mode conflict) instead of a bare status code.
+  // Surface the API's plain message (401 "Writing to the store requires a
+  // signed-in account", 409 mode conflict, 429) instead of a bare status code.
   function fail(r,what){return r.json().catch(function(){return {};}).then(function(d){throw new Error(d&&d.message?d.message:what+' failed: '+r.status);});}
   function localCall(type,payload){
     return new Promise(function(res){

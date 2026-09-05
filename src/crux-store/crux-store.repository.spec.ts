@@ -39,12 +39,19 @@ describe('StoreRepository', () => {
 
   describe('findKeyModes', () => {
     it('returns the distinct modes of a key', async () => {
-      qb.distinct.mockResolvedValue([{ mode: 'common' }]);
+      qb.distinct.mockResolvedValue([{ mode: 'public' }]);
       const res = await repository.findKeyModes('c', 'k');
-      expect(res.data).toEqual(['common']);
+      expect(res.data).toEqual(['public']);
       expect(qb.where).toHaveBeenCalledWith('crux_id', 'c');
       expect(qb.where).toHaveBeenCalledWith('key', 'k');
       expect(qb.distinct).toHaveBeenCalledWith('mode');
+    });
+
+    it('reads a row still marked common (pre-migration) as public, once', async () => {
+      qb.distinct.mockResolvedValue([{ mode: 'common' }, { mode: 'public' }]);
+      expect((await repository.findKeyModes('c', 'k')).data).toEqual([
+        'public',
+      ]);
     });
 
     it('is empty for a key never written', async () => {
@@ -62,7 +69,7 @@ describe('StoreRepository', () => {
 
   describe('upsertShared', () => {
     it('inserts the shared row (no visitor) with the given mode and never merges the mode', async () => {
-      const row = { id: 'r', mode: 'common', visitor_id: null };
+      const row = { id: 'r', mode: 'public', visitor_id: null };
       qb.first.mockResolvedValue(row);
       const res = await repository.upsertShared(
         'id',
@@ -70,13 +77,13 @@ describe('StoreRepository', () => {
         'a',
         'k',
         { x: 1 },
-        'common',
+        'public',
       );
       expect(res.data).toBe(row);
       expect(qb.insert).toHaveBeenCalledWith(
         expect.objectContaining({
           visitor_id: null,
-          mode: 'common',
+          mode: 'public',
           value: JSON.stringify({ x: 1 }),
         }),
       );

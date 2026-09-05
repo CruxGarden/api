@@ -6,6 +6,7 @@ import { AuthorService } from '../author/author.service';
 import { UsageService } from '../usage/usage.service';
 import { LoggerService } from '../common/services/logger.service';
 import { AuthRequest } from '../common/types/interfaces';
+import { ThrottlerStorage } from '@nestjs/throttler';
 
 describe('StoreController', () => {
   let controller: StoreController;
@@ -50,6 +51,12 @@ describe('StoreController', () => {
         { provide: AuthorService, useValue: authorService },
         { provide: UsageService, useValue: usage },
         {
+          provide: ThrottlerStorage,
+          useValue: {
+            increment: jest.fn().mockResolvedValue({ totalHits: 1 }),
+          },
+        },
+        {
           provide: LoggerService,
           useValue: { createChildLogger: () => ({ warn: jest.fn() }) },
         },
@@ -60,15 +67,15 @@ describe('StoreController', () => {
   });
 
   describe('GET /store/:cruxId/:key', () => {
-    it('returns { value, mode, updatedAt } for a common key and meters a read', async () => {
+    it('returns { value, mode, updatedAt } for a public key and meters a read', async () => {
       storeService.get.mockResolvedValue({
         value: ['a'],
-        mode: 'common',
+        mode: 'public',
         updatedAt: now,
       } as any);
       expect(await controller.get(CRUX, 'board', anon)).toEqual({
         value: ['a'],
-        mode: 'common',
+        mode: 'public',
         updatedAt: now,
       });
       expect(storeService.get).toHaveBeenCalledWith(CRUX, 'board', null);
@@ -83,12 +90,12 @@ describe('StoreController', () => {
   });
 
   describe('PUT /store/:cruxId/:key', () => {
-    it('passes mode common and the visitor through, then meters a write', async () => {
+    it('passes mode public and the visitor through, then meters a write', async () => {
       storeService.set.mockResolvedValue({ value: ['a'] } as any);
       const body = await controller.set(
         CRUX,
         'board',
-        { value: ['a'], mode: 'common' },
+        { value: ['a'], mode: 'public' },
         alice,
       );
       expect(body).toEqual({ value: ['a'] });
@@ -97,10 +104,28 @@ describe('StoreController', () => {
         'author-owner',
         'board',
         ['a'],
-        'common',
+        'public',
         'author-alice',
       );
       expect(usage.noteStoreRequest).toHaveBeenCalledWith(CRUX, 'write');
+    });
+
+    it('normalises the deprecated alias common to public before the service sees it', async () => {
+      storeService.set.mockResolvedValue({ value: 1 } as any);
+      await controller.set(
+        CRUX,
+        'k',
+        { value: 1, mode: 'common' as any },
+        alice,
+      );
+      expect(storeService.set).toHaveBeenCalledWith(
+        CRUX,
+        'author-owner',
+        'k',
+        1,
+        'public',
+        'author-alice',
+      );
     });
 
     it('defaults the mode to protected', async () => {
@@ -118,7 +143,7 @@ describe('StoreController', () => {
 
     it('a token without an author counts as anonymous', async () => {
       storeService.set.mockResolvedValue({ value: 1 } as any);
-      await controller.set(CRUX, 'k', { value: 1, mode: 'common' }, {
+      await controller.set(CRUX, 'k', { value: 1, mode: 'public' }, {
         account: { id: 'acct-ghost' },
       } as AuthRequest);
       expect(storeService.set).toHaveBeenCalledWith(
@@ -126,7 +151,7 @@ describe('StoreController', () => {
         'author-owner',
         'k',
         1,
-        'common',
+        'public',
         null,
       );
     });
@@ -138,7 +163,7 @@ describe('StoreController', () => {
       const body = await controller.increment(
         CRUX,
         'k',
-        { by: 2, mode: 'common' },
+        { by: 2, mode: 'public' },
         alice,
       );
       expect(body).toEqual({ value: 6 });
@@ -148,9 +173,22 @@ describe('StoreController', () => {
         'k',
         2,
         'author-alice',
-        'common',
+        'public',
       );
       expect(usage.noteStoreRequest).toHaveBeenCalledWith(CRUX, 'write');
+    });
+
+    it('normalises the alias common on increment too', async () => {
+      storeService.increment.mockResolvedValue(1);
+      await controller.increment(CRUX, 'k', { mode: 'common' as any }, alice);
+      expect(storeService.increment).toHaveBeenCalledWith(
+        CRUX,
+        'author-owner',
+        'k',
+        1,
+        'author-alice',
+        'public',
+      );
     });
   });
 

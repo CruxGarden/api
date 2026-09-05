@@ -55,7 +55,7 @@ describe('publish injections', () => {
     );
   });
 
-  it('lets a page pass a store mode (common included) on set and increment, and surfaces the API message on failure', () => {
+  it('lets a page pass a store mode on set and increment, and surfaces the API message on failure', () => {
     const { text } = inject('index.html');
     // set(key, value, { mode }) forwards the mode verbatim, defaulting to protected.
     expect(text).toContain("var m=(opts&&opts.mode)||'protected';");

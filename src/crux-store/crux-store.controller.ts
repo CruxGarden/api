@@ -21,6 +21,8 @@ import { CruxService } from '../crux/crux.service';
 import { AuthorService } from '../author/author.service';
 import { StoreService } from './crux-store.service';
 import { StoreSwagger } from './crux-store.swagger';
+import { StoreWriteRateLimitGuard } from './store-write-rate-limit.guard';
+import { normalizeStoreMode, StoreMode } from './entities/crux-store.entity';
 import { UsageService } from '../usage/usage.service';
 import {
   SetStoreEntryDto,
@@ -64,7 +66,7 @@ export class StoreController {
 
   /**
    * GET /store/:cruxId/:key
-   * Public and common keys: `{ value, mode, updatedAt }` for anyone.
+   * Public keys: `{ value, mode, updatedAt }` for anyone.
    * Protected keys: the caller's own slot (token), else `{ value: null }`.
    */
   @Get(':cruxId/:key')
@@ -84,13 +86,13 @@ export class StoreController {
 
   /**
    * PUT /store/:cruxId/:key
-   * Public keys work without auth. Protected keys require a token and write
-   * the caller's own slot; common keys require a token and write the one
-   * shared value. A key's mode is fixed by its first write; a different mode
-   * later is a 409.
+   * Every write needs a token (401 otherwise). Public keys write the one
+   * shared value; protected keys write the caller's own slot. A key's mode is
+   * fixed by its first write; a different mode later is a 409. `common` is
+   * accepted as an alias of `public`.
    */
   @Put(':cruxId/:key')
-  @UseGuards(OptionalAuthGuard)
+  @UseGuards(OptionalAuthGuard, StoreWriteRateLimitGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   @StoreSwagger.Set()
   async set(
@@ -101,7 +103,7 @@ export class StoreController {
   ) {
     const authorId = await this.getCruxAuthorId(cruxId);
     const visitorId = await this.getVisitorId(req);
-    const mode = dto.mode ?? 'protected';
+    const mode = normalizeStoreMode(dto.mode ?? 'protected') as StoreMode;
 
     const entry = await this.storeService.set(
       cruxId,
@@ -117,12 +119,11 @@ export class StoreController {
 
   /**
    * POST /store/:cruxId/:key/inc
-   * Atomic increment. Public keys: the shared value, no auth needed.
-   * Common keys: the shared value, token required. Protected keys: the
-   * caller's own slot.
+   * Atomic increment; token required. Public keys: the shared value.
+   * Protected keys: the caller's own slot.
    */
   @Post(':cruxId/:key/inc')
-  @UseGuards(OptionalAuthGuard)
+  @UseGuards(OptionalAuthGuard, StoreWriteRateLimitGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   @StoreSwagger.Increment()
   async increment(
@@ -139,7 +140,7 @@ export class StoreController {
       key,
       dto.by ?? 1,
       visitorId,
-      dto.mode,
+      dto.mode ? (normalizeStoreMode(dto.mode) as StoreMode) : undefined,
     );
     this.usage.noteStoreRequest(cruxId, 'write');
     return { value };
@@ -147,12 +148,12 @@ export class StoreController {
 
   /**
    * DELETE /store/:cruxId/:key
-   * The crux author deletes the whole key (every slot). Anyone else deletes
-   * the shared value of a public key, the shared value of a common key
-   * (token required), or their own slot on a protected key (token required).
+   * Token required. The crux author deletes the whole key (every slot).
+   * Anyone else deletes the shared value of a public key or their own slot
+   * on a protected key.
    */
   @Delete(':cruxId/:key')
-  @UseGuards(OptionalAuthGuard)
+  @UseGuards(OptionalAuthGuard, StoreWriteRateLimitGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   @HttpCode(HttpStatus.NO_CONTENT)
   @StoreSwagger.Delete()

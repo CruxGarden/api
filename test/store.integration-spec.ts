@@ -160,7 +160,9 @@ describe('Crux Store Integration Tests', () => {
   const OWNER = { account: 'acct-owner', author: 'author-owner' };
   const ALICE = { account: 'acct-alice', author: 'author-alice' };
   const BOB = { account: 'acct-bob', author: 'author-bob' };
-  const accounts = [OWNER, ALICE, BOB];
+  // Only ever writes in the rate-limit test, so its bucket starts empty there.
+  const CAROL = { account: 'acct-carol', author: 'author-carol' };
+  const accounts = [OWNER, ALICE, BOB, CAROL];
 
   const token = (accountId: string) =>
     jwt.sign(
@@ -262,25 +264,52 @@ describe('Crux Store Integration Tests', () => {
   beforeEach(() => {
     store.rows = [];
     usage.noteStoreRequest.mockClear();
+    delete process.env.STORE_WRITES_PER_MINUTE_PER_ACCOUNT;
   });
 
-  describe('common keys', () => {
-    it('PUT without a token is 401 with a plain message', async () => {
-      const res = await request(app.getHttpServer())
-        .put(url('board'))
-        .send({ value: ['alice'], mode: 'common' })
-        .expect(401);
-      expect(res.body.message).toBe(
-        'Common keys require a signed-in account to write',
-      );
+  describe('every write needs a signed-in account', () => {
+    it('PUT without a token is 401 with one plain message, public or protected', async () => {
+      for (const mode of ['public', 'protected', undefined]) {
+        const res = await request(app.getHttpServer())
+          .put(url('board'))
+          .send(mode ? { value: ['alice'], mode } : { value: ['alice'] })
+          .expect(401);
+        expect(res.body.message).toBe(
+          'Writing to the store requires a signed-in account',
+        );
+      }
       expect(store.rows).toHaveLength(0);
     });
 
-    it('PUT with a token writes the one shared value; GET is public and shaped like a public read', async () => {
+    it('increment and delete without a token are 401 too', async () => {
+      await request(app.getHttpServer())
+        .put(url('hits'))
+        .set(auth(ALICE.account))
+        .send({ value: 1, mode: 'public' })
+        .expect(200);
+      const inc = await request(app.getHttpServer())
+        .post(`${url('hits')}/inc`)
+        .send({})
+        .expect(401);
+      expect(inc.body.message).toBe(
+        'Writing to the store requires a signed-in account',
+      );
+      await request(app.getHttpServer()).delete(url('hits')).expect(401);
+      expect(store.rows).toHaveLength(1);
+      // Reads stay open.
+      const read = await request(app.getHttpServer())
+        .get(url('hits'))
+        .expect(200);
+      expect(read.body).toMatchObject({ value: 1, mode: 'public' });
+    });
+  });
+
+  describe('public keys', () => {
+    it('PUT with a token writes the one shared value; GET is open and shaped { value, mode, updatedAt }', async () => {
       await request(app.getHttpServer())
         .put(url('board'))
         .set(auth(ALICE.account))
-        .send({ value: ['alice'], mode: 'common' })
+        .send({ value: ['alice'], mode: 'public' })
         .expect(200)
         .expect({ value: ['alice'] });
 
@@ -288,18 +317,18 @@ describe('Crux Store Integration Tests', () => {
       await request(app.getHttpServer())
         .put(url('board'))
         .set(auth(BOB.account))
-        .send({ value: ['alice', 'bob'], mode: 'common' })
+        .send({ value: ['alice', 'bob'], mode: 'public' })
         .expect(200);
       expect(store.rows).toHaveLength(1);
       expect(store.rows[0].visitor_id).toBeNull();
-      expect(store.rows[0].mode).toBe('common');
+      expect(store.rows[0].mode).toBe('public');
 
       const anon = await request(app.getHttpServer())
         .get(url('board'))
         .expect(200);
       expect(anon.body).toMatchObject({
         value: ['alice', 'bob'],
-        mode: 'common',
+        mode: 'public',
       });
       expect(typeof anon.body.updatedAt).toBe('string');
       expect(Object.keys(anon.body).sort()).toEqual([
@@ -318,16 +347,11 @@ describe('Crux Store Integration Tests', () => {
       expect(usage.noteStoreRequest).toHaveBeenCalledWith(CRUX, 'read');
     });
 
-    it('increment needs a token and acts on the shared value', async () => {
-      await request(app.getHttpServer())
-        .post(`${url('plays')}/inc`)
-        .send({ by: 1, mode: 'common' })
-        .expect(401);
-
+    it('increment acts on the shared value for every signed-in caller', async () => {
       await request(app.getHttpServer())
         .post(`${url('plays')}/inc`)
         .set(auth(ALICE.account))
-        .send({ by: 2, mode: 'common' })
+        .send({ by: 2, mode: 'public' })
         .expect(201)
         .expect({ value: 2 });
       await request(app.getHttpServer())
@@ -336,21 +360,19 @@ describe('Crux Store Integration Tests', () => {
         .send({ by: 3 })
         .expect(201)
         .expect({ value: 5 });
-      // Once the key is common, anonymous increments are refused too.
-      await request(app.getHttpServer())
-        .post(`${url('plays')}/inc`)
-        .send({})
-        .expect(401);
       expect(store.rows).toHaveLength(1);
+      const res = await request(app.getHttpServer())
+        .get(url('plays'))
+        .expect(200);
+      expect(res.body).toMatchObject({ value: 5, mode: 'public' });
     });
 
-    it('delete needs a token; a visitor removes the shared value', async () => {
+    it('a signed-in visitor removes the shared value', async () => {
       await request(app.getHttpServer())
         .put(url('board'))
         .set(auth(ALICE.account))
-        .send({ value: 1, mode: 'common' })
+        .send({ value: 1, mode: 'public' })
         .expect(200);
-      await request(app.getHttpServer()).delete(url('board')).expect(401);
       await request(app.getHttpServer())
         .delete(url('board'))
         .set(auth(BOB.account))
@@ -360,10 +382,37 @@ describe('Crux Store Integration Tests', () => {
         .expect(200)
         .expect({ value: null });
     });
+
+    it('accepts the deprecated mode common as public and never stores it', async () => {
+      await request(app.getHttpServer())
+        .put(url('board'))
+        .set(auth(ALICE.account))
+        .send({ value: ['alice'], mode: 'common' })
+        .expect(200)
+        .expect({ value: ['alice'] });
+      expect(store.rows[0].mode).toBe('public');
+      // The alias agrees with a public key, both ways.
+      await request(app.getHttpServer())
+        .put(url('board'))
+        .set(auth(BOB.account))
+        .send({ value: ['alice', 'bob'], mode: 'public' })
+        .expect(200);
+      await request(app.getHttpServer())
+        .post(`${url('board2')}/inc`)
+        .set(auth(BOB.account))
+        .send({ mode: 'common' })
+        .expect(201)
+        .expect({ value: 1 });
+      expect(store.rows.map((r) => r.mode)).toEqual(['public', 'public']);
+      const read = await request(app.getHttpServer())
+        .get(url('board'))
+        .expect(200);
+      expect(read.body.mode).toBe('public');
+    });
   });
 
   describe('mode is fixed by the first write', () => {
-    it('a protected key cannot be reopened as common (409, plain message)', async () => {
+    it('a protected key cannot be reopened as public (409, plain message)', async () => {
       await request(app.getHttpServer())
         .put(url('prefs'))
         .set(auth(ALICE.account))
@@ -372,11 +421,17 @@ describe('Crux Store Integration Tests', () => {
       const res = await request(app.getHttpServer())
         .put(url('prefs'))
         .set(auth(BOB.account))
-        .send({ value: 'leak', mode: 'common' })
+        .send({ value: 'leak', mode: 'public' })
         .expect(409);
       expect(res.body.message).toBe(
-        'Key "prefs" is protected; it cannot be written as common',
+        'Key "prefs" is protected; it cannot be written as public',
       );
+      // Nor through the alias.
+      await request(app.getHttpServer())
+        .put(url('prefs'))
+        .set(auth(BOB.account))
+        .send({ value: 'leak', mode: 'common' })
+        .expect(409);
       // And the protected key still reads as private.
       await request(app.getHttpServer())
         .get(url('prefs'))
@@ -384,29 +439,21 @@ describe('Crux Store Integration Tests', () => {
         .expect({ value: null });
     });
 
-    it('a common key cannot be reopened as public, and a public key cannot become common', async () => {
-      await request(app.getHttpServer())
-        .put(url('board'))
-        .set(auth(ALICE.account))
-        .send({ value: 1, mode: 'common' })
-        .expect(200);
-      await request(app.getHttpServer())
-        .put(url('board'))
-        .send({ value: 2, mode: 'public' })
-        .expect(409);
-      await request(app.getHttpServer())
-        .post(`${url('board')}/inc`)
-        .send({ mode: 'public' })
-        .expect(409);
-
+    it('a public key cannot become protected', async () => {
       await request(app.getHttpServer())
         .put(url('hits'))
+        .set(auth(ALICE.account))
         .send({ value: 1, mode: 'public' })
         .expect(200);
       await request(app.getHttpServer())
         .put(url('hits'))
-        .set(auth(ALICE.account))
-        .send({ value: 2, mode: 'common' })
+        .set(auth(BOB.account))
+        .send({ value: 2, mode: 'protected' })
+        .expect(409);
+      await request(app.getHttpServer())
+        .post(`${url('hits')}/inc`)
+        .set(auth(BOB.account))
+        .send({ mode: 'protected' })
         .expect(409);
     });
 
@@ -450,10 +497,6 @@ describe('Crux Store Integration Tests', () => {
         .get(url('prefs'))
         .expect(200)
         .expect({ value: null });
-      await request(app.getHttpServer())
-        .put(url('prefs'))
-        .send({ value: 'x' })
-        .expect(401);
     });
 
     it('a visitor’s delete removes only their own slot; the author’s delete removes every slot', async () => {
@@ -482,36 +525,46 @@ describe('Crux Store Integration Tests', () => {
     });
   });
 
-  describe('public keys (unchanged)', () => {
-    it('anyone writes, increments and reads the shared value', async () => {
+  describe('per-account write rate limit', () => {
+    it('answers 429 with a plain message once an account passes STORE_WRITES_PER_MINUTE_PER_ACCOUNT', async () => {
+      process.env.STORE_WRITES_PER_MINUTE_PER_ACCOUNT = '2';
       await request(app.getHttpServer())
         .put(url('hits'))
+        .set(auth(CAROL.account))
         .send({ value: 1, mode: 'public' })
         .expect(200);
       await request(app.getHttpServer())
         .post(`${url('hits')}/inc`)
+        .set(auth(CAROL.account))
         .send({})
-        .expect(201)
-        .expect({ value: 2 });
-      // A signed-in visitor increments the same shared value, not a private slot.
-      await request(app.getHttpServer())
-        .post(`${url('hits')}/inc`)
-        .set(auth(ALICE.account))
-        .send({})
-        .expect(201)
-        .expect({ value: 3 });
-      expect(store.rows).toHaveLength(1);
+        .expect(201);
       const res = await request(app.getHttpServer())
-        .get(url('hits'))
+        .delete(url('hits'))
+        .set(auth(CAROL.account))
+        .expect(429);
+      expect(res.body.message).toBe(
+        'Too many store writes from this account — try again in a minute',
+      );
+      expect(store.rows).toHaveLength(1); // the delete never ran
+      // Another account is not slowed down (its earlier writes in this file
+      // sit under the default limit), and reads are never counted.
+      delete process.env.STORE_WRITES_PER_MINUTE_PER_ACCOUNT;
+      await request(app.getHttpServer())
+        .put(url('other'))
         .set(auth(BOB.account))
+        .send({ value: 1, mode: 'public' })
         .expect(200);
-      expect(res.body).toMatchObject({ value: 3, mode: 'public' });
+      await request(app.getHttpServer())
+        .get(url('hits'))
+        .set(auth(CAROL.account))
+        .expect(200);
     });
   });
 
   it('404 for an unknown crux on write', async () => {
     await request(app.getHttpServer())
       .put('/store/nope/k')
+      .set(auth(ALICE.account))
       .send({ value: 1, mode: 'public' })
       .expect(404);
   });
