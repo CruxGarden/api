@@ -10,8 +10,8 @@ import {
  * What the edge needs to serve a custom domain: a distribution tenant on the
  * multi-tenant "domains" distribution (ADR 0011, amended 2026-09-05). The
  * tenant carries the hostname, a CloudFront-managed certificate, and one
- * parameter — the crux id — which the multi-tenant distribution substitutes
- * into its origin domain (`crux-{{cruxId}}.s3-website-….amazonaws.com`). No
+ * parameter — the crux's bucket name — which the multi-tenant distribution
+ * substitutes into its origin domain (`{{bucket}}.s3-website-….amazonaws.com`). No
  * edge function is involved: the origin router on the standard distribution
  * serves only `*.publish.crux.garden`. Behind an interface so the flow can be
  * swapped for ACM + alternate domains without touching the domain lifecycle.
@@ -64,10 +64,16 @@ export interface CloudFrontEdgeConfig {
   /** The multi-tenant distribution tenants attach to; falls back to distributionId. */
   tenantDistributionId?: string;
   connectionGroupId?: string;
+  /** Bucket name prefix (PUBLISH_BUCKET_PREFIX), default `crux-`. */
+  bucketPrefix?: string;
 }
 
-/** The parameter the multi-tenant distribution substitutes into its origin domain. */
-export const TENANT_CRUX_PARAMETER = 'cruxId';
+/**
+ * The parameter the multi-tenant distribution substitutes into its origin
+ * domain (`{{bucket}}.s3-website-<region>.amazonaws.com`). Its value is the
+ * crux's whole bucket name, so the distribution never has to know the prefix.
+ */
+export const TENANT_BUCKET_PARAMETER = 'bucket';
 
 /** CloudFront SaaS Manager tenant. Needs live validation (see ADR 0011). */
 export class CloudFrontEdgeProvider implements EdgeProvider {
@@ -87,8 +93,13 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
         ),
         Domains: [{ Domain: hostname }],
         ConnectionGroupId: this.cfg.connectionGroupId,
-        // → origin domain crux-<cruxId>.s3-website-<region>.amazonaws.com
-        Parameters: [{ Name: TENANT_CRUX_PARAMETER, Value: cruxId }],
+        // → origin domain <bucket>.s3-website-<region>.amazonaws.com
+        Parameters: [
+          {
+            Name: TENANT_BUCKET_PARAMETER,
+            Value: `${this.cfg.bucketPrefix ?? 'crux-'}${cruxId.toLowerCase()}`,
+          },
+        ],
         // CloudFront-managed certificate: validation rides on the CNAME the user already created
         ManagedCertificateRequest: { ValidationTokenHost: 'cloudfront' },
         Tags: { Items: [{ Key: 'crux-garden:crux', Value: cruxId }] },
@@ -158,6 +169,7 @@ export function edgeProviderFromEnv(): EdgeProvider {
       tenantDistributionId:
         process.env.PUBLISH_TENANT_DISTRIBUTION_ID || undefined,
       connectionGroupId: process.env.PUBLISH_CONNECTION_GROUP_ID,
+      bucketPrefix: process.env.PUBLISH_BUCKET_PREFIX || 'crux-',
     },
   );
 }

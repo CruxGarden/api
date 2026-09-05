@@ -6,7 +6,7 @@ import {
 } from '@aws-sdk/client-cloudfront';
 import {
   CloudFrontEdgeProvider,
-  TENANT_CRUX_PARAMETER,
+  TENANT_BUCKET_PARAMETER,
   edgeProviderFromEnv,
   MockEdgeProvider,
 } from './edge-provider';
@@ -30,7 +30,7 @@ function fakeClient(answers: Record<string, unknown>[] = []) {
 }
 
 describe('CloudFrontEdgeProvider', () => {
-  it('creates the tenant on the multi-tenant distribution with the crux id as the origin parameter', async () => {
+  it('creates the tenant on the multi-tenant distribution with the crux bucket as the origin parameter', async () => {
     const { client, sent } = fakeClient([
       { DistributionTenant: { Id: 'dt-1', Status: 'InProgress' } },
     ]);
@@ -47,11 +47,11 @@ describe('CloudFrontEdgeProvider', () => {
       DistributionId: 'E-TENANTS',
       ConnectionGroupId: 'cg-1',
       Domains: [{ Domain: 'blog.example.com' }],
-      Parameters: [{ Name: TENANT_CRUX_PARAMETER, Value: 'c1' }],
+      Parameters: [{ Name: TENANT_BUCKET_PARAMETER, Value: 'crux-c1' }],
       ManagedCertificateRequest: { ValidationTokenHost: 'cloudfront' },
       Enabled: true,
     });
-    expect(TENANT_CRUX_PARAMETER).toBe('cruxId');
+    expect(TENANT_BUCKET_PARAMETER).toBe('bucket');
   });
 
   it('falls back to the standard distribution id when no tenant distribution is configured', async () => {
