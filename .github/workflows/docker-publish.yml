@@ -58,7 +58,10 @@ jobs:
         with:
           context: .
           file: ./docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # amd64 only: the arm64 build runs under QEMU on the runner and Node crashes
+          # there (illegal instruction in npm ci). The image is for x86 hosts; the live
+          # service (Render) builds from source.
+          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
