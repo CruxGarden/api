@@ -179,6 +179,21 @@ export class DomainsService {
         });
         return this.view(updated.data ?? row);
       }
+      // The tenant's origin is the crux's own bucket (ADR 0011): a crux that is
+      // unpublished, or still in the shared bucket, has nothing there to serve.
+      const state = (await this.repo.publishState(row.crux_id)).data;
+      const blocker = !state?.published
+        ? 'Publish the crux first — the domain serves its published files'
+        : state.layout !== 'bucket-per-crux'
+          ? 'Republish the crux first — its files still sit in the shared bucket, and a custom domain serves from the crux’s own bucket'
+          : null;
+      if (blocker) {
+        const updated = await this.repo.update(id, {
+          status: 'failed',
+          error: blocker,
+        });
+        return this.view(updated.data ?? row);
+      }
       try {
         // a retry after a failed issue must not leave the old tenant behind
         if (row.tenant_id)
@@ -240,6 +255,28 @@ export class DomainsService {
   }
 
   /** Unpublish/delete of a crux: drop its domains at the edge too. */
+  /**
+   * After a republish: the crux's own bucket has new files, but each custom
+   * domain caches through its tenant. Best effort — a failed invalidation
+   * only means stale HTML until its short cache expires.
+   */
+  async invalidateForCrux(
+    cruxId: string,
+    paths: string[] = ['/*'],
+  ): Promise<void> {
+    const rows = (await this.repo.findByCrux(cruxId)).data ?? [];
+    for (const row of rows) {
+      if (row.status !== 'active' || !row.tenant_id) continue;
+      try {
+        await this.edge.invalidateTenant(row.tenant_id, paths);
+      } catch (err) {
+        this.logger.error(
+          `tenant invalidation failed for ${row.hostname}: ${(err as Error).message}`,
+        );
+      }
+    }
+  }
+
   async removeAllForCrux(cruxId: string): Promise<void> {
     const r = await this.repo.findByCrux(cruxId);
     for (const row of r.data ?? []) await this.remove(row.id).catch(() => {});

@@ -229,4 +229,72 @@ describe('DomainsService', () => {
     // tenant created and (mock) deployed on its first status check → active
     expect((await svc.verify(added.id)).status).toBe('active');
   });
+
+  it('refuses a tenant for a crux that is unpublished or still in the shared bucket', async () => {
+    const repo = fakeRepo();
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider();
+    edge.activeAfterChecks = 2; // verify()'s own first status check must not already say active
+    svc.useProviders(edge, {
+      cnameTargets: async () => ['publish.crux.garden'],
+      txtValues: async () => [
+        `crux-verify=${[...repo.rows.values()][0]?.token ?? ''}`,
+      ],
+    });
+    const added = await svc.add('c1', 'a1', 'shop.example.com');
+    // records present, but the crux was published before bucket-per-crux
+    repo.publishState.mockImplementation(() =>
+      Promise.resolve({
+        data: { published: true, layout: 'shared' },
+        error: null,
+      }),
+    );
+    let v = await svc.verify(added.id);
+    expect(v.status).toBe('failed');
+    expect(v.error).toMatch(/Republish the crux first/);
+    expect(edge.tenants.size).toBe(0);
+    // not published at all
+    repo.publishState.mockImplementation(() =>
+      Promise.resolve({
+        data: { published: false, layout: null },
+        error: null,
+      }),
+    );
+    v = await svc.verify(added.id);
+    expect(v.error).toMatch(/Publish the crux first/);
+    // republished into its own bucket → the tenant is created
+    repo.publishState.mockImplementation(() =>
+      Promise.resolve({
+        data: { published: true, layout: 'bucket-per-crux' },
+        error: null,
+      }),
+    );
+    v = await svc.verify(added.id);
+    expect(v.status).toBe('issuing');
+    expect([...edge.tenants.values()][0]).toMatchObject({ cruxId: 'c1' });
+  });
+
+  it('a republish invalidates every active tenant of the crux, and only those', async () => {
+    const repo = fakeRepo();
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider();
+    svc.useProviders(edge, {
+      cnameTargets: async () => ['publish.crux.garden'],
+      txtValues: async () =>
+        [...repo.rows.values()].map((r) => `crux-verify=${r.token}`),
+    });
+    const a = await svc.add('c1', 'a1', 'a.example.com');
+    const b = await svc.add('c1', 'a1', 'b.example.com');
+    await svc.verify(a.id); // issuing
+    await svc.verify(b.id); // issuing
+    await svc.pollIssuing(); // both active
+    await svc.invalidateForCrux('c1');
+    expect(edge.invalidations).toHaveLength(2);
+    expect(edge.invalidations[0]).toEqual({
+      tenantId: 'tenant-1',
+      paths: ['/*'],
+    });
+    await svc.invalidateForCrux('c-other');
+    expect(edge.invalidations).toHaveLength(2);
+  });
 });

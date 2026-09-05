@@ -1,17 +1,20 @@
 import {
   CloudFrontClient,
   CreateDistributionTenantCommand,
+  CreateInvalidationForDistributionTenantCommand,
   GetDistributionTenantCommand,
   DeleteDistributionTenantCommand,
 } from '@aws-sdk/client-cloudfront';
 
 /**
- * What the edge needs to serve a custom domain: a tenant on the publish
- * distribution (its certificate). The hostname → cruxId mapping is the
- * custom_domains table itself — the origin-request function asks the API
- * (GET /publish/resolve). Behind an interface so the CloudFront
- * SaaS Manager flow can be swapped for ACM + alternate domains (ADR 0011)
- * without touching the domain lifecycle.
+ * What the edge needs to serve a custom domain: a distribution tenant on the
+ * multi-tenant "domains" distribution (ADR 0011, amended 2026-09-05). The
+ * tenant carries the hostname, a CloudFront-managed certificate, and one
+ * parameter — the crux id — which the multi-tenant distribution substitutes
+ * into its origin domain (`crux-{{cruxId}}.s3-website-….amazonaws.com`). No
+ * edge function is involved: the origin router on the standard distribution
+ * serves only `*.publish.crux.garden`. Behind an interface so the flow can be
+ * swapped for ACM + alternate domains without touching the domain lifecycle.
  */
 export type TenantStatus = 'issuing' | 'active' | 'failed';
 
@@ -22,6 +25,8 @@ export interface EdgeProvider {
   ): Promise<{ tenantId: string; status: TenantStatus }>;
   tenantStatus(tenantId: string): Promise<TenantStatus>;
   deleteTenant(tenantId: string): Promise<void>;
+  /** Drop the tenant's cached objects after a republish (best effort). */
+  invalidateTenant(tenantId: string, paths: string[]): Promise<void>;
 }
 
 export class MockEdgeProvider implements EdgeProvider {
@@ -46,13 +51,23 @@ export class MockEdgeProvider implements EdgeProvider {
   async deleteTenant(tenantId: string) {
     this.tenants.delete(tenantId);
   }
+  invalidations: { tenantId: string; paths: string[] }[] = [];
+  async invalidateTenant(tenantId: string, paths: string[]) {
+    this.invalidations.push({ tenantId, paths });
+  }
 }
 
 export interface CloudFrontEdgeConfig {
   region: string;
+  /** The standard distribution (wildcard `*.publish.crux.garden`, origin router). */
   distributionId: string;
+  /** The multi-tenant distribution tenants attach to; falls back to distributionId. */
+  tenantDistributionId?: string;
   connectionGroupId?: string;
 }
+
+/** The parameter the multi-tenant distribution substitutes into its origin domain. */
+export const TENANT_CRUX_PARAMETER = 'cruxId';
 
 /** CloudFront SaaS Manager tenant. Needs live validation (see ADR 0011). */
 export class CloudFrontEdgeProvider implements EdgeProvider {
@@ -64,13 +79,16 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
   async createTenant(hostname: string, cruxId: string) {
     const res = await this.cf.send(
       new CreateDistributionTenantCommand({
-        DistributionId: this.cfg.distributionId,
+        DistributionId:
+          this.cfg.tenantDistributionId ?? this.cfg.distributionId,
         Name: `crux-${cruxId}-${hostname.replace(/[^a-z0-9]/g, '-')}`.slice(
           0,
           128,
         ),
         Domains: [{ Domain: hostname }],
         ConnectionGroupId: this.cfg.connectionGroupId,
+        // → origin domain crux-<cruxId>.s3-website-<region>.amazonaws.com
+        Parameters: [{ Name: TENANT_CRUX_PARAMETER, Value: cruxId }],
         // CloudFront-managed certificate: validation rides on the CNAME the user already created
         ManagedCertificateRequest: { ValidationTokenHost: 'cloudfront' },
         Tags: { Items: [{ Key: 'crux-garden:crux', Value: cruxId }] },
@@ -95,6 +113,19 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
     );
     await this.cf.send(
       new DeleteDistributionTenantCommand({ Id: tenantId, IfMatch: res.ETag }),
+    );
+  }
+
+  async invalidateTenant(tenantId: string, paths: string[]): Promise<void> {
+    if (paths.length === 0) return;
+    await this.cf.send(
+      new CreateInvalidationForDistributionTenantCommand({
+        Id: tenantId,
+        InvalidationBatch: {
+          CallerReference: `crux-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          Paths: { Quantity: paths.length, Items: paths },
+        },
+      }),
     );
   }
 
@@ -124,6 +155,8 @@ export function edgeProviderFromEnv(): EdgeProvider {
     {
       region,
       distributionId,
+      tenantDistributionId:
+        process.env.PUBLISH_TENANT_DISTRIBUTION_ID || undefined,
       connectionGroupId: process.env.PUBLISH_CONNECTION_GROUP_ID,
     },
   );

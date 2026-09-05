@@ -422,6 +422,8 @@ export class CruxService {
         ),
       );
       storedBytes = put.bytes; // exact: what actually sits in the bucket, injections included
+      // Custom domains cache through their tenants — drop what they hold (best effort)
+      void this.domainsService.invalidateForCrux(crux.id);
     } else {
       await this.artifactService.deleteFromStaticBucket(pathPrefix);
       await this.artifactService.publishFilesDirectly(
