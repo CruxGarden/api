@@ -78,10 +78,20 @@ export class BillingService {
     this.logger = loggerService.createChildLogger('BillingService');
     const stripe = stripeProviderFromEnv();
     this.provider = stripe ?? new MockBillingProvider();
-    if (!stripe)
+    if (!stripe) {
+      // A mock checkout "succeeds" for free. That must never reach a real
+      // deployment by accident — refuse to boot unless explicitly allowed.
+      if (
+        process.env.NODE_ENV === 'production' &&
+        process.env.BILLING_ALLOW_MOCK !== '1'
+      )
+        throw new Error(
+          'BillingService: STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET missing in production — set them, or BILLING_ALLOW_MOCK=1 to run the mock provider on purpose',
+        );
       this.logger.warn(
         'Billing in MOCK mode — STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET not set; checkouts succeed instantly',
       );
+    }
     this.priceMap = priceMapFromEnv();
   }
 

@@ -50,8 +50,39 @@ services:
       AWS_S3_ARTIFACTS_BUCKET: ${AWS_S3_ARTIFACTS_BUCKET:-artifacts.crux.garden}
       AWS_S3_SYNC_BUCKET: ${AWS_S3_SYNC_BUCKET:-sync.crux.garden}
 
-      # Optional Configuration
-      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      # Public URLs (ADR 0011): the API's own public base and the web app's
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-https://api.crux.garden}
+      API_URL: ${API_URL:-https://api.crux.garden}
+
+      # Publish v2 (ADR 0011) — a bucket per published crux behind CloudFront
+      PUBLISH_LAYOUT: ${PUBLISH_LAYOUT:-shared}
+      PUBLISH_BUCKET_PREFIX: ${PUBLISH_BUCKET_PREFIX:-crux-}
+      PUBLISH_ORIGIN_SECRET: ${PUBLISH_ORIGIN_SECRET}
+      AWS_S3_PUBLISHED_BUCKET: ${AWS_S3_PUBLISHED_BUCKET:-publish.crux.garden}
+      AWS_CLOUDFRONT_DISTRIBUTION_ID: ${AWS_CLOUDFRONT_DISTRIBUTION_ID}
+      AWS_CLOUDFRONT_LOG_BUCKET: ${AWS_CLOUDFRONT_LOG_BUCKET}
+      AWS_CLOUDFRONT_LOG_PREFIX: ${AWS_CLOUDFRONT_LOG_PREFIX:-}
+      PUBLISH_DISTRIBUTION_ID: ${PUBLISH_DISTRIBUTION_ID}
+      PUBLISH_CONNECTION_GROUP_ID: ${PUBLISH_CONNECTION_GROUP_ID}
+      PUBLISH_CNAME_TARGET: ${PUBLISH_CNAME_TARGET:-publish.crux.garden}
+
+      # Billing (ADR 0012, Stripe). Without both secrets the API refuses to start
+      # in production — see BillingService — unless BILLING_ALLOW_MOCK=1.
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_PRICE_GARDENER_MONTHLY: ${STRIPE_PRICE_GARDENER_MONTHLY}
+      STRIPE_PRICE_GARDENER_YEARLY: ${STRIPE_PRICE_GARDENER_YEARLY}
+      STRIPE_TRIAL_DAYS: ${STRIPE_TRIAL_DAYS:-0}
+      STRIPE_AUTOMATIC_TAX: ${STRIPE_AUTOMATIC_TAX:-0}
+      BILLING_RETURN_URL: ${BILLING_RETURN_URL:-https://crux.garden}
+      BILLING_ALLOW_MOCK: ${BILLING_ALLOW_MOCK:-}
+
+      # Crux Store
+      STORE_WRITES_PER_MINUTE_PER_ACCOUNT: ${STORE_WRITES_PER_MINUTE_PER_ACCOUNT:-60}
+
+      # Optional Configuration. Leave CORS_ORIGIN unset in production: the API
+      # then validates against crux.garden and *.publish.crux.garden itself.
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DB_POOL_MIN: ${DB_POOL_MIN:-2}
       DB_POOL_MAX: ${DB_POOL_MAX:-10}
