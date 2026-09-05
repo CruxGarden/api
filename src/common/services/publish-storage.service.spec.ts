@@ -1,7 +1,9 @@
+import { Test } from '@nestjs/testing';
 import {
   PublishStorageService,
   isHashedAsset,
 } from './publish-storage.service';
+import { LoggerService } from './logger.service';
 
 const logger = {
   createChildLogger: () => ({
@@ -13,6 +15,17 @@ const logger = {
 
 describe('PublishStorageService', () => {
   const env = { ...process.env };
+
+  it('resolves through Nest without an S3Client provider (the API must boot)', async () => {
+    // The optional S3 client exists for tests; the real graph has no provider
+    // for it. This once made every NestFactory.create fail before listen().
+    const mod = await Test.createTestingModule({
+      providers: [PublishStorageService, LoggerService],
+    }).compile();
+    expect(mod.get(PublishStorageService)).toBeInstanceOf(
+      PublishStorageService,
+    );
+  });
   afterEach(() => {
     process.env = { ...env };
   });

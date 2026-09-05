@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import {
   S3Client,
   CreateBucketCommand,
@@ -44,7 +44,9 @@ export class PublishStorageService {
   /** mock mode only: bucket → set of keys */
   private readonly mockBuckets = new Map<string, Map<string, number>>();
 
-  constructor(loggerService: LoggerService, s3?: S3Client) {
+  // The S3 client is injectable only so tests can hand in a fake; Nest has no
+  // provider for it, so it must be optional or the API cannot boot.
+  constructor(loggerService: LoggerService, @Optional() s3?: S3Client) {
     this.logger = loggerService.createChildLogger('PublishStorageService');
     this.config = {
       region: process.env.AWS_REGION || 'us-east-1',

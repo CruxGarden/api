@@ -3644,6 +3644,404 @@
         ]
       }
     },
+    "/usage/me": {
+      "get": {
+        "operationId": "UsageController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Storage and bandwidth for the current billing period, with plan limits",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/cruxes/{id}/usage": {
+      "get": {
+        "operationId": "UsageController_crux",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Storage and bandwidth for one crux this billing period",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/ingest/run": {
+      "post": {
+        "operationId": "UsageController_ingest",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin: ingest new CloudFront logs now",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/periods": {
+      "get": {
+        "operationId": "UsageController_periods",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Finalized billing periods for the current account (newest first)",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/reconcile": {
+      "get": {
+        "operationId": "UsageController_reconciliation",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin: daily bandwidth reconciliation against CloudFront",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/reconcile/run": {
+      "post": {
+        "operationId": "UsageController_reconcile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin: reconcile the last days now",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/usage/periods/close": {
+      "post": {
+        "operationId": "UsageController_closePeriods",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin: finalize the previous billing period if grace has passed",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/billing/plans": {
+      "get": {
+        "operationId": "BillingController_plans",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Plans and prices (public)",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/me": {
+      "get": {
+        "operationId": "BillingController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "This account’s plan and subscription state",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/checkout": {
+      "post": {
+        "operationId": "BillingController_checkout",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start a hosted checkout; returns the URL to open",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/portal": {
+      "post": {
+        "operationId": "BillingController_portal",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Customer portal URL (change plan, payment method, cancel)",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/sync": {
+      "post": {
+        "operationId": "BillingController_sync",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Re-pull the subscription from the provider (after checkout)",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/subscriptions": {
+      "get": {
+        "operationId": "BillingController_all",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin: all subscriptions",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/cruxes/{id}/domains": {
+      "get": {
+        "operationId": "DomainsController_list",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Custom domains connected to a crux",
+        "tags": [
+          "domains"
+        ]
+      },
+      "post": {
+        "operationId": "DomainsController_add",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddDomainDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Connect a custom domain; returns the DNS records to create",
+        "tags": [
+          "domains"
+        ]
+      }
+    },
+    "/domains/{id}/verify": {
+      "post": {
+        "operationId": "DomainsController_verify",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Check DNS and advance the domain (pending_dns → issuing → active)",
+        "tags": [
+          "domains"
+        ]
+      }
+    },
+    "/domains/{id}": {
+      "delete": {
+        "operationId": "DomainsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Disconnect a custom domain",
+        "tags": [
+          "domains"
+        ]
+      }
+    },
     "/paths": {
       "get": {
         "description": "Retrieves a paginated list of all paths with their metadata.",
@@ -4621,12 +5019,32 @@
             "name": "sort",
             "required": false,
             "in": "query",
-            "description": "Sort order",
+            "description": "Sort order (relevant = best match, default when q is given; recent = last updated; newest = first published)",
             "schema": {
               "enum": [
+                "relevant",
                 "recent",
+                "newest",
                 "alpha"
               ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "required": false,
+            "in": "query",
+            "description": "Crux kind: webapp, page, document, image, notes, mood",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author",
+            "required": false,
+            "in": "query",
+            "description": "Author username (exact). Typing \"@dan\" into q searches usernames by prefix instead.",
+            "schema": {
               "type": "string"
             }
           },
@@ -4679,6 +5097,15 @@
             "description": "Max tags (default 50)",
             "schema": {
               "type": "number"
+            }
+          },
+          {
+            "name": "kind",
+            "required": false,
+            "in": "query",
+            "description": "Only tags on cruxes of this kind",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -5060,8 +5487,9 @@
           },
           "data": {
             "type": "string",
-            "description": "Main content/data of the crux",
-            "example": "This is the content of my crux"
+            "description": "Main content/data of the crux. Empty for workspace cruxes, whose content lives in artifacts.",
+            "example": "This is the content of my crux",
+            "default": ""
           },
           "type": {
             "type": "string",
@@ -5077,7 +5505,8 @@
               "page",
               "document",
               "image",
-              "notes"
+              "notes",
+              "mood"
             ],
             "example": "webapp"
           },
@@ -5148,8 +5577,7 @@
           }
         },
         "required": [
-          "slug",
-          "data"
+          "slug"
         ]
       },
       "UpdateCruxDto": {
@@ -5188,7 +5616,8 @@
               "page",
               "document",
               "image",
-              "notes"
+              "notes",
+              "mood"
             ],
             "example": "webapp",
             "nullable": true
@@ -5424,6 +5853,14 @@
             "example": "This is a note about the dimension"
           }
         }
+      },
+      "CheckoutDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "AddDomainDto": {
+        "type": "object",
+        "properties": {}
       },
       "CreatePathDto": {
         "type": "object",
