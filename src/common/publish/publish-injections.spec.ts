@@ -48,6 +48,13 @@ describe('publish injections', () => {
     expect(text).toContain('window.parent===window');
   });
 
+  it('exposes the crux id and API base as window.crux.publish for pages that call the API directly', () => {
+    const { text } = inject('index.html');
+    expect(text).toContain(
+      'window.crux.publish={cruxId:PUBLISHED_CRUX_ID,apiBase:PUBLISHED_API_BASE};',
+    );
+  });
+
   it('ignores session messages that do not come from the opener', () => {
     const { text } = inject('index.html');
     expect(text).toContain('e.source!==window.parent');

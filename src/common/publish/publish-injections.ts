@@ -153,6 +153,9 @@ const CRUX_STORE_CLIENT: PublishInjection = {
   window.crux=window.crux||{};
   var PUBLISHED_CRUX_ID=${inlineJson(ctx.cruxId)};
   var PUBLISHED_API_BASE=${inlineJson(ctx.apiBase)};
+  // Where this page was published from, for pages that call the API beyond the
+  // store (the 5Ws leaderboard reads /cruxes/:id/leaderboard/:day).
+  window.crux.publish={cruxId:PUBLISHED_CRUX_ID,apiBase:PUBLISHED_API_BASE};
   var BASE=(PUBLISHED_CRUX_ID&&PUBLISHED_API_BASE)?PUBLISHED_API_BASE+'/store/'+PUBLISHED_CRUX_ID:'';
   var _token=null,_mode='live',_cruxId=PUBLISHED_CRUX_ID;
   var _resolveReady;
