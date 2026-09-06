@@ -191,10 +191,13 @@ export class DomainsRepository {
         .first()) as { meta?: Record<string, unknown> | null } | undefined;
       if (!row) return success(undefined);
       const meta = row.meta ?? {};
+      // Rows written before 2026-09-06 carry snake_case keys inside meta
+      // (the write path recursed); the migration fixes them, this tolerates them.
+      const publishedAt = meta.publishedAt ?? meta.published_at;
+      const layout = meta.publishLayout ?? meta.publish_layout;
       return success({
-        published: !!meta.publishedAt,
-        layout:
-          typeof meta.publishLayout === 'string' ? meta.publishLayout : null,
+        published: !!publishedAt,
+        layout: typeof layout === 'string' ? layout : null,
       });
     } catch (error) {
       this.logger.error('publishState failed', error as Error);
