@@ -1,7 +1,8 @@
 require('dotenv').config({ quiet: true });
 
 import { NestFactory } from '@nestjs/core';
-import { isAllowedOrigin } from './common/cors-origin';
+import { makeOriginCheck } from './common/cors-origin';
+import { DomainsService } from './domains/domains.service';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { json } from 'express';
@@ -33,13 +34,21 @@ async function bootstrap() {
     }),
   );
 
-  // CORS — see common/cors-origin.ts for the allow-list (site, publish
-  // subdomains, the desktop app's crux-app:// scheme, CORS_ORIGIN).
+  // CORS — see common/cors-origin.ts: the static allow-list (site, publish
+  // subdomains, the desktop app's crux-app:// scheme, CORS_ORIGIN) plus active
+  // custom domains, looked up and cached — a Banner's page calls the API too.
   // No credentials: true — auth uses Bearer tokens, not cookies.
+  const domains = app.get(DomainsService);
+  const originAllowed = makeOriginCheck(
+    async (hostname) => (await domains.resolve(hostname)) !== null,
+  );
   app.enableCors({
     origin: (origin, callback) => {
-      if (isAllowedOrigin(origin)) return callback(null, true);
-      callback(new Error('CORS blocked'));
+      originAllowed(origin).then(
+        (ok) =>
+          ok ? callback(null, true) : callback(new Error('CORS blocked')),
+        () => callback(new Error('CORS blocked')),
+      );
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [

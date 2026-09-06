@@ -27,3 +27,42 @@ export function isAllowedOrigin(
     DESKTOP_SCHEME_RE.test(origin)
   );
 }
+
+/**
+ * The static allow-list plus one dynamic case: an origin whose hostname is an
+ * active Custom Domain (a Banner over a published crux). Pages served under a
+ * Banner call the API for the Crux Store and sign-in exactly as the publish
+ * subdomain does, so their origin has to pass too. `lookup` answers whether a
+ * hostname is a live custom domain; results are cached briefly so CORS
+ * preflights never turn into a database query per request.
+ */
+export function makeOriginCheck(
+  lookup: (hostname: string) => Promise<boolean>,
+  opts: { ttlMs?: number; now?: () => number } = {},
+): (origin: string | undefined) => Promise<boolean> {
+  const ttl = opts.ttlMs ?? 60_000;
+  const now = opts.now ?? Date.now;
+  const cache = new Map<string, { ok: boolean; until: number }>();
+  return async (origin) => {
+    if (isAllowedOrigin(origin)) return true;
+    if (!origin) return false;
+    let hostname: string;
+    try {
+      const u = new URL(origin);
+      if (u.protocol !== 'https:') return false;
+      hostname = u.hostname.toLowerCase();
+    } catch {
+      return false;
+    }
+    const hit = cache.get(hostname);
+    if (hit && hit.until > now()) return hit.ok;
+    let ok = false;
+    try {
+      ok = await lookup(hostname);
+    } catch {
+      ok = false; // a lookup failure is a refusal, never an allow
+    }
+    cache.set(hostname, { ok, until: now() + ttl });
+    return ok;
+  };
+}

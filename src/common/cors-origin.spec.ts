@@ -1,4 +1,4 @@
-import { isAllowedOrigin } from './cors-origin';
+import { isAllowedOrigin, makeOriginCheck } from './cors-origin';
 
 describe('isAllowedOrigin', () => {
   it('allows the site, publish subdomains and the desktop scheme without configuration', () => {
@@ -32,5 +32,35 @@ describe('isAllowedOrigin', () => {
       isAllowedOrigin('http://localhost:8080', 'http://localhost:8080'),
     ).toBe(true);
     expect(isAllowedOrigin('https://evil.example', '*')).toBe(true);
+  });
+
+  it('makeOriginCheck admits active custom domains (https only), caches, and refuses on lookup failure', async () => {
+    const asked: string[] = [];
+    let t = 0;
+    const check = makeOriginCheck(
+      async (h) => {
+        asked.push(h);
+        if (h === 'boom.example') throw new Error('db down');
+        return h === 'blog.example.com';
+      },
+      { ttlMs: 1000, now: () => t },
+    );
+    // static list still wins without a lookup
+    expect(await check('https://crux.garden')).toBe(true);
+    expect(asked).toEqual([]);
+    // an active banner passes; case and port are normalised away
+    expect(await check('https://Blog.Example.com')).toBe(true);
+    expect(await check('https://blog.example.com:443')).toBe(true);
+    expect(asked).toEqual(['blog.example.com']); // second answer came from the cache
+    // http never passes, even for a known domain
+    expect(await check('http://blog.example.com')).toBe(false);
+    // unknown and broken lookups refuse
+    expect(await check('https://evil.example')).toBe(false);
+    expect(await check('https://boom.example')).toBe(false);
+    // cache expiry asks again
+    t = 2000;
+    expect(await check('https://blog.example.com')).toBe(true);
+    expect(asked.filter((h) => h === 'blog.example.com')).toHaveLength(2);
+    expect(await check(undefined)).toBe(true); // no Origin header: not a browser
   });
 });
