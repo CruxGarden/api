@@ -1,4 +1,5 @@
 import { Controller, Get, Query, Req, Res } from '@nestjs/common';
+import { withPublicMeta } from '../common/publish/public-meta';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { DbService } from '../common/services/db.service';
@@ -73,7 +74,13 @@ export class ExploreController {
       kind: kind || undefined,
       author: author || undefined,
     });
-    return this.dbService.paginate({ query, request: req, response: res });
+    const rows = (await this.dbService.paginate({
+      query,
+      request: req,
+      response: res,
+    })) as { meta?: Record<string, unknown> | null }[];
+    // Public read: a crux's working state (model, prompts, queues, local paths) stays private
+    return rows.map((r) => withPublicMeta(r));
   }
 
   @Get('tags')

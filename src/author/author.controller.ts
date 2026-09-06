@@ -37,6 +37,7 @@ import AuthorRaw from './entities/author-raw.entity';
 import { CruxService } from '../crux/crux.service';
 import Crux from '../crux/entities/crux.entity';
 import CruxRaw from '../crux/entities/crux-raw.entity';
+import { withPublicMeta } from '../common/publish/public-meta';
 
 @Controller('authors')
 @AuthorSwagger.Controller()
@@ -232,12 +233,13 @@ export class AuthorController {
     const author = await this.resolveAuthor(identifier);
 
     const query = this.cruxService.findPublicByAuthorQuery(author.id);
-    return this.dbService.paginate<CruxRaw, Crux>({
+    const cruxes = (await this.dbService.paginate<CruxRaw, Crux>({
       model: Crux,
       query,
       request: req,
       response: res,
-    }) as Promise<Crux[]>;
+    })) as Crux[];
+    return cruxes.map((c) => withPublicMeta(c));
   }
 
   @Get(':identifier/cruxes/:slug')
@@ -248,8 +250,10 @@ export class AuthorController {
     // Get author by username (strip @ prefix if present)
     const author = await this.resolveAuthor(identifier);
 
-    // Get crux by author ID and slug
-    return this.cruxService.findByAuthorAndSlug(author.id, slug);
+    // Get crux by author ID and slug — public read: working state stays private
+    return withPublicMeta(
+      await this.cruxService.findByAuthorAndSlug(author.id, slug),
+    );
   }
 
   @Get(':identifier/graph')
