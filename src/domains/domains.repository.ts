@@ -242,6 +242,73 @@ export class DomainsRepository {
     }
   }
 
+  /** Soft-deleted rows whose tenant still exists at the edge — the sweep finishes their delete. */
+  async findDeletedWithTenant(): Promise<
+    RepositoryResponse<CustomDomainRow[]>
+  > {
+    try {
+      const data = await this.dbService
+        .query()
+        .from<CustomDomainRow>(DomainsRepository.TABLE)
+        .whereNotNull('deleted')
+        .whereNotNull('tenant_id')
+        .orderBy('deleted', 'asc')
+        .limit(50);
+      return success(data);
+    } catch (error) {
+      this.logger.error('findDeletedWithTenant failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /**
+   * The most recent row this author had for a hostname, deleted or not — so a
+   * hostname connected before can come back with its token (the TXT record
+   * they already created still verifies) and its tenant.
+   */
+  async findLatestByHostnameForAuthor(
+    hostname: string,
+    authorId: string,
+  ): Promise<RepositoryResponse<CustomDomainRow | undefined>> {
+    try {
+      const data = await this.dbService
+        .query()
+        .from<CustomDomainRow>(DomainsRepository.TABLE)
+        .where({ hostname, author_id: authorId })
+        .orderBy('updated', 'desc')
+        .first();
+      return success(data);
+    } catch (error) {
+      this.logger.error('findLatestByHostnameForAuthor failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** Bring a soft-deleted row back, pointed at a crux, as pending_dns. */
+  async revive(
+    id: string,
+    cruxId: string,
+  ): Promise<RepositoryResponse<CustomDomainRow | undefined>> {
+    try {
+      const [data] = await this.dbService
+        .query()
+        .from(DomainsRepository.TABLE)
+        .where('id', id)
+        .update({
+          crux_id: cruxId,
+          status: 'pending_dns',
+          error: null,
+          deleted: null,
+          updated: new Date(),
+        })
+        .returning('*');
+      return success(data as CustomDomainRow | undefined);
+    } catch (error) {
+      this.logger.error('revive failed', error as Error);
+      return failure(error);
+    }
+  }
+
   /** Soft delete, like every other table; the live-hostname index ignores deleted rows. */
   async remove(id: string): Promise<RepositoryResponse<void>> {
     try {

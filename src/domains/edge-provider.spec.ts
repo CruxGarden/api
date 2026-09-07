@@ -3,6 +3,7 @@ import {
   CreateInvalidationForDistributionTenantCommand,
   DeleteDistributionTenantCommand,
   GetDistributionTenantCommand,
+  GetDistributionTenantByDomainCommand,
   GetManagedCertificateDetailsCommand,
   UpdateDistributionTenantCommand,
 } from '@aws-sdk/client-cloudfront';
@@ -26,7 +27,13 @@ function fakeClient(answers: Record<string, unknown>[] = []) {
         input: Record<string, unknown>;
       }) => {
         sent.push({ name: cmd.constructor.name, input: cmd.input });
-        return answers[Math.min(n++, answers.length - 1)] ?? {};
+        const answer = answers[Math.min(n++, answers.length - 1)] ?? {};
+        if (typeof answer.__throw === 'string') {
+          const err = new Error(answer.__throw);
+          err.name = answer.__throw;
+          throw err;
+        }
+        return answer;
       },
     } as never,
   };
@@ -35,6 +42,8 @@ function fakeClient(answers: Record<string, unknown>[] = []) {
 describe('CloudFrontEdgeProvider', () => {
   it('creates the tenant on the multi-tenant distribution with the crux bucket as the origin parameter', async () => {
     const { client, sent } = fakeClient([
+      { __throw: 'EntityNotFound' }, // no tenant for this domain yet
+
       {
         DistributionTenant: {
           Id: 'dt-1',
@@ -51,8 +60,9 @@ describe('CloudFrontEdgeProvider', () => {
     });
     const t = await edge.createTenant('blog.example.com', 'c1');
     expect(t).toEqual({ tenantId: 'dt-1', status: 'issuing' });
-    expect(sent[0].name).toBe(CreateDistributionTenantCommand.name);
-    expect(sent[0].input).toMatchObject({
+    expect(sent[0].name).toBe(GetDistributionTenantByDomainCommand.name);
+    expect(sent[1].name).toBe(CreateDistributionTenantCommand.name);
+    expect(sent[1].input).toMatchObject({
       DistributionId: 'E-TENANTS',
       ConnectionGroupId: 'cg-1',
       Domains: [{ Domain: 'blog.example.com' }],
@@ -65,6 +75,8 @@ describe('CloudFrontEdgeProvider', () => {
 
   it('falls back to the standard distribution id when no tenant distribution is configured', async () => {
     const { client, sent } = fakeClient([
+      { __throw: 'EntityNotFound' },
+
       {
         DistributionTenant: {
           Id: 'dt-2',
@@ -81,11 +93,15 @@ describe('CloudFrontEdgeProvider', () => {
       tenantId: 'dt-2',
       status: 'active',
     });
-    expect(sent[0].input.DistributionId).toBe('E-ONLY');
+    expect(sent[1].input.DistributionId).toBe('E-ONLY');
   });
 
   it('invalidates through the tenant, and deletes with the ETag it just read', async () => {
-    const { client, sent } = fakeClient([{}, { ETag: 'etag-9' }, {}]);
+    const { client, sent } = fakeClient([
+      {},
+      { ETag: 'etag-9', DistributionTenant: { Id: 'dt-1', Enabled: false } },
+      {},
+    ]);
     const edge = new CloudFrontEdgeProvider(client, {
       region: 'us-east-1',
       distributionId: 'E',
@@ -214,5 +230,89 @@ describe('CloudFrontEdgeProvider', () => {
     });
     expect(await edge2.tenantStatus('dt-1')).toBe('issuing');
     expect(attached.sent).toHaveLength(1);
+  });
+
+  it('deleteTenant disables an enabled tenant first and reports disabling when CloudFront is not ready', async () => {
+    const live = {
+      Id: 'dt-1',
+      Enabled: true,
+      ConnectionGroupId: 'cg-1',
+      Domains: [{ Domain: 'blog.example.com', Status: 'active' }],
+      Parameters: [{ Name: 'bucket', Value: 'crux-c1' }],
+      Customizations: { Certificate: { Arn: 'arn:acm:1' } },
+    };
+    const { client, sent } = fakeClient([
+      { ETag: 'e1', DistributionTenant: live },
+      {
+        ETag: 'e2',
+        DistributionTenant: { ...live, Enabled: false, Status: 'InProgress' },
+      },
+      { __throw: 'ResourceNotDisabled' },
+    ]);
+    const edge = new CloudFrontEdgeProvider(client, {
+      region: 'us-east-1',
+      distributionId: 'E',
+    });
+    expect(await edge.deleteTenant('dt-1')).toBe('disabling');
+    expect(sent.map((s) => s.name)).toEqual([
+      GetDistributionTenantCommand.name,
+      UpdateDistributionTenantCommand.name,
+      DeleteDistributionTenantCommand.name,
+    ]);
+    expect(sent[1].input).toMatchObject({
+      Id: 'dt-1',
+      IfMatch: 'e1',
+      Enabled: false,
+      Customizations: { Certificate: { Arn: 'arn:acm:1' } },
+    });
+    expect(sent[2].input).toEqual({ Id: 'dt-1', IfMatch: 'e2' });
+    const gone = fakeClient([{ __throw: 'EntityNotFound' }]);
+    const edge2 = new CloudFrontEdgeProvider(gone.client, {
+      region: 'us-east-1',
+      distributionId: 'E',
+    });
+    expect(await edge2.deleteTenant('dt-x')).toBe('deleted');
+  });
+
+  it('createTenant reuses the tenant CloudFront already holds for the hostname', async () => {
+    const parked = {
+      Id: 'dt-old',
+      Enabled: false,
+      ConnectionGroupId: 'cg-1',
+      Domains: [{ Domain: 'blog.example.com', Status: 'inactive' }],
+      Parameters: [{ Name: 'bucket', Value: 'crux-old' }],
+      Customizations: { Certificate: { Arn: 'arn:acm:1' } },
+    };
+    const { client, sent } = fakeClient([
+      { ETag: 'e1', DistributionTenant: parked },
+      {
+        DistributionTenant: {
+          ...parked,
+          Enabled: true,
+          Domains: [{ Domain: 'blog.example.com', Status: 'active' }],
+        },
+      },
+    ]);
+    const edge = new CloudFrontEdgeProvider(client, {
+      region: 'us-east-1',
+      distributionId: 'E',
+      bucketPrefix: 'crux-',
+    });
+    expect(await edge.createTenant('blog.example.com', 'NEW')).toEqual({
+      tenantId: 'dt-old',
+      status: 'active',
+    });
+    expect(sent.map((s) => s.name)).toEqual([
+      GetDistributionTenantByDomainCommand.name,
+      UpdateDistributionTenantCommand.name,
+    ]);
+    expect(sent[1].input).toMatchObject({
+      Id: 'dt-old',
+      IfMatch: 'e1',
+      Enabled: true,
+      Parameters: [{ Name: 'bucket', Value: 'crux-new' }],
+      Customizations: { Certificate: { Arn: 'arn:acm:1' } },
+    });
+    expect(sent[1].input).not.toHaveProperty('ManagedCertificateRequest');
   });
 });

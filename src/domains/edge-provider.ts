@@ -3,9 +3,11 @@ import {
   CreateDistributionTenantCommand,
   CreateInvalidationForDistributionTenantCommand,
   GetDistributionTenantCommand,
+  GetDistributionTenantByDomainCommand,
   GetManagedCertificateDetailsCommand,
   UpdateDistributionTenantCommand,
   DeleteDistributionTenantCommand,
+  type DistributionTenant,
 } from '@aws-sdk/client-cloudfront';
 
 /**
@@ -26,7 +28,13 @@ export interface EdgeProvider {
     cruxId: string,
   ): Promise<{ tenantId: string; status: TenantStatus }>;
   tenantStatus(tenantId: string): Promise<TenantStatus>;
-  deleteTenant(tenantId: string): Promise<void>;
+  /**
+   * Stop serving and remove the tenant. CloudFront only deletes a DISABLED
+   * tenant, and disabling propagates first — so this may answer 'disabling':
+   * the domain is already dark, the delete must be retried later (the poller
+   * sweeps). 'deleted' when it is gone (or never existed).
+   */
+  deleteTenant(tenantId: string): Promise<'deleted' | 'disabling'>;
   /** Drop the tenant's cached objects after a republish (best effort). */
   invalidateTenant(tenantId: string, paths: string[]): Promise<void>;
 }
@@ -34,14 +42,26 @@ export interface EdgeProvider {
 export class MockEdgeProvider implements EdgeProvider {
   tenants = new Map<
     string,
-    { hostname: string; cruxId: string; checks: number }
+    { hostname: string; cruxId: string; checks: number; enabled: boolean }
   >();
   /** how many status checks before a tenant reports active */
   activeAfterChecks = 1;
+  /** Mimic CloudFront: the first delete only disables, the next one deletes. */
+  deleteNeedsTwoSteps = false;
   private n = 0;
   async createTenant(hostname: string, cruxId: string) {
+    // Like the real provider: a tenant that already exists for this hostname
+    // is reused (re-enabled, re-pointed) rather than fought over.
+    for (const [id, t] of this.tenants) {
+      if (t.hostname === hostname) {
+        t.cruxId = cruxId;
+        t.enabled = true;
+        t.checks = 0;
+        return { tenantId: id, status: 'issuing' as const };
+      }
+    }
     const tenantId = `tenant-${++this.n}`;
-    this.tenants.set(tenantId, { hostname, cruxId, checks: 0 });
+    this.tenants.set(tenantId, { hostname, cruxId, checks: 0, enabled: true });
     return { tenantId, status: 'issuing' as const };
   }
   async tenantStatus(tenantId: string): Promise<TenantStatus> {
@@ -50,8 +70,15 @@ export class MockEdgeProvider implements EdgeProvider {
     t.checks += 1;
     return t.checks >= this.activeAfterChecks ? 'active' : 'issuing';
   }
-  async deleteTenant(tenantId: string) {
+  async deleteTenant(tenantId: string): Promise<'deleted' | 'disabling'> {
+    const t = this.tenants.get(tenantId);
+    if (!t) return 'deleted';
+    if (this.deleteNeedsTwoSteps && t.enabled) {
+      t.enabled = false;
+      return 'disabling';
+    }
     this.tenants.delete(tenantId);
+    return 'deleted';
   }
   invalidations: { tenantId: string; paths: string[] }[] = [];
   async invalidateTenant(tenantId: string, paths: string[]) {
@@ -85,6 +112,48 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
   ) {}
 
   async createTenant(hostname: string, cruxId: string) {
+    const bucket = `${this.cfg.bucketPrefix ?? 'crux-'}${cruxId.toLowerCase()}`;
+    // A tenant may already exist for this hostname: disconnected but not yet
+    // deleted, or the same domain reconnected to another crux. Reuse it —
+    // re-enable, re-point — instead of colliding on CNAMEAlreadyExists.
+    const existing = await this.findByDomain(hostname);
+    if (existing) {
+      const tenant = existing.tenant;
+      const hasCert = !!tenant.Customizations?.Certificate?.Arn;
+      const send = (requestCert: boolean) =>
+        this.cf.send(
+          new UpdateDistributionTenantCommand({
+            Id: tenant.Id,
+            IfMatch: existing.etag,
+            Domains: [{ Domain: hostname }],
+            Parameters: [{ Name: TENANT_BUCKET_PARAMETER, Value: bucket }],
+            ConnectionGroupId:
+              tenant.ConnectionGroupId ?? this.cfg.connectionGroupId,
+            Customizations: tenant.Customizations,
+            Enabled: true,
+            ...(requestCert
+              ? {
+                  ManagedCertificateRequest: {
+                    ValidationTokenHost: 'cloudfront' as const,
+                  },
+                }
+              : {}),
+          }),
+        );
+      let updated;
+      try {
+        updated = await send(!hasCert);
+      } catch (err) {
+        // "only one pending certificate request" — one is already in flight
+        if (!hasCert && /pending/i.test((err as Error).message))
+          updated = await send(false);
+        else throw err;
+      }
+      return {
+        tenantId: tenant.Id as string,
+        status: tenantState(updated.DistributionTenant),
+      };
+    }
     const res = await this.cf.send(
       new CreateDistributionTenantCommand({
         DistributionId:
@@ -96,12 +165,7 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
         Domains: [{ Domain: hostname }],
         ConnectionGroupId: this.cfg.connectionGroupId,
         // → origin domain <bucket>.s3-website-<region>.amazonaws.com
-        Parameters: [
-          {
-            Name: TENANT_BUCKET_PARAMETER,
-            Value: `${this.cfg.bucketPrefix ?? 'crux-'}${cruxId.toLowerCase()}`,
-          },
-        ],
+        Parameters: [{ Name: TENANT_BUCKET_PARAMETER, Value: bucket }],
         // CloudFront-managed certificate: validation rides on the CNAME the user already created
         ManagedCertificateRequest: { ValidationTokenHost: 'cloudfront' },
         Tags: { Items: [{ Key: 'crux-garden:crux', Value: cruxId }] },
@@ -154,13 +218,64 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
     return tenantState(updated.DistributionTenant);
   }
 
-  async deleteTenant(tenantId: string): Promise<void> {
-    const res = await this.cf.send(
-      new GetDistributionTenantCommand({ Identifier: tenantId }),
-    );
-    await this.cf.send(
-      new DeleteDistributionTenantCommand({ Id: tenantId, IfMatch: res.ETag }),
-    );
+  async deleteTenant(tenantId: string): Promise<'deleted' | 'disabling'> {
+    let res;
+    try {
+      res = await this.cf.send(
+        new GetDistributionTenantCommand({ Identifier: tenantId }),
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === 'EntityNotFound')
+        return 'deleted';
+      throw err;
+    }
+    const tenant = res.DistributionTenant;
+    let etag = res.ETag;
+    if (tenant?.Enabled) {
+      // Dark first: the domain stops serving now, whatever the delete does.
+      const off = await this.cf.send(
+        new UpdateDistributionTenantCommand({
+          Id: tenantId,
+          IfMatch: etag,
+          Domains: tenant.Domains?.map((d) => ({ Domain: d.Domain })),
+          Parameters: tenant.Parameters,
+          ConnectionGroupId: tenant.ConnectionGroupId,
+          Customizations: tenant.Customizations,
+          Enabled: false,
+        }),
+      );
+      etag = off.ETag;
+    }
+    try {
+      await this.cf.send(
+        new DeleteDistributionTenantCommand({ Id: tenantId, IfMatch: etag }),
+      );
+      return 'deleted';
+    } catch (err) {
+      const name = (err as { name?: string }).name ?? '';
+      if (name === 'EntityNotFound') return 'deleted';
+      // Disabling has not propagated yet; the sweep retries.
+      if (name === 'ResourceNotDisabled' || name === 'PreconditionFailed')
+        return 'disabling';
+      throw err;
+    }
+  }
+
+  /** The tenant CloudFront already holds for a domain, with its ETag; null when none. */
+  private async findByDomain(
+    hostname: string,
+  ): Promise<{ tenant: DistributionTenant; etag: string | undefined } | null> {
+    try {
+      const res = await this.cf.send(
+        new GetDistributionTenantByDomainCommand({ Domain: hostname }),
+      );
+      return res.DistributionTenant
+        ? { tenant: res.DistributionTenant, etag: res.ETag }
+        : null;
+    } catch (err) {
+      if ((err as { name?: string }).name === 'EntityNotFound') return null;
+      throw err;
+    }
   }
 
   async invalidateTenant(tenantId: string, paths: string[]): Promise<void> {

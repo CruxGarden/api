@@ -234,6 +234,18 @@ export class DomainsService {
         { limit: plan.customDomains, used: open, planId, kind: 'domains' },
       );
     }
+    // Connected before by this author? Revive that row: same token, so the
+    // TXT record they already created still verifies; same tenant, reused.
+    const previous = (
+      await this.repo.findLatestByHostnameForAuthor(hostname, authorId)
+    ).data;
+    if (previous?.deleted) {
+      const back = await this.repo.revive(previous.id, cruxId);
+      if (back.data) {
+        this.logger.info('Custom domain revived', { hostname, cruxId });
+        return this.view(back.data);
+      }
+    }
     const token = randomBytes(16).toString('hex');
     const r = await this.repo.create({
       crux_id: cruxId,
@@ -303,9 +315,8 @@ export class DomainsService {
         return this.view(updated.data ?? row);
       }
       try {
-        // a retry after a failed issue must not leave the old tenant behind
-        if (row.tenant_id)
-          await this.edge.deleteTenant(row.tenant_id).catch(() => undefined);
+        // createTenant reuses a tenant CloudFront already holds for the
+        // hostname (a retry, a revived domain), so nothing to tear down first.
         const tenant = await this.edge.createTenant(
           DomainsService.servedHost(row.hostname),
           row.crux_id,
@@ -380,8 +391,12 @@ export class DomainsService {
     const row = await this.get(id);
     if (row.tenant_id) {
       try {
-        await this.edge.deleteTenant(row.tenant_id);
+        const outcome = await this.edge.deleteTenant(row.tenant_id);
+        if (outcome === 'deleted')
+          await this.repo.update(id, { tenant_id: null });
+        // 'disabling': the domain is dark; the sweep deletes the tenant later
       } catch (err) {
+        // Keep tenant_id so the sweep can try again
         this.logger.error(
           `tenant delete failed for ${row.hostname}: ${(err as Error).message}`,
         );
@@ -391,6 +406,30 @@ export class DomainsService {
     if (r.error)
       throw new InternalServerErrorException('Could not remove the domain');
     this.logger.info('Custom domain removed', { hostname: row.hostname });
+  }
+
+  /**
+   * Finish deletes CloudFront made us wait for: tenants of soft-deleted rows.
+   * A revived row is no longer deleted, so its tenant is left alone (and
+   * reused). Returns how many were removed at the edge.
+   */
+  async sweepTenants(): Promise<number> {
+    const rows = (await this.repo.findDeletedWithTenant()).data ?? [];
+    let removed = 0;
+    for (const row of rows) {
+      if (!row.tenant_id) continue;
+      try {
+        if ((await this.edge.deleteTenant(row.tenant_id)) === 'deleted') {
+          await this.repo.update(row.id, { tenant_id: null });
+          removed += 1;
+        }
+      } catch (err) {
+        this.logger.error(
+          `tenant sweep failed for ${row.hostname}: ${(err as Error).message}`,
+        );
+      }
+    }
+    return removed;
   }
 
   /** Unpublish/delete of a crux: drop its domains at the edge too. */
@@ -432,6 +471,7 @@ export class DomainsService {
       const v = await this.verify(row.id).catch(() => null);
       if (v && v.status !== before) advanced += 1;
     }
+    await this.sweepTenants().catch(() => 0);
     return advanced;
   }
 

@@ -46,6 +46,28 @@ function fakeRepo() {
       ),
     ),
     expirePending: jest.fn(() => ok(0)),
+    findDeletedWithTenant: jest.fn(() =>
+      ok([...rows.values()].filter((r) => r.deleted && r.tenant_id)),
+    ),
+    findLatestByHostnameForAuthor: jest.fn((h: string, a: string) =>
+      ok(
+        [...rows.values()]
+          .filter((r) => r.hostname === h && r.author_id === a)
+          .sort((x, y) => +new Date(y.updated) - +new Date(x.updated))[0],
+      ),
+    ),
+    revive: jest.fn((id: string, cruxId: string) => {
+      const row = {
+        ...rows.get(id)!,
+        crux_id: cruxId,
+        status: 'pending_dns',
+        error: null,
+        deleted: null,
+        updated: new Date(),
+      } as CustomDomainRow;
+      rows.set(id, row);
+      return ok(row);
+    }),
     countOpenByAuthor: jest.fn((a: string) =>
       ok(
         [...rows.values()].filter(
@@ -461,5 +483,69 @@ describe('DomainsService', () => {
     v = await svc.verify(added.id);
     expect(v.status).toBe('active');
     expect(v.error).toBeNull();
+  });
+
+  it('disconnect then reconnect just works: the row revives with its token and the tenant is reused', async () => {
+    const repo = fakeRepo();
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider();
+    edge.deleteNeedsTwoSteps = true; // CloudFront: disable first, delete later
+    svc.useProviders(edge, {
+      cnameTargets: async () => ['publish.crux.garden'],
+      txtValues: async () =>
+        [...repo.rows.values()].map((r) => `crux-verify=${r.token}`),
+      addresses: async () => [],
+    });
+    const first = await svc.add('c1', 'a1', 'blog.example.com');
+    expect((await svc.verify(first.id)).status).toBe('active');
+    const tenantId = [...edge.tenants.keys()][0]!;
+
+    // Disconnect: the tenant goes dark at once; CloudFront would not delete it yet
+    await svc.remove(first.id);
+    expect(edge.tenants.get(tenantId)?.enabled).toBe(false);
+    expect(repo.rows.get(first.id)!.deleted).toBeTruthy();
+    expect(repo.rows.get(first.id)!.tenant_id).toBe(tenantId); // kept for the sweep
+    expect(await svc.resolve('blog.example.com')).toBeNull();
+
+    // Reconnect the same hostname (to another crux, even): the old row comes back,
+    // same token — the TXT they already have still verifies — and the tenant is reused
+    const again = await svc.add('c2', 'a1', 'blog.example.com');
+    expect(again.id).toBe(first.id);
+    expect(again.records.find((r) => r.type === 'TXT')!.value).toBe(
+      first.records.find((r) => r.type === 'TXT')!.value,
+    );
+    expect(again.status).toBe('pending_dns');
+    expect((await svc.verify(again.id)).status).toBe('active');
+    expect(edge.tenants.size).toBe(1);
+    expect(edge.tenants.get(tenantId)).toMatchObject({
+      cruxId: 'c2',
+      enabled: true,
+    });
+    expect(await svc.resolve('blog.example.com')).toBe('c2');
+  });
+
+  it('the sweep finishes deletes CloudFront deferred, and leaves a revived domain alone', async () => {
+    const repo = fakeRepo();
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider();
+    edge.deleteNeedsTwoSteps = true;
+    svc.useProviders(edge, {
+      cnameTargets: async () => ['publish.crux.garden'],
+      txtValues: async () =>
+        [...repo.rows.values()].map((r) => `crux-verify=${r.token}`),
+      addresses: async () => [],
+    });
+    const a = await svc.add('c1', 'a1', 'a.example.com');
+    await svc.verify(a.id);
+    await svc.removeAllForCrux('c1'); // unpublish
+    expect(edge.tenants.size).toBe(1); // disabled, not yet deleted
+    expect(await svc.sweepTenants()).toBe(1); // second attempt deletes
+    expect(edge.tenants.size).toBe(0);
+    expect(repo.rows.get(a.id)!.tenant_id).toBeNull();
+    // re-adding afterwards revives the row and creates a fresh tenant
+    const back = await svc.add('c1', 'a1', 'a.example.com');
+    expect(back.id).toBe(a.id);
+    expect((await svc.verify(back.id)).status).toBe('active');
+    expect(edge.tenants.size).toBe(1);
   });
 });
