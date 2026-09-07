@@ -3,6 +3,8 @@ import {
   CreateInvalidationForDistributionTenantCommand,
   DeleteDistributionTenantCommand,
   GetDistributionTenantCommand,
+  GetManagedCertificateDetailsCommand,
+  UpdateDistributionTenantCommand,
 } from '@aws-sdk/client-cloudfront';
 import {
   CloudFrontEdgeProvider,
@@ -126,5 +128,91 @@ describe('CloudFrontEdgeProvider', () => {
     ).toBe('failed');
     expect(tenantState({ Status: 'Deployed', Domains: [] })).toBe('issuing');
     expect(tenantState(undefined)).toBe('issuing');
+  });
+
+  it('tenantStatus attaches an issued managed certificate to a tenant whose domain is still inactive', async () => {
+    const tenant = {
+      Id: 'dt-1',
+      Status: 'Deployed',
+      Enabled: true,
+      ConnectionGroupId: 'cg-1',
+      Domains: [{ Domain: 'blog.example.com', Status: 'inactive' }],
+      Parameters: [{ Name: 'bucket', Value: 'crux-c1' }],
+    };
+    const { client, sent } = fakeClient([
+      { DistributionTenant: tenant, ETag: 'etag-1' },
+      {
+        ManagedCertificateDetails: {
+          CertificateArn: 'arn:acm:cert-1',
+          CertificateStatus: 'issued',
+        },
+      },
+      {
+        DistributionTenant: {
+          ...tenant,
+          Domains: [{ Domain: 'blog.example.com', Status: 'active' }],
+        },
+      },
+    ]);
+    const edge = new CloudFrontEdgeProvider(client, {
+      region: 'us-east-1',
+      distributionId: 'E',
+    });
+    expect(await edge.tenantStatus('dt-1')).toBe('active');
+    expect(sent.map((s) => s.name)).toEqual([
+      GetDistributionTenantCommand.name,
+      GetManagedCertificateDetailsCommand.name,
+      UpdateDistributionTenantCommand.name,
+    ]);
+    expect(sent[2].input).toMatchObject({
+      Id: 'dt-1',
+      IfMatch: 'etag-1',
+      Domains: [{ Domain: 'blog.example.com' }],
+      Parameters: [{ Name: 'bucket', Value: 'crux-c1' }],
+      Customizations: { Certificate: { Arn: 'arn:acm:cert-1' } },
+      Enabled: true,
+    });
+  });
+
+  it('tenantStatus leaves a tenant alone while its certificate is still pending or already attached', async () => {
+    const pending = fakeClient([
+      {
+        DistributionTenant: {
+          Id: 'dt-1',
+          Status: 'Deployed',
+          Domains: [{ Status: 'inactive' }],
+        },
+        ETag: 'e',
+      },
+      {
+        ManagedCertificateDetails: {
+          CertificateArn: 'arn:acm:cert-1',
+          CertificateStatus: 'pending-validation',
+        },
+      },
+    ]);
+    const edge = new CloudFrontEdgeProvider(pending.client, {
+      region: 'us-east-1',
+      distributionId: 'E',
+    });
+    expect(await edge.tenantStatus('dt-1')).toBe('issuing');
+    expect(pending.sent).toHaveLength(2);
+    const attached = fakeClient([
+      {
+        DistributionTenant: {
+          Id: 'dt-1',
+          Status: 'Deployed',
+          Domains: [{ Status: 'inactive' }],
+          Customizations: { Certificate: { Arn: 'arn:acm:cert-1' } },
+        },
+        ETag: 'e',
+      },
+    ]);
+    const edge2 = new CloudFrontEdgeProvider(attached.client, {
+      region: 'us-east-1',
+      distributionId: 'E',
+    });
+    expect(await edge2.tenantStatus('dt-1')).toBe('issuing');
+    expect(attached.sent).toHaveLength(1);
   });
 });

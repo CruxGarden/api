@@ -3,6 +3,8 @@ import {
   CreateDistributionTenantCommand,
   CreateInvalidationForDistributionTenantCommand,
   GetDistributionTenantCommand,
+  GetManagedCertificateDetailsCommand,
+  UpdateDistributionTenantCommand,
   DeleteDistributionTenantCommand,
 } from '@aws-sdk/client-cloudfront';
 
@@ -115,7 +117,41 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
     const res = await this.cf.send(
       new GetDistributionTenantCommand({ Identifier: tenantId }),
     );
-    return tenantState(res.DistributionTenant);
+    const tenant = res.DistributionTenant;
+    const state = tenantState(tenant);
+    if (
+      state !== 'issuing' ||
+      !tenant ||
+      tenant.Customizations?.Certificate?.Arn
+    ) {
+      return state;
+    }
+    // The managed certificate is requested at creation, but once ACM has
+    // issued it CloudFront does not attach it to the tenant by itself: the
+    // domain sits at `inactive` with an unused certificate (5ws.zacos.tech,
+    // 2026-09-07). Attaching it is what turns the domain on.
+    const cert = await this.cf.send(
+      new GetManagedCertificateDetailsCommand({ Identifier: tenantId }),
+    );
+    const details = cert.ManagedCertificateDetails;
+    if (details?.CertificateStatus !== 'issued' || !details.CertificateArn) {
+      return state;
+    }
+    const updated = await this.cf.send(
+      new UpdateDistributionTenantCommand({
+        Id: tenantId,
+        IfMatch: res.ETag,
+        Domains: tenant.Domains?.map((d) => ({ Domain: d.Domain })),
+        Parameters: tenant.Parameters,
+        ConnectionGroupId: tenant.ConnectionGroupId,
+        Enabled: tenant.Enabled ?? true,
+        Customizations: {
+          ...(tenant.Customizations ?? {}),
+          Certificate: { Arn: details.CertificateArn },
+        },
+      }),
+    );
+    return tenantState(updated.DistributionTenant);
   }
 
   async deleteTenant(tenantId: string): Promise<void> {
