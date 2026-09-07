@@ -108,14 +108,14 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
     );
     const tenantId = res.DistributionTenant?.Id;
     if (!tenantId) throw new Error('CloudFront did not return a tenant id');
-    return { tenantId, status: this.mapStatus(res.DistributionTenant?.Status) };
+    return { tenantId, status: tenantState(res.DistributionTenant) };
   }
 
   async tenantStatus(tenantId: string): Promise<TenantStatus> {
     const res = await this.cf.send(
       new GetDistributionTenantCommand({ Identifier: tenantId }),
     );
-    return this.mapStatus(res.DistributionTenant?.Status);
+    return tenantState(res.DistributionTenant);
   }
 
   async deleteTenant(tenantId: string): Promise<void> {
@@ -139,14 +139,32 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
       }),
     );
   }
+}
 
-  private mapStatus(status?: string): TenantStatus {
-    if (!status) return 'issuing';
-    const s = status.toLowerCase();
-    if (s === 'deployed' || s === 'active') return 'active';
-    if (s.includes('fail')) return 'failed';
-    return 'issuing';
-  }
+/**
+ * A tenant is live only when its DOMAIN is: "Deployed" says the tenant
+ * configuration propagated, while the domain stays `inactive` until CloudFront
+ * has established domain control (the certificate is issued and DNS points at
+ * it). Reporting on the tenant alone showed a green light over a domain that
+ * did not answer TLS yet.
+ */
+export function tenantState(
+  tenant:
+    | {
+        Status?: string;
+        Domains?: { Domain?: string; Status?: string }[];
+      }
+    | undefined,
+): TenantStatus {
+  const status = (tenant?.Status ?? '').toLowerCase();
+  if (status.includes('fail')) return 'failed';
+  const domains = tenant?.Domains ?? [];
+  if (
+    domains.length &&
+    domains.every((d) => (d.Status ?? '').toLowerCase() === 'active')
+  )
+    return 'active';
+  return 'issuing';
 }
 
 /** From env: the CloudFront provider when configured, else the mock. */

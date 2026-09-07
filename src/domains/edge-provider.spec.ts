@@ -9,6 +9,7 @@ import {
   TENANT_BUCKET_PARAMETER,
   edgeProviderFromEnv,
   MockEdgeProvider,
+  tenantState,
 } from './edge-provider';
 
 /** A CloudFront client that records commands and answers from a script. */
@@ -32,7 +33,13 @@ function fakeClient(answers: Record<string, unknown>[] = []) {
 describe('CloudFrontEdgeProvider', () => {
   it('creates the tenant on the multi-tenant distribution with the crux bucket as the origin parameter', async () => {
     const { client, sent } = fakeClient([
-      { DistributionTenant: { Id: 'dt-1', Status: 'InProgress' } },
+      {
+        DistributionTenant: {
+          Id: 'dt-1',
+          Status: 'Deployed',
+          Domains: [{ Domain: 'blog.example.com', Status: 'inactive' }],
+        },
+      },
     ]);
     const edge = new CloudFrontEdgeProvider(client, {
       region: 'us-east-1',
@@ -56,7 +63,13 @@ describe('CloudFrontEdgeProvider', () => {
 
   it('falls back to the standard distribution id when no tenant distribution is configured', async () => {
     const { client, sent } = fakeClient([
-      { DistributionTenant: { Id: 'dt-2', Status: 'Deployed' } },
+      {
+        DistributionTenant: {
+          Id: 'dt-2',
+          Status: 'Deployed',
+          Domains: [{ Domain: 'a.example.com', Status: 'active' }],
+        },
+      },
     ]);
     const edge = new CloudFrontEdgeProvider(client, {
       region: 'us-east-1',
@@ -96,5 +109,22 @@ describe('CloudFrontEdgeProvider', () => {
     delete process.env.PUBLISH_DISTRIBUTION_ID;
     expect(edgeProviderFromEnv()).toBeInstanceOf(MockEdgeProvider);
     process.env = saved;
+  });
+
+  it('tenantState: only an active DOMAIN is active; Deployed with an inactive domain is still issuing', () => {
+    expect(
+      tenantState({ Status: 'Deployed', Domains: [{ Status: 'inactive' }] }),
+    ).toBe('issuing');
+    expect(
+      tenantState({ Status: 'Deployed', Domains: [{ Status: 'active' }] }),
+    ).toBe('active');
+    expect(
+      tenantState({ Status: 'InProgress', Domains: [{ Status: 'active' }] }),
+    ).toBe('active');
+    expect(
+      tenantState({ Status: 'Failed', Domains: [{ Status: 'active' }] }),
+    ).toBe('failed');
+    expect(tenantState({ Status: 'Deployed', Domains: [] })).toBe('issuing');
+    expect(tenantState(undefined)).toBe('issuing');
   });
 });
