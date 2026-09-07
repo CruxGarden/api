@@ -37,7 +37,6 @@ function fakeRepo() {
     string,
     { author_id: string; tokens: Set<string> }
   >();
-  const players = new Map<string, { day: string; players: number }[]>();
 
   const syncObjects = new Map<
     string,
@@ -272,45 +271,38 @@ function fakeRepo() {
         ),
       ),
     ),
-    players,
     addVisitors: jest.fn(
       (a: string, c: string, day: string, tokens: string[]) => {
         const k = `${c}|${day}`;
         const set = visitors.get(k) ?? { author_id: a, tokens: new Set() };
-        for (const t of tokens) set.tokens.add(t);
+        let fresh = 0;
+        for (const t of tokens) {
+          if (set.tokens.has(t)) continue;
+          set.tokens.add(t);
+          fresh += 1;
+        }
         visitors.set(k, set);
-        return ok(undefined);
+        return ok(fresh);
       },
     ),
-    visitorsByCrux: jest.fn((c: string, start: string, end: string) =>
+    visitorsTotalByCrux: jest.fn((c: string) =>
       ok(
         [...visitors.entries()]
           .filter(([k]) => k.startsWith(`${c}|`))
-          .map(([k, v]) => ({ day: k.split('|')[1], visitors: v.tokens.size }))
-          .filter((r) => r.day >= start && r.day < end),
+          .reduce((s, [, v]) => s + v.tokens.size, 0),
       ),
     ),
-    visitorsByAuthor: jest.fn((a: string, start: string, end: string) =>
-      ok(
-        [...visitors.entries()]
-          .filter(([, v]) => v.author_id === a)
-          .map(([k, v]) => ({
-            crux_id: k.split('|')[0],
-            day: k.split('|')[1],
-            visitors: v.tokens.size,
-          }))
-          .filter((r) => r.day >= start && r.day < end),
-      ),
-    ),
+    visitorsTotalByAuthor: jest.fn((a: string) => {
+      const by = new Map<string, number>();
+      for (const [k, v] of visitors)
+        if (v.author_id === a)
+          by.set(
+            k.split('|')[0],
+            (by.get(k.split('|')[0]) ?? 0) + v.tokens.size,
+          );
+      return ok([...by].map(([crux_id, visitors]) => ({ crux_id, visitors })));
+    }),
     pruneVisitors: jest.fn(() => ok(0)),
-    playersByCrux: jest.fn((c: string) => ok(players.get(c) ?? [])),
-    playersByAuthor: jest.fn(() =>
-      ok(
-        [...players.entries()].flatMap(([crux_id, rows]) =>
-          rows.map((r) => ({ crux_id, ...r })),
-        ),
-      ),
-    ),
     dailyByCrux: jest.fn((c: string, start: string, end: string) =>
       ok(
         [...daily.values()].filter(
@@ -603,7 +595,7 @@ describe('UsageService', () => {
     expect(repo.daily.get(`${CRUX}|2026-09-03`)?.bytes).toBe(150);
   });
 
-  it('counts each visitor once a day across log files, and players from the store', async () => {
+  it('counts each visitor once a day across log files', async () => {
     const repo = fakeRepo();
     const svc = new UsageService(repo as never, logger);
     const head =
@@ -631,15 +623,11 @@ describe('UsageService', () => {
       list: async () => [...files.keys()],
       read: async (k: string) => files.get(k)!,
     });
-    repo.players.set(CRUX, [{ day: '2026-09-03', players: 1 }]);
     const now = new Date('2026-09-10T00:00:00Z');
     const one = await svc.forCrux(CRUX, now);
-    expect(one).toMatchObject({ requests: 5, visitors: 2, players: 1 });
-    expect(one.daily).toEqual([
-      { day: '2026-09-03', visitors: 2, players: 1, requests: 5 },
-    ]);
+    expect(one).toMatchObject({ requests: 5, visitors: 2 });
     const account = await svc.forAuthor('a1', null, now);
-    expect(account.publish).toMatchObject({ visitors: 2, players: 1 });
+    expect(account.publish).toMatchObject({ visitors: 2 });
     expect(account.cruxes.find((c) => c.cruxId === CRUX)?.visitors).toBe(2);
     expect(repo.pruneVisitors).toHaveBeenCalled();
   });

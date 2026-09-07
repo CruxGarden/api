@@ -380,98 +380,88 @@ export class UsageRepository {
     }
   }
 
-  // ── Visitors (opaque per-day tokens from the logs) and players (store) ──
-  /** Record visitor tokens for a crux-day; a token seen twice counts once. */
+  // ── Visitors: opaque per-day tokens from the logs; a cumulative counter ──
+  /**
+   * Record visitor tokens for a crux-day. A token seen before counts once;
+   * only the new ones add to usage_daily.visitors, the number that is read.
+   */
   async addVisitors(
     authorId: string,
     cruxId: string,
     day: string,
     visitors: string[],
-  ): Promise<RepositoryResponse<void>> {
+  ): Promise<RepositoryResponse<number>> {
     try {
+      let fresh = 0;
       for (let i = 0; i < visitors.length; i += 500) {
         const chunk = visitors.slice(i, i + 500);
-        await this.dbService
+        const inserted = await this.dbService
           .query()
-          .insert(
-            chunk.map((visitor) => ({
-              author_id: authorId,
-              crux_id: cruxId,
-              day,
-              visitor,
-            })),
-          )
+          .insert(chunk.map((visitor) => ({ crux_id: cruxId, day, visitor })))
           .into('usage_visitor_days')
           .onConflict(['crux_id', 'day', 'visitor'])
-          .ignore();
+          .ignore()
+          .returning('visitor');
+        fresh += inserted.length;
       }
-      return success(undefined);
+      if (fresh > 0)
+        await this.dbService.query().raw(
+          `INSERT INTO usage_daily (author_id, crux_id, day, visitors)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT (crux_id, day) DO UPDATE SET
+             visitors = usage_daily.visitors + EXCLUDED.visitors,
+             updated = now()`,
+          [authorId, cruxId, day, fresh],
+        );
+      return success(fresh);
     } catch (error) {
       this.logger.error('addVisitors failed', error as Error);
       return failure(error);
     }
   }
 
-  async visitorsByCrux(
+  /** Every visitor the crux ever had (sum of the daily counters, all time). */
+  async visitorsTotalByCrux(
     cruxId: string,
-    start: string,
-    end: string,
-  ): Promise<RepositoryResponse<{ day: string; visitors: number }[]>> {
+  ): Promise<RepositoryResponse<number>> {
     try {
-      const rows = await this.dbService
+      const row = await this.dbService
         .query()
-        .from('usage_visitor_days')
+        .from('usage_daily')
         .where('crux_id', cruxId)
-        .where('day', '>=', start)
-        .where('day', '<', end)
-        .groupBy('day')
-        .select('day')
-        .count({ visitors: '*' });
-      return success(
-        (rows as { day: Date | string; visitors: unknown }[]).map((r) => ({
-          day: dayKey(r.day),
-          visitors: Number(r.visitors ?? 0) || 0,
-        })),
-      );
+        .sum({ visitors: 'visitors' })
+        .first<{ visitors: unknown }>();
+      return success(Number(row?.visitors ?? 0) || 0);
     } catch (error) {
-      this.logger.error('visitorsByCrux failed', error as Error);
+      this.logger.error('visitorsTotalByCrux failed', error as Error);
       return failure(error);
     }
   }
 
-  async visitorsByAuthor(
+  async visitorsTotalByAuthor(
     authorId: string,
-    start: string,
-    end: string,
-  ): Promise<
-    RepositoryResponse<{ crux_id: string; day: string; visitors: number }[]>
-  > {
+  ): Promise<RepositoryResponse<{ crux_id: string; visitors: number }[]>> {
     try {
       const rows = await this.dbService
         .query()
-        .from('usage_visitor_days')
+        .from('usage_daily')
         .where('author_id', authorId)
-        .where('day', '>=', start)
-        .where('day', '<', end)
-        .groupBy('crux_id', 'day')
-        .select('crux_id', 'day')
-        .count({ visitors: '*' });
+        .groupBy('crux_id')
+        .select('crux_id')
+        .sum({ visitors: 'visitors' });
       return success(
-        (
-          rows as { crux_id: string; day: Date | string; visitors: unknown }[]
-        ).map((r) => ({
+        (rows as { crux_id: string; visitors: unknown }[]).map((r) => ({
           crux_id: r.crux_id,
-          day: dayKey(r.day),
           visitors: Number(r.visitors ?? 0) || 0,
         })),
       );
     } catch (error) {
-      this.logger.error('visitorsByAuthor failed', error as Error);
+      this.logger.error('visitorsTotalByAuthor failed', error as Error);
       return failure(error);
     }
   }
 
-  /** Tokens older than `days` have served their purpose (the daily counts are what is read). */
+  /** Tokens older than `days` have served their purpose — the counters keep the number. */
   async pruneVisitors(days: number): Promise<RepositoryResponse<number>> {
     try {
       const n = await this.dbService
@@ -482,73 +472,6 @@ export class UsageRepository {
       return success(n);
     } catch (error) {
       this.logger.error('pruneVisitors failed', error as Error);
-      return failure(error);
-    }
-  }
-
-  /**
-   * Players: signed-in visitors who wrote to the crux's store, per day of
-   * their latest write. Exact, and free — the store rows are the record.
-   */
-  async playersByCrux(
-    cruxId: string,
-    start: string,
-    end: string,
-  ): Promise<RepositoryResponse<{ day: string; players: number }[]>> {
-    try {
-      const rows = await this.dbService.query().raw(
-        `SELECT (updated_at AT TIME ZONE 'UTC')::date AS day,
-                COUNT(DISTINCT visitor_id) AS players
-           FROM store
-          WHERE crux_id = ? AND visitor_id IS NOT NULL
-            AND updated_at >= ? AND updated_at < ?
-          GROUP BY 1`,
-        [cruxId, start, end],
-      );
-      return success(
-        (rows.rows as { day: Date | string; players: unknown }[]).map((r) => ({
-          day: dayKey(r.day),
-          players: Number(r.players ?? 0) || 0,
-        })),
-      );
-    } catch (error) {
-      this.logger.error('playersByCrux failed', error as Error);
-      return failure(error);
-    }
-  }
-
-  async playersByAuthor(
-    authorId: string,
-    start: string,
-    end: string,
-  ): Promise<
-    RepositoryResponse<{ crux_id: string; day: string; players: number }[]>
-  > {
-    try {
-      const rows = await this.dbService.query().raw(
-        `SELECT crux_id, (updated_at AT TIME ZONE 'UTC')::date AS day,
-                COUNT(DISTINCT visitor_id) AS players
-           FROM store
-          WHERE author_id = ? AND visitor_id IS NOT NULL
-            AND updated_at >= ? AND updated_at < ?
-          GROUP BY 1, 2`,
-        [authorId, start, end],
-      );
-      return success(
-        (
-          rows.rows as {
-            crux_id: string;
-            day: Date | string;
-            players: unknown;
-          }[]
-        ).map((r) => ({
-          crux_id: r.crux_id,
-          day: dayKey(r.day),
-          players: Number(r.players ?? 0) || 0,
-        })),
-      );
-    } catch (error) {
-      this.logger.error('playersByAuthor failed', error as Error);
       return failure(error);
     }
   }
@@ -1025,11 +948,4 @@ export class UsageRepository {
       return failure(error);
     }
   }
-}
-
-/** A DATE column comes back as a Date (midnight UTC) or a string; we want YYYY-MM-DD. */
-function dayKey(d: Date | string): string {
-  return d instanceof Date
-    ? d.toISOString().slice(0, 10)
-    : String(d).slice(0, 10);
 }
