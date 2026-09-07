@@ -431,29 +431,31 @@ describe('DomainsService', () => {
     }
   });
 
-  it('the plan decides how many domains an account may connect: Free one, Gardener ten', async () => {
+  it('custom domains are a Gardener feature: Free connects none, Gardener ten, a removed one frees its slot', async () => {
     const repo = fakeRepo();
     let planId = 'free';
     const billing = { planIdFor: async () => planId } as never;
     const svc = new DomainsService(repo as never, logger, billing);
-    await svc.add('c1', 'a1', 'one.example.com', 'acct-1');
     await expect(
-      svc.add('c1', 'a1', 'two.example.com', 'acct-1'),
+      svc.add('c1', 'a1', 'one.example.com', 'acct-1'),
     ).rejects.toMatchObject({
       status: 402,
-      response: expect.objectContaining({ kind: 'domains', limit: 1, used: 1 }),
+      response: expect.objectContaining({ kind: 'domains', limit: 0, used: 0 }),
     });
-    // a different author is not affected
-    await svc.add('c2', 'a2', 'other.example.com', 'acct-2');
+    await expect(
+      svc.add('c1', 'a1', 'one.example.com', 'acct-1'),
+    ).rejects.toThrow(/come with Gardener/);
     // upgrading lifts it
     planId = 'gardener';
+    await svc.add('c1', 'a1', 'one.example.com', 'acct-1');
     await svc.add('c1', 'a1', 'two.example.com', 'acct-1');
     // a removed (soft-deleted) domain frees its slot
-    planId = 'free';
     const [first] = await svc.listForCrux('c1');
     await svc.remove(first.id);
-    const before = (await repo.countOpenByAuthor('a1')).data;
-    expect(before).toBe(1);
+    expect((await repo.countOpenByAuthor('a1')).data).toBe(1);
+    // without billing wired (self-hosted) there is nothing to buy and no gate
+    const open = new DomainsService(fakeRepo() as never, logger);
+    await open.add('c9', 'a9', 'free.example.com');
   });
 
   it('active means the site answers: a tenant CloudFront calls active stays issuing until https://host/ responds', async () => {

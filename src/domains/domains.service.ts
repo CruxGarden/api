@@ -220,19 +220,25 @@ export class DomainsService {
     if (existing.data)
       throw new ConflictException('That domain is already connected to a crux');
     // Plan limit: how many domains an account may have connected at once.
-    // Each one is a CloudFront tenant we pay for; Free includes one.
-    const planId = this.billing
-      ? await this.billing.planIdFor(accountId)
-      : 'free';
-    const plan = planById(planId);
-    const open = (await this.repo.countOpenByAuthor(authorId)).data ?? 0;
-    if (open >= plan.customDomains) {
-      const noun =
-        plan.customDomains === 1 ? 'custom domain' : 'custom domains';
-      throw new OverLimitException(
-        `The ${plan.name} plan includes ${plan.customDomains} ${noun} and you have ${open} connected. Disconnect one, or upgrade your plan in Settings.`,
-        { limit: plan.customDomains, used: open, planId, kind: 'domains' },
-      );
+    // Each one is a CloudFront tenant we pay for; Free includes none, so this
+    // is where "custom domains are a Gardener feature" is enforced. With no
+    // billing wired (self-hosted) there are no plans to buy, so no gate.
+    if (this.billing) {
+      const planId = await this.billing.planIdFor(accountId);
+      const plan = planById(planId);
+      const open = (await this.repo.countOpenByAuthor(authorId)).data ?? 0;
+      if (open >= plan.customDomains) {
+        const message =
+          plan.customDomains === 0
+            ? `Custom domains come with Gardener. Upgrade in Settings → Plan to put this crux at your own address.`
+            : `The ${plan.name} plan includes ${plan.customDomains} custom domains and you have ${open} connected. Disconnect one, or upgrade your plan in Settings.`;
+        throw new OverLimitException(message, {
+          limit: plan.customDomains,
+          used: open,
+          planId,
+          kind: 'domains',
+        });
+      }
     }
     // Connected before by this author? Revive that row: same token, so the
     // TXT record they already created still verifies; same tenant, reused.

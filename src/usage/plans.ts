@@ -27,7 +27,9 @@ export const PLANS: Record<string, Plan> = {
     storageBytes: 1 * GB,
     bandwidthBytesPerPeriod: 1 * GB,
     storeRequestsPerPeriod: 100_000,
-    customDomains: 1,
+    // Custom domains are a Gardener feature (Daniel, 2026-09-07): each one is
+    // a CloudFront tenant we pay for, and no comparable service gives them away.
+    customDomains: 0,
   },
   gardener: {
     id: 'gardener',
