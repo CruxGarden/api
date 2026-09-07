@@ -30,11 +30,27 @@ export interface CruxUsage {
   files: number;
   bandwidthBytes: number;
   requests: number;
+  /**
+   * People, not requests. `visitors` sums the distinct visitors of each day
+   * (a person on two days counts twice — days are never linked); `players`
+   * are signed-in visitors who wrote to the Crux Store. `daily` carries the
+   * per-day series for the period, oldest first, days with nothing omitted.
+   */
+  visitors: number;
+  players: number;
+  daily: DailyAudience[];
   /** Crux Store: bytes at rest now, keys, and reads/writes this period */
   storeBytes: number;
   storeKeys: number;
   storeReads: number;
   storeWrites: number;
+}
+
+export interface DailyAudience {
+  day: string; // YYYY-MM-DD
+  visitors: number;
+  players: number;
+  requests: number;
 }
 
 export interface StoreUsage {
@@ -124,7 +140,13 @@ export interface AccountUsage {
   bandwidthBytes: number;
   requests: number;
   /** published sites */
-  publish: { storageBytes: number; bandwidthBytes: number; requests: number };
+  publish: {
+    storageBytes: number;
+    bandwidthBytes: number;
+    requests: number;
+    visitors: number;
+    players: number;
+  };
   /** Crux Store across all of this author's cruxes */
   store: StoreUsage;
   cruxes: CruxUsage[];
@@ -142,6 +164,8 @@ export interface LogSource {
 }
 
 const n = (v: string | number | null | undefined) => Number(v ?? 0) || 0;
+/** how long visitor tokens are kept; the daily counts outlive them in the views */
+const VISITOR_TOKEN_DAYS = 100;
 
 const budget = (limit: number, used: number): BudgetLine => {
   const softLimit = Math.round(limit * SETTLEMENT.softLimitFactor);
@@ -196,11 +220,29 @@ const emptyCrux = (cruxId: string): CruxUsage => ({
   files: 0,
   bandwidthBytes: 0,
   requests: 0,
+  visitors: 0,
+  players: 0,
+  daily: [],
   storeBytes: 0,
   storeKeys: 0,
   storeReads: 0,
   storeWrites: 0,
 });
+
+/** The crux's row for a day, created on first touch. */
+const dayOf = (c: CruxUsage, day: string): DailyAudience => {
+  let d = c.daily.find((x) => x.day === day);
+  if (!d) {
+    d = { day, visitors: 0, players: 0, requests: 0 };
+    c.daily.push(d);
+  }
+  return d;
+};
+const byDay = (a: DailyAudience, b: DailyAudience) =>
+  a.day < b.day ? -1 : a.day > b.day ? 1 : 0;
+/** DATE columns arrive as Date (midnight UTC) or string. */
+const dayKey = (d: Date | string): string =>
+  d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
 
 const emptySync = (): SyncUsage => ({
   storageBytes: 0,
@@ -416,9 +458,11 @@ export class UsageService {
       this.repo.lastIngestAt(),
       this.repo.listReconciliation(1),
     ]);
-    const [storeBytes, storeDaily] = await Promise.all([
+    const [storeBytes, storeDaily, visitors, players] = await Promise.all([
       this.repo.storeBytesByAuthor(authorId),
       this.repo.storeDailyByAuthor(authorId, period.start, period.end),
+      this.repo.visitorsByAuthor(authorId, period.start, period.end),
+      this.repo.playersByAuthor(authorId, period.start, period.end),
     ]);
     const byCrux = new Map<string, CruxUsage>();
     const entry = (cruxId: string): CruxUsage => {
@@ -435,7 +479,19 @@ export class UsageService {
       const c = entry(row.crux_id);
       c.bandwidthBytes += n(row.bytes);
       c.requests += n(row.requests);
+      dayOf(c, dayKey(row.day)).requests += n(row.requests);
     }
+    for (const row of visitors.data ?? []) {
+      const c = entry(row.crux_id);
+      c.visitors += row.visitors;
+      dayOf(c, row.day).visitors += row.visitors;
+    }
+    for (const row of players.data ?? []) {
+      const c = entry(row.crux_id);
+      c.players += row.players;
+      dayOf(c, row.day).players += row.players;
+    }
+    for (const c of byCrux.values()) c.daily.sort(byDay);
     for (const row of storeBytes.data ?? []) {
       const c = entry(row.crux_id);
       c.storeBytes = row.bytes;
@@ -457,6 +513,8 @@ export class UsageService {
       storageBytes: cruxes.reduce((s, c) => s + c.storageBytes, 0),
       bandwidthBytes: cruxes.reduce((s, c) => s + c.bandwidthBytes, 0),
       requests: cruxes.reduce((s, c) => s + c.requests, 0),
+      visitors: cruxes.reduce((s, c) => s + c.visitors, 0),
+      players: cruxes.reduce((s, c) => s + c.players, 0),
     };
     const store: StoreUsage = {
       storageBytes: cruxes.reduce((s, c) => s + c.storeBytes, 0),
@@ -494,19 +552,31 @@ export class UsageService {
 
   async forCrux(cruxId: string, now = new Date()): Promise<CruxUsage> {
     const period = billingPeriod(now);
-    const [storage, daily, store, storeDaily] = await Promise.all([
-      this.repo.storageByCrux(cruxId),
-      this.repo.dailyByCrux(cruxId, period.start, period.end),
-      this.repo.storeBytesByCrux(cruxId),
-      this.repo.storeDailyByCrux(cruxId, period.start, period.end),
-    ]);
+    const [storage, daily, store, storeDaily, visitors, players] =
+      await Promise.all([
+        this.repo.storageByCrux(cruxId),
+        this.repo.dailyByCrux(cruxId, period.start, period.end),
+        this.repo.storeBytesByCrux(cruxId),
+        this.repo.storeDailyByCrux(cruxId, period.start, period.end),
+        this.repo.visitorsByCrux(cruxId, period.start, period.end),
+        this.repo.playersByCrux(cruxId, period.start, period.end),
+      ]);
     if (storage.error) throw new NotFoundException('Usage not found');
+    const c = emptyCrux(cruxId);
+    for (const r of daily.data ?? [])
+      dayOf(c, dayKey(r.day)).requests += n(r.requests);
+    for (const r of visitors.data ?? []) dayOf(c, r.day).visitors += r.visitors;
+    for (const r of players.data ?? []) dayOf(c, r.day).players += r.players;
+    c.daily.sort(byDay);
     return {
       cruxId,
       storageBytes: n(storage.data?.bytes),
       files: storage.data?.files ?? 0,
       bandwidthBytes: (daily.data ?? []).reduce((s, r) => s + n(r.bytes), 0),
       requests: (daily.data ?? []).reduce((s, r) => s + n(r.requests), 0),
+      visitors: c.daily.reduce((s, d) => s + d.visitors, 0),
+      players: c.daily.reduce((s, d) => s + d.players, 0),
+      daily: c.daily,
       storeBytes: store.data?.bytes ?? 0,
       storeKeys: store.data?.keys ?? 0,
       storeReads: (storeDaily.data ?? []).reduce((s, r) => s + n(r.reads), 0),
@@ -665,6 +735,11 @@ export class UsageService {
 
   // ── Bandwidth ingestion (CloudFront standard logs) ──────────────────────
   /** Process every unseen log file once; returns how many files and bytes were ingested. */
+  /** Visitor tokens are salted so nobody can recompute them from an address list. */
+  private visitorSalt(): string {
+    return process.env.USAGE_VISITOR_SALT || process.env.JWT_SECRET || '';
+  }
+
   async ingest(source: LogSource): Promise<{
     files: number;
     bytes: number;
@@ -691,7 +766,7 @@ export class UsageService {
         await this.repo.releaseIngest(key);
         continue;
       }
-      const totals = parseCloudFrontLog(raw);
+      const totals = parseCloudFrontLog(raw, { salt: this.visitorSalt() });
       let fileBytes = 0,
         fileReqs = 0;
       for (const t of totals) {
@@ -712,6 +787,13 @@ export class UsageService {
           t.bytes,
           t.requests,
         );
+        if (t.visitors.length)
+          await this.repo.addVisitors(
+            resolved.authorId,
+            resolved.cruxId,
+            t.day,
+            t.visitors,
+          );
         fileBytes += t.bytes;
         fileReqs += t.requests;
       }
@@ -721,6 +803,7 @@ export class UsageService {
       requests += fileReqs;
     }
     this.lastIngest = new Date().toISOString();
+    if (files) await this.repo.pruneVisitors(VISITOR_TOKEN_DAYS);
     if (files)
       this.logger.info('Bandwidth ingested', {
         files,

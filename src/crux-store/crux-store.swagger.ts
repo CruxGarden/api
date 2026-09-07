@@ -1,4 +1,5 @@
 import {
+  ApiBadRequestResponse,
   ApiTags,
   ApiOperation,
   ApiResponse,
@@ -161,6 +162,41 @@ export const StoreSwagger = {
       }),
       cruxIdParam,
       ApiResponse({ status: 200, description: 'Store rows' }),
+      ApiUnauthorizedResponse({ description: 'Token required' }),
+      ApiForbiddenResponse({ description: 'Not the crux author' }),
+      ApiNotFoundResponse({ description: 'Crux not found' }),
+    ),
+
+  Export: () =>
+    combineDecorators(
+      ApiBearerAuth(),
+      ApiOperation({
+        summary:
+          'Export the whole store of a crux as one JSON document (author only)',
+        description:
+          'Shape: { format: "crux-store", version: 1, cruxId, exportedAt, public: { key: value }, protected: { visitorId: { key: value } } }. The same document is accepted by import — on this crux, another crux, or the workspace\'s local store.',
+      }),
+      cruxIdParam,
+      ApiResponse({ status: 200, description: 'The store document' }),
+      ApiUnauthorizedResponse({ description: 'Token required' }),
+      ApiForbiddenResponse({ description: 'Not the crux author' }),
+      ApiNotFoundResponse({ description: 'Crux not found' }),
+    ),
+
+  Import: () =>
+    combineDecorators(
+      ApiBearerAuth(),
+      ApiOperation({
+        summary: 'Import a store document into a crux (author only)',
+        description:
+          'Body is a document from export. Keys are upserted over what is there; `?mode=replace` empties the store first. Per-visitor values whose visitor is not an account are skipped and counted.',
+      }),
+      cruxIdParam,
+      ApiResponse({
+        status: 200,
+        description: '{ imported, skipped }',
+      }),
+      ApiBadRequestResponse({ description: 'Not a Crux Store export' }),
       ApiUnauthorizedResponse({ description: 'Token required' }),
       ApiForbiddenResponse({ description: 'Not the crux author' }),
       ApiNotFoundResponse({ description: 'Crux not found' }),

@@ -294,6 +294,24 @@ export class StoreRepository {
     }
   }
 
+  /** Which of these ids are real authors — protected rows reference authors(id). */
+  async existingAuthorIds(
+    ids: string[],
+  ): Promise<RepositoryResponse<Set<string>>> {
+    try {
+      if (!ids.length) return success(new Set());
+      const rows = await this.dbService
+        .query()
+        .from('authors')
+        .whereIn('id', ids)
+        .select('id');
+      return success(new Set((rows as { id: string }[]).map((r) => r.id)));
+    } catch (error) {
+      this.logger.error('Store query failed', error as Error);
+      return failure(error);
+    }
+  }
+
   async clearAllByCrux(cruxId: string): Promise<RepositoryResponse<void>> {
     try {
       await this.dbService

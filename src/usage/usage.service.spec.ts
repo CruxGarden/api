@@ -33,6 +33,12 @@ function fakeRepo() {
   >();
   const ingested = new Set<string>();
   const unattributed: { day: string; bytes: number; requests: number }[] = [];
+  const visitors = new Map<
+    string,
+    { author_id: string; tokens: Set<string> }
+  >();
+  const players = new Map<string, { day: string; players: number }[]>();
+
   const syncObjects = new Map<
     string,
     {
@@ -263,6 +269,45 @@ function fakeRepo() {
       ok(
         [...daily.values()].filter(
           (r) => r.author_id === a && r.day >= start && r.day < end,
+        ),
+      ),
+    ),
+    players,
+    addVisitors: jest.fn(
+      (a: string, c: string, day: string, tokens: string[]) => {
+        const k = `${c}|${day}`;
+        const set = visitors.get(k) ?? { author_id: a, tokens: new Set() };
+        for (const t of tokens) set.tokens.add(t);
+        visitors.set(k, set);
+        return ok(undefined);
+      },
+    ),
+    visitorsByCrux: jest.fn((c: string, start: string, end: string) =>
+      ok(
+        [...visitors.entries()]
+          .filter(([k]) => k.startsWith(`${c}|`))
+          .map(([k, v]) => ({ day: k.split('|')[1], visitors: v.tokens.size }))
+          .filter((r) => r.day >= start && r.day < end),
+      ),
+    ),
+    visitorsByAuthor: jest.fn((a: string, start: string, end: string) =>
+      ok(
+        [...visitors.entries()]
+          .filter(([, v]) => v.author_id === a)
+          .map(([k, v]) => ({
+            crux_id: k.split('|')[0],
+            day: k.split('|')[1],
+            visitors: v.tokens.size,
+          }))
+          .filter((r) => r.day >= start && r.day < end),
+      ),
+    ),
+    pruneVisitors: jest.fn(() => ok(0)),
+    playersByCrux: jest.fn((c: string) => ok(players.get(c) ?? [])),
+    playersByAuthor: jest.fn(() =>
+      ok(
+        [...players.entries()].flatMap(([crux_id, rows]) =>
+          rows.map((r) => ({ crux_id, ...r })),
         ),
       ),
     ),
@@ -556,5 +601,46 @@ describe('UsageService', () => {
     const again = await svc.ingest(source);
     expect(again.files).toBe(0);
     expect(repo.daily.get(`${CRUX}|2026-09-03`)?.bytes).toBe(150);
+  });
+
+  it('counts each visitor once a day across log files, and players from the store', async () => {
+    const repo = fakeRepo();
+    const svc = new UsageService(repo as never, logger);
+    const head =
+      '#Fields: date sc-bytes c-ip cs(User-Agent) sc-status x-host-header';
+    const host = `${CRUX}.publish.crux.garden`;
+    const a = [
+      head,
+      `2026-09-03\t100\t1.1.1.1\tMozilla\t200\t${host}`,
+      `2026-09-03\t100\t1.1.1.1\tMozilla\t200\t${host}`,
+      `2026-09-03\t100\t2.2.2.2\tMozilla\t200\t${host}`,
+      `2026-09-03\t100\t3.3.3.3\tGooglebot/2.1\t200\t${host}`,
+      '',
+    ].join('\n');
+    // the same first visitor again, in the next hour's file
+    const b = [
+      head,
+      `2026-09-03\t100\t1.1.1.1\tMozilla\t200\t${host}`,
+      '',
+    ].join('\n');
+    const files = new Map([
+      ['logs/a.gz', gzipSync(Buffer.from(a))],
+      ['logs/b.gz', gzipSync(Buffer.from(b))],
+    ]);
+    await svc.ingest({
+      list: async () => [...files.keys()],
+      read: async (k: string) => files.get(k)!,
+    });
+    repo.players.set(CRUX, [{ day: '2026-09-03', players: 1 }]);
+    const now = new Date('2026-09-10T00:00:00Z');
+    const one = await svc.forCrux(CRUX, now);
+    expect(one).toMatchObject({ requests: 5, visitors: 2, players: 1 });
+    expect(one.daily).toEqual([
+      { day: '2026-09-03', visitors: 2, players: 1, requests: 5 },
+    ]);
+    const account = await svc.forAuthor('a1', null, now);
+    expect(account.publish).toMatchObject({ visitors: 2, players: 1 });
+    expect(account.cruxes.find((c) => c.cruxId === CRUX)?.visitors).toBe(2);
+    expect(repo.pruneVisitors).toHaveBeenCalled();
   });
 });

@@ -5,6 +5,7 @@ import {
   Post,
   Delete,
   Param,
+  Query,
   Body,
   Req,
   UseGuards,
@@ -191,6 +192,43 @@ export class StoreController {
       visitorId: e.visitorId,
       updatedAt: e.updatedAt,
     }));
+  }
+
+  /**
+   * GET /store/:cruxId/-/export
+   * The whole store as one document. Author only. (`/-/` keeps these two
+   * routes clear of `/:cruxId/:key`, whatever keys people choose.)
+   */
+  @Get(':cruxId/-/export')
+  @UseGuards(AuthGuard)
+  @StoreSwagger.Export()
+  async exportAll(@Param('cruxId') cruxId: string, @Req() req: AuthRequest) {
+    await this.assertCruxOwner(cruxId, req);
+    return this.storeService.exportAll(cruxId);
+  }
+
+  /**
+   * POST /store/:cruxId/-/import?mode=merge|replace
+   * Load an exported document. Author only.
+   */
+  @Post(':cruxId/-/import')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @StoreSwagger.Import()
+  async importAll(
+    @Param('cruxId') cruxId: string,
+    @Query('mode') mode: string | undefined,
+    @Body() body: unknown,
+    @Req() req: AuthRequest,
+  ) {
+    await this.assertCruxOwner(cruxId, req);
+    const authorId = await this.getCruxAuthorId(cruxId);
+    return this.storeService.importAll(
+      cruxId,
+      authorId,
+      body,
+      mode === 'replace',
+    );
   }
 
   /**

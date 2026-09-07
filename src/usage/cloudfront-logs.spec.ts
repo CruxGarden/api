@@ -1,5 +1,9 @@
 import { gzipSync } from 'node:zlib';
-import { parseCloudFrontLog, cruxIdFromPublishHost } from './cloudfront-logs';
+import {
+  parseCloudFrontLog,
+  cruxIdFromPublishHost,
+  visitorToken,
+} from './cloudfront-logs';
 
 const CRUX = '550e8400-e29b-41d4-a716-446655440000';
 const LOG = [
@@ -81,5 +85,37 @@ describe('CloudFront standard logs', () => {
   it('recognises crux subdomains and leaves custom domains to lookup', () => {
     expect(cruxIdFromPublishHost(`${CRUX}.publish.crux.garden`)).toBe(CRUX);
     expect(cruxIdFromPublishHost('blog.someone.com')).toBeNull();
+  });
+
+  it('tokens a visitor per day — same viewer same day is one, days never link, bots and errors are nobody', () => {
+    const t1 = visitorToken('2026-09-03', '1.1.1.1', 'Mozilla', '200', 's');
+    expect(t1).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(visitorToken('2026-09-03', '1.1.1.1', 'Mozilla', '304', 's')).toBe(
+      t1,
+    );
+    expect(
+      visitorToken('2026-09-04', '1.1.1.1', 'Mozilla', '200', 's'),
+    ).not.toBe(t1);
+    expect(
+      visitorToken('2026-09-03', '1.1.1.1', 'Mozilla', '200', 'other'),
+    ).not.toBe(t1);
+    expect(
+      visitorToken('2026-09-03', '1.1.1.1', 'Mozilla', '404', 's'),
+    ).toBeNull();
+    expect(visitorToken('2026-09-03', '-', 'Mozilla', '200', 's')).toBeNull();
+    expect(
+      visitorToken('2026-09-03', '1.1.1.1', 'Googlebot/2.1', '200', 's'),
+    ).toBeNull();
+    expect(
+      visitorToken('2026-09-03', '1.1.1.1', 'curl/8.0', '200', 's'),
+    ).toBeNull();
+    // the totals carry the distinct tokens of the file
+    const totals = parseCloudFrontLog(Buffer.from(LOG), { salt: 's' });
+    expect(totals.find((t) => t.host.startsWith(CRUX))!.visitors).toHaveLength(
+      1,
+    );
+    expect(
+      totals.find((t) => t.host === 'blog.someone.com')!.visitors,
+    ).toHaveLength(1);
   });
 });

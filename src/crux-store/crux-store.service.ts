@@ -9,6 +9,7 @@ import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { StoreRepository } from './crux-store.repository';
 import StoreRaw from './entities/crux-store-raw.entity';
+import { fromStoreExport, StoreExport, toStoreExport } from './store-export';
 import Store, {
   normalizeStoreMode,
   StoreMode,
@@ -245,6 +246,56 @@ export class StoreService {
       throw new InternalServerErrorException(`Store list failed: ${error}`);
     }
     return (data || []).map((row) => this.asStore(row));
+  }
+
+  /** The whole store as one document (see store-export.ts). */
+  async exportAll(cruxId: string): Promise<StoreExport> {
+    return toStoreExport(cruxId, await this.list(cruxId));
+  }
+
+  /**
+   * Load a document into the store. `replace` empties the store first;
+   * otherwise keys are upserted over what is there. Per-visitor values whose
+   * visitor is not an account here are skipped (they would violate the
+   * authors reference) and counted, so the caller can say so.
+   */
+  async importAll(
+    cruxId: string,
+    authorId: string,
+    payload: unknown,
+    replace = false,
+  ): Promise<{ imported: number; skipped: number }> {
+    const entries = fromStoreExport(payload);
+    const visitorIds = [
+      ...new Set(
+        entries.map((e) => e.visitorId).filter((v): v is string => !!v),
+      ),
+    ];
+    const known = await this.repository.existingAuthorIds(visitorIds);
+    if (known.error || !known.data)
+      throw new InternalServerErrorException(
+        `Store import failed: ${known.error}`,
+      );
+    if (replace) await this.clearAll(cruxId);
+    let imported = 0,
+      skipped = 0;
+    for (const e of entries) {
+      if (e.visitorId && !known.data.has(e.visitorId)) {
+        skipped += 1;
+        continue;
+      }
+      await this.write(
+        cruxId,
+        authorId,
+        e.key,
+        e.value,
+        e.mode,
+        e.visitorId ?? authorId,
+      );
+      imported += 1;
+    }
+    this.logger.info('Store imported', { cruxId, imported, skipped });
+    return { imported, skipped };
   }
 
   async clearAll(cruxId: string): Promise<void> {
