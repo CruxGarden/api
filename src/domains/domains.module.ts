@@ -6,13 +6,18 @@ import {
 } from '@nestjs/common';
 import { DomainsController } from './domains.controller';
 import { PublishResolveController } from './publish-resolve.controller';
+import { GatepostController } from './gatepost.controller';
 import { DomainsService } from './domains.service';
 import { DomainsRepository } from './domains.repository';
 import { AuthorModule } from '../author/author.module';
 
 @Module({
   imports: [forwardRef(() => AuthorModule)],
-  controllers: [DomainsController, PublishResolveController],
+  controllers: [
+    DomainsController,
+    PublishResolveController,
+    GatepostController,
+  ],
   providers: [DomainsService, DomainsRepository],
   exports: [DomainsService],
 })

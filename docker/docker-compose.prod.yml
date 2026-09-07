@@ -9,13 +9,13 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL}
-    command: ["npm", "run", "migrate:prod"]
-    restart: "no"
+    command: ['npm', 'run', 'migrate:prod']
+    restart: 'no'
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
 
   # Crux Garden API - Production Configuration
   # Requires external DATABASE_URL and REDIS_URL
@@ -27,7 +27,7 @@ services:
       migrations:
         condition: service_completed_successfully
     ports:
-      - "${PORT:-3000}:3000"
+      - '${PORT:-3000}:3000'
     environment:
       # Application
       NODE_ENV: production
@@ -64,6 +64,7 @@ services:
       AWS_CLOUDFRONT_LOG_PREFIX: ${AWS_CLOUDFRONT_LOG_PREFIX:-}
       PUBLISH_DISTRIBUTION_ID: ${PUBLISH_DISTRIBUTION_ID}
       PUBLISH_TENANT_DISTRIBUTION_ID: ${PUBLISH_TENANT_DISTRIBUTION_ID:-}
+      APEX_REDIRECT_IPS: ${APEX_REDIRECT_IPS:-}
       PUBLISH_CONNECTION_GROUP_ID: ${PUBLISH_CONNECTION_GROUP_ID}
       PUBLISH_CNAME_TARGET: ${PUBLISH_CNAME_TARGET:-publish.crux.garden}
 
@@ -92,13 +93,19 @@ services:
       RATE_LIMIT_TTL: ${RATE_LIMIT_TTL:-60000}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3000/', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'

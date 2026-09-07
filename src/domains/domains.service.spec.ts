@@ -305,35 +305,90 @@ describe('DomainsService', () => {
     expect(edge.invalidations).toHaveLength(2);
   });
 
-  it('an apex domain verifies through ALIAS addresses and is told ALIAS, not CNAME', async () => {
+  it('a bare domain: ALIAS + www CNAME + TXT without a gatepost; the tenant serves www; both names resolve', async () => {
+    delete process.env.APEX_REDIRECT_IPS;
     const repo = fakeRepo();
     const svc = new DomainsService(repo as never, logger);
     const edge = new MockEdgeProvider();
-    const dns = { a: [] as string[], txt: [] as string[] };
+    edge.activeAfterChecks = 2;
+    const dns = {
+      apexA: [] as string[],
+      wwwCname: [] as string[],
+      txt: [] as string[],
+    };
     svc.useProviders(edge, {
-      cnameTargets: async () => [], // an apex never shows a CNAME
+      cnameTargets: async (h) => (h === 'www.zacos.tech' ? dns.wwwCname : []),
       txtValues: async () => dns.txt,
-      // the gate resolves to CloudFront addresses; the apex mirrors some of them
       addresses: async (h) =>
-        h === 'publish.crux.garden' ? ['13.249.52.67', '13.249.52.75'] : dns.a,
+        h === 'publish.crux.garden'
+          ? ['13.249.52.67', '13.249.52.75']
+          : h === 'zacos.tech'
+            ? dns.apexA
+            : [],
     });
     const added = await svc.add('c1', 'a1', 'zacos.tech');
-    expect(added.records[0]).toEqual({
-      type: 'ALIAS',
-      name: 'zacos.tech',
-      value: 'publish.crux.garden',
-    });
+    expect(added.records.map((r) => [r.type, r.name, r.value])).toEqual([
+      ['ALIAS', 'zacos.tech', 'publish.crux.garden'],
+      ['CNAME', 'www.zacos.tech', 'publish.crux.garden'],
+      ['TXT', '_crux-verify.zacos.tech', added.records[2].value],
+    ]);
     let v = await svc.verify(added.id);
-    expect(v.error).toBe('Waiting for the ALIAS and TXT record');
-    dns.txt = [added.records[1].value];
-    dns.a = ['1.2.3.4'];
+    expect(v.error).toBe(
+      'Waiting for the ALIAS and CNAME for www and TXT record',
+    );
+    dns.txt = [added.records[2].value];
+    dns.wwwCname = ['publish.crux.garden'];
     v = await svc.verify(added.id);
     expect(v.error).toBe('Waiting for the ALIAS record');
-    dns.a = ['13.249.52.75'];
+    dns.apexA = ['13.249.52.75'];
     v = await svc.verify(added.id);
-    expect(['issuing', 'active']).toContain(v.status); // the mock tenant deploys on its first check
-    // a subdomain is still asked for a CNAME
-    const sub = await svc.add('c1', 'a1', 'www.zacos.tech');
-    expect(sub.records[0].type).toBe('CNAME');
+    expect(v.status).toBe('issuing');
+    // the tenant is for www — that is where the files are served from
+    expect([...edge.tenants.values()][0]).toMatchObject({
+      hostname: 'www.zacos.tech',
+      cruxId: 'c1',
+    });
+    expect(await svc.resolve('www.zacos.tech')).toBe('c1');
+    expect(await svc.resolve('zacos.tech')).toBe('c1');
+    expect(await svc.isGatepostHost('zacos.tech')).toBe(true);
+    expect(await svc.isGatepostHost('www.zacos.tech')).toBe(false);
+    expect(await svc.isGatepostHost('nobody.tech')).toBe(false);
+    // a subdomain is still a plain CNAME
+    const sub = await svc.add('c1', 'a1', 'blog.zacos.tech');
+    expect(sub.records.map((r) => r.type)).toEqual(['CNAME', 'TXT']);
+  });
+
+  it('with a gatepost configured, a bare domain gets A/AAAA records and verifies when they match', async () => {
+    process.env.APEX_REDIRECT_IPS = '203.0.113.10, 203.0.113.11,2001:db8::10';
+    try {
+      const repo = fakeRepo();
+      const svc = new DomainsService(repo as never, logger);
+      const edge = new MockEdgeProvider();
+      edge.activeAfterChecks = 2;
+      const dns = { apex: [] as string[] };
+      svc.useProviders(edge, {
+        cnameTargets: async (h) =>
+          h === 'www.zacos.tech' ? ['publish.crux.garden'] : [],
+        txtValues: async () =>
+          [...repo.rows.values()].map((r) => `crux-verify=${r.token}`),
+        addresses: async (h) => (h === 'zacos.tech' ? dns.apex : []),
+      });
+      const added = await svc.add('c1', 'a1', 'zacos.tech');
+      expect(added.records.map((r) => [r.type, r.value])).toEqual([
+        ['A', '203.0.113.10'],
+        ['A', '203.0.113.11'],
+        ['AAAA', '2001:db8::10'],
+        ['CNAME', 'publish.crux.garden'],
+        ['TXT', added.records[4].value],
+      ]);
+      dns.apex = ['203.0.113.10', '1.2.3.4']; // one stray address → not ours
+      let v = await svc.verify(added.id);
+      expect(v.error).toBe('Waiting for the A record');
+      dns.apex = ['203.0.113.10', '203.0.113.11'];
+      v = await svc.verify(added.id);
+      expect(v.status).toBe('issuing');
+    } finally {
+      delete process.env.APEX_REDIRECT_IPS;
+    }
   });
 });

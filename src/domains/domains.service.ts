@@ -27,8 +27,18 @@ export interface CustomDomainView {
   hostname: string;
   status: CustomDomainRow['status'];
   error: string | null;
-  /** ALIAS for a bare domain (an apex cannot carry a CNAME), CNAME for a subdomain, plus the TXT proof. */
-  records: { type: 'CNAME' | 'ALIAS' | 'TXT'; name: string; value: string }[];
+  /**
+   * What to create at the DNS provider. A subdomain: CNAME to the gate. A bare
+   * domain (the GitHub Pages shape): A/AAAA records to the gatepost — the fixed
+   * addresses that redirect the apex to www — plus a CNAME for www to the gate;
+   * ALIAS to the gate instead of A/AAAA when no gatepost is configured. Always
+   * the TXT proof of ownership.
+   */
+  records: {
+    type: 'A' | 'AAAA' | 'CNAME' | 'ALIAS' | 'TXT';
+    name: string;
+    value: string;
+  }[];
   created: string;
   updated: string;
 }
@@ -40,6 +50,8 @@ const PENDING_TTL_DAYS = 7;
 export class DomainsService {
   private readonly logger: LoggerService;
   private readonly cnameTarget: string;
+  /** Fixed addresses of the apex redirector (APEX_REDIRECT_IPS); empty → ALIAS instructions. */
+  private readonly gatepostIps: string[];
   private edge: EdgeProvider;
   private dns: DnsVerifier;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -52,6 +64,10 @@ export class DomainsService {
     this.cnameTarget = norm(
       process.env.PUBLISH_CNAME_TARGET || 'publish.crux.garden',
     );
+    this.gatepostIps = (process.env.APEX_REDIRECT_IPS || '')
+      .split(',')
+      .map((ip) => ip.trim().toLowerCase())
+      .filter(Boolean);
     this.edge = edgeProviderFromEnv();
     this.dns = nodeDnsVerifier;
   }
@@ -64,11 +80,44 @@ export class DomainsService {
   async resolve(host: string): Promise<string | null> {
     const hostname = normalizeHostname(host);
     if (!hostname) return null;
-    const r = await this.repo.findByHostname(hostname);
-    const row = r.data;
-    if (!row || (row.status !== 'active' && row.status !== 'issuing'))
-      return null;
-    return row.crux_id;
+    const row = await this.liveRow(hostname);
+    return row?.crux_id ?? null;
+  }
+
+  /**
+   * The live row that owns a hostname. A bare domain's row also owns
+   * `www.<domain>` — that is where its tenant serves; the apex itself is
+   * answered by the gatepost, which redirects to www.
+   */
+  private async liveRow(hostname: string): Promise<CustomDomainRow | null> {
+    const direct = (await this.repo.findByHostname(hostname)).data;
+    if (direct && (direct.status === 'active' || direct.status === 'issuing'))
+      return direct;
+    if (hostname.startsWith('www.')) {
+      const apex = hostname.slice(4);
+      if (isApexDomain(apex)) {
+        const row = (await this.repo.findByHostname(apex)).data;
+        if (row && (row.status === 'active' || row.status === 'issuing'))
+          return row;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Whether the gatepost may issue a certificate for `host` and redirect it:
+   * true for a live bare-domain row. Caddy asks this before every new cert.
+   */
+  async isGatepostHost(host: string): Promise<boolean> {
+    const hostname = normalizeHostname(host);
+    if (!hostname || !isApexDomain(hostname)) return false;
+    const row = (await this.repo.findByHostname(hostname)).data;
+    return !!row && (row.status === 'active' || row.status === 'issuing');
+  }
+
+  /** The hostname the tenant serves: www for a bare domain, the name itself otherwise. */
+  static servedHost(hostname: string): string {
+    return isApexDomain(hostname) ? `www.${hostname}` : hostname;
   }
 
   /**
@@ -103,21 +152,36 @@ export class DomainsService {
       hostname: row.hostname,
       status: row.status,
       error: row.error,
-      records: [
-        {
-          type: isApexDomain(row.hostname) ? 'ALIAS' : 'CNAME',
-          name: row.hostname,
-          value: this.cnameTarget,
-        },
-        {
-          type: 'TXT',
-          name: verificationRecordName(row.hostname),
-          value: `crux-verify=${row.token}`,
-        },
-      ],
+      records: this.recordsFor(row),
       created: new Date(row.created).toISOString(),
       updated: new Date(row.updated).toISOString(),
     };
+  }
+
+  private recordsFor(row: CustomDomainRow): CustomDomainView['records'] {
+    const txt = {
+      type: 'TXT' as const,
+      name: verificationRecordName(row.hostname),
+      value: `crux-verify=${row.token}`,
+    };
+    if (!isApexDomain(row.hostname)) {
+      return [
+        { type: 'CNAME', name: row.hostname, value: this.cnameTarget },
+        txt,
+      ];
+    }
+    const apex: CustomDomainView['records'] = this.gatepostIps.length
+      ? this.gatepostIps.map((ip) => ({
+          type: ip.includes(':') ? ('AAAA' as const) : ('A' as const),
+          name: row.hostname,
+          value: ip,
+        }))
+      : [{ type: 'ALIAS', name: row.hostname, value: this.cnameTarget }];
+    return [
+      ...apex,
+      { type: 'CNAME', name: `www.${row.hostname}`, value: this.cnameTarget },
+      txt,
+    ];
   }
 
   async listForCrux(cruxId: string): Promise<CustomDomainView[]> {
@@ -135,7 +199,7 @@ export class DomainsService {
     const hostname = normalizeHostname(input);
     if (!hostname)
       throw new BadRequestException(
-        'Enter a subdomain like blog.example.com — it needs a CNAME record, so apex domains (example.com) are not supported yet; crux.garden names are not allowed',
+        'Enter a domain you own, like example.com or blog.example.com (crux.garden names are not allowed)',
       );
     // Only a live connection (issuing/active) owns a hostname; a stale claim
     // somebody never verified cannot block the real owner.
@@ -170,14 +234,23 @@ export class DomainsService {
     if (row.status === 'active') return this.view(row);
 
     if (row.status === 'pending_dns' || row.status === 'failed') {
-      const [cnameOk, txts] = await Promise.all([
-        pointsAt(this.dns, row.hostname, this.cnameTarget),
+      const apex = isApexDomain(row.hostname);
+      const [apexOk, wwwOk, txts] = await Promise.all([
+        apex ? this.apexPointsHere(row.hostname) : Promise.resolve(true),
+        pointsAt(
+          this.dns,
+          DomainsService.servedHost(row.hostname),
+          this.cnameTarget,
+        ),
         this.dns.txtValues(verificationRecordName(row.hostname)),
       ]);
       const txtOk = txts.some((v) => v.trim() === `crux-verify=${row.token}`);
-      if (!cnameOk || !txtOk) {
-        const pointer = isApexDomain(row.hostname) ? 'ALIAS' : 'CNAME';
-        const missing = [!cnameOk && pointer, !txtOk && 'TXT']
+      if (!apexOk || !wwwOk || !txtOk) {
+        const missing = [
+          !apexOk && (this.gatepostIps.length ? 'A' : 'ALIAS'),
+          !wwwOk && (apex ? 'CNAME for www' : 'CNAME'),
+          !txtOk && 'TXT',
+        ]
           .filter(Boolean)
           .join(' and ');
         const updated = await this.repo.update(id, {
@@ -205,7 +278,10 @@ export class DomainsService {
         // a retry after a failed issue must not leave the old tenant behind
         if (row.tenant_id)
           await this.edge.deleteTenant(row.tenant_id).catch(() => undefined);
-        const tenant = await this.edge.createTenant(row.hostname, row.crux_id);
+        const tenant = await this.edge.createTenant(
+          DomainsService.servedHost(row.hostname),
+          row.crux_id,
+        );
         const updated = await this.repo.update(id, {
           status: tenant.status === 'active' ? 'active' : 'issuing',
           tenant_id: tenant.tenantId,
@@ -242,6 +318,20 @@ export class DomainsService {
       }
     }
     return this.view(row);
+  }
+
+  /**
+   * A bare domain points here when its A/AAAA records are the gatepost's, or —
+   * with no gatepost configured, or a provider that flattens — when it shares
+   * an address with the gate.
+   */
+  private async apexPointsHere(hostname: string): Promise<boolean> {
+    if (this.gatepostIps.length) {
+      const mine = await this.dns.addresses(hostname);
+      if (mine.length && mine.every((ip) => this.gatepostIps.includes(ip)))
+        return true;
+    }
+    return pointsAt(this.dns, hostname, this.cnameTarget);
   }
 
   async remove(id: string): Promise<void> {
