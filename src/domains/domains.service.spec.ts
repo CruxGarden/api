@@ -46,6 +46,16 @@ function fakeRepo() {
       ),
     ),
     expirePending: jest.fn(() => ok(0)),
+    countOpenByAuthor: jest.fn((a: string) =>
+      ok(
+        [...rows.values()].filter(
+          (r) =>
+            r.author_id === a &&
+            !r.deleted &&
+            ['pending_dns', 'issuing', 'active'].includes(r.status),
+        ).length,
+      ),
+    ),
     findByCrux: jest.fn((c: string) =>
       ok([...rows.values()].filter((r) => r.crux_id === c)),
     ),
@@ -282,7 +292,9 @@ describe('DomainsService', () => {
 
   it('a republish invalidates every active tenant of the crux, and only those', async () => {
     const repo = fakeRepo();
-    const svc = new DomainsService(repo as never, logger);
+    const svc = new DomainsService(repo as never, logger, {
+      planIdFor: async () => 'gardener',
+    } as never);
     const edge = new MockEdgeProvider();
     svc.useProviders(edge, {
       cnameTargets: async () => ['publish.crux.garden'],
@@ -308,7 +320,9 @@ describe('DomainsService', () => {
   it('a bare domain: ALIAS + www CNAME + TXT without a gatepost; the tenant serves www; both names resolve', async () => {
     delete process.env.APEX_REDIRECT_IPS;
     const repo = fakeRepo();
-    const svc = new DomainsService(repo as never, logger);
+    const svc = new DomainsService(repo as never, logger, {
+      planIdFor: async () => 'gardener',
+    } as never);
     const edge = new MockEdgeProvider();
     edge.activeAfterChecks = 2;
     const dns = {
@@ -390,5 +404,30 @@ describe('DomainsService', () => {
     } finally {
       delete process.env.APEX_REDIRECT_IPS;
     }
+  });
+
+  it('the plan decides how many domains an account may connect: Free one, Gardener ten', async () => {
+    const repo = fakeRepo();
+    let planId = 'free';
+    const billing = { planIdFor: async () => planId } as never;
+    const svc = new DomainsService(repo as never, logger, billing);
+    await svc.add('c1', 'a1', 'one.example.com', 'acct-1');
+    await expect(
+      svc.add('c1', 'a1', 'two.example.com', 'acct-1'),
+    ).rejects.toMatchObject({
+      status: 402,
+      response: expect.objectContaining({ kind: 'domains', limit: 1, used: 1 }),
+    });
+    // a different author is not affected
+    await svc.add('c2', 'a2', 'other.example.com', 'acct-2');
+    // upgrading lifts it
+    planId = 'gardener';
+    await svc.add('c1', 'a1', 'two.example.com', 'acct-1');
+    // a removed (soft-deleted) domain frees its slot
+    planId = 'free';
+    const [first] = await svc.listForCrux('c1');
+    await svc.remove(first.id);
+    const before = (await repo.countOpenByAuthor('a1')).data;
+    expect(before).toBe(1);
   });
 });

@@ -13,6 +13,8 @@ export interface Plan {
   bandwidthBytesPerPeriod: number;
   /** Crux Store reads + writes per billing period */
   storeRequestsPerPeriod: number;
+  /** Custom domains an account may have connected at once (pending, issuing or active). */
+  customDomains: number;
 }
 
 const GB = 1024 * 1024 * 1024;
@@ -25,6 +27,7 @@ export const PLANS: Record<string, Plan> = {
     storageBytes: 1 * GB,
     bandwidthBytesPerPeriod: 1 * GB,
     storeRequestsPerPeriod: 100_000,
+    customDomains: 1,
   },
   gardener: {
     id: 'gardener',
@@ -33,6 +36,7 @@ export const PLANS: Record<string, Plan> = {
     storageBytes: 10 * GB,
     bandwidthBytesPerPeriod: 25 * GB,
     storeRequestsPerPeriod: 1_000_000,
+    customDomains: 10,
   },
 };
 

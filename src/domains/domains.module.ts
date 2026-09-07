@@ -10,9 +10,10 @@ import { GatepostController } from './gatepost.controller';
 import { DomainsService } from './domains.service';
 import { DomainsRepository } from './domains.repository';
 import { AuthorModule } from '../author/author.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
-  imports: [forwardRef(() => AuthorModule)],
+  imports: [forwardRef(() => AuthorModule), BillingModule],
   controllers: [
     DomainsController,
     PublishResolveController,

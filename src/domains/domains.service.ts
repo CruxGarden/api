@@ -4,6 +4,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { LoggerService } from '../common/services/logger.service';
@@ -17,6 +18,9 @@ import {
   isApexDomain,
   pointsAt,
 } from './dns-verifier';
+import { BillingService } from '../billing/billing.service';
+import { planById } from '../usage/plans';
+import { OverLimitException } from '../usage/limits.service';
 import { type EdgeProvider, edgeProviderFromEnv } from './edge-provider';
 import { cruxIdFromPublishHost } from '../usage/cloudfront-logs';
 
@@ -59,6 +63,7 @@ export class DomainsService {
   constructor(
     private readonly repo: DomainsRepository,
     loggerService: LoggerService,
+    @Optional() private readonly billing?: BillingService,
   ) {
     this.logger = loggerService.createChildLogger('DomainsService');
     this.cnameTarget = norm(
@@ -195,6 +200,7 @@ export class DomainsService {
     cruxId: string,
     authorId: string,
     input: string,
+    accountId?: string | null,
   ): Promise<CustomDomainView> {
     const hostname = normalizeHostname(input);
     if (!hostname)
@@ -206,6 +212,21 @@ export class DomainsService {
     const existing = await this.repo.findLiveByHostname(hostname);
     if (existing.data)
       throw new ConflictException('That domain is already connected to a crux');
+    // Plan limit: how many domains an account may have connected at once.
+    // Each one is a CloudFront tenant we pay for; Free includes one.
+    const planId = this.billing
+      ? await this.billing.planIdFor(accountId)
+      : 'free';
+    const plan = planById(planId);
+    const open = (await this.repo.countOpenByAuthor(authorId)).data ?? 0;
+    if (open >= plan.customDomains) {
+      const noun =
+        plan.customDomains === 1 ? 'custom domain' : 'custom domains';
+      throw new OverLimitException(
+        `The ${plan.name} plan includes ${plan.customDomains} ${noun} and you have ${open} connected. Disconnect one, or upgrade your plan in Settings.`,
+        { limit: plan.customDomains, used: open, planId, kind: 'domains' },
+      );
+    }
     const token = randomBytes(16).toString('hex');
     const r = await this.repo.create({
       crux_id: cruxId,

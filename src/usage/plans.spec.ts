@@ -44,4 +44,9 @@ describe('plans', () => {
     );
     expect(SETTLEMENT.softLimitFactor).toBeGreaterThan(1);
   });
+
+  it('custom domains: one on Free, ten on Gardener', () => {
+    expect(PLANS.free.customDomains).toBe(1);
+    expect(PLANS.gardener.customDomains).toBe(10);
+  });
 });

@@ -205,6 +205,26 @@ export class DomainsRepository {
     }
   }
 
+  /** Domains an author has connected right now — pending, issuing or active; deleted rows do not count. */
+  async countOpenByAuthor(
+    authorId: string,
+  ): Promise<RepositoryResponse<number>> {
+    try {
+      const row = (await this.dbService
+        .query()
+        .from(DomainsRepository.TABLE)
+        .where('author_id', authorId)
+        .whereIn('status', ['pending_dns', 'issuing', 'active'])
+        .whereNull('deleted')
+        .count({ n: '*' })
+        .first()) as { n: string | number } | undefined;
+      return success(Number(row?.n ?? 0));
+    } catch (error) {
+      this.logger.error('countOpenByAuthor failed', error as Error);
+      return failure(error);
+    }
+  }
+
   async authorForCrux(
     cruxId: string,
   ): Promise<RepositoryResponse<string | undefined>> {

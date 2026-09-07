@@ -87,7 +87,7 @@ export class DomainsController {
     @Req() req: AuthRequest,
   ): Promise<CustomDomainView> {
     const { author } = await this.ownedCrux(id, req);
-    return this.domains.add(id, author.id, dto.hostname);
+    return this.domains.add(id, author.id, dto.hostname, req.account?.id);
   }
 
   @Post('domains/:id/verify')
