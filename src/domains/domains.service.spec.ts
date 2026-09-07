@@ -430,4 +430,36 @@ describe('DomainsService', () => {
     const before = (await repo.countOpenByAuthor('a1')).data;
     expect(before).toBe(1);
   });
+
+  it('active means the site answers: a tenant CloudFront calls active stays issuing until https://host/ responds', async () => {
+    const repo = fakeRepo();
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider(); // active on the first status check
+    let up = false;
+    const probed: string[] = [];
+    svc.useProviders(
+      edge,
+      {
+        cnameTargets: async () => ['publish.crux.garden'],
+        txtValues: async () =>
+          [...repo.rows.values()].map((r) => `crux-verify=${r.token}`),
+        addresses: async () => [],
+      },
+      async (host) => {
+        probed.push(host);
+        return up;
+      },
+    );
+    const added = await svc.add('c1', 'a1', 'blog.example.com');
+    let v = await svc.verify(added.id); // records ok → tenant created → CloudFront active → probe fails
+    expect(v.status).toBe('issuing');
+    expect(v.error).toMatch(
+      /waiting for https:\/\/blog\.example\.com\/ to answer/,
+    );
+    expect(probed).toEqual(['blog.example.com']);
+    up = true;
+    v = await svc.verify(added.id);
+    expect(v.status).toBe('active');
+    expect(v.error).toBeNull();
+  });
 });

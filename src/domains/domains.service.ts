@@ -58,6 +58,8 @@ export class DomainsService {
   private readonly gatepostIps: string[];
   private edge: EdgeProvider;
   private dns: DnsVerifier;
+  /** Does https://<host>/ answer? The last word on "live" — CloudFront's status is a promise, this is the proof. */
+  private probe: (host: string) => Promise<boolean> = liveProbe;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -145,9 +147,14 @@ export class DomainsService {
   }
 
   /** tests */
-  useProviders(edge: EdgeProvider, dns: DnsVerifier): void {
+  useProviders(
+    edge: EdgeProvider,
+    dns: DnsVerifier,
+    probe: (host: string) => Promise<boolean> = async () => true,
+  ): void {
     this.edge = edge;
     this.dns = dns;
+    this.probe = probe;
   }
 
   view(row: CustomDomainRow): CustomDomainView {
@@ -329,13 +336,27 @@ export class DomainsService {
 
     if (row.status === 'issuing' && row.tenant_id) {
       const status = await this.edge.tenantStatus(row.tenant_id);
-      if (status !== 'issuing') {
+      if (status === 'failed') {
         const updated = await this.repo.update(id, {
-          status: status === 'active' ? 'active' : 'failed',
-          error:
-            status === 'failed' ? 'The certificate could not be issued' : null,
+          status: 'failed',
+          error: 'The certificate could not be issued',
         });
         row = updated.data ?? row;
+      } else if (status === 'active') {
+        // CloudFront says the domain is active; "live" means the site answers.
+        const served = DomainsService.servedHost(row.hostname);
+        if (await this.probe(served)) {
+          const updated = await this.repo.update(id, {
+            status: 'active',
+            error: null,
+          });
+          row = updated.data ?? row;
+        } else {
+          const updated = await this.repo.update(id, {
+            error: `Certificate ready — waiting for https://${served}/ to answer`,
+          });
+          row = updated.data ?? row;
+        }
       }
     }
     return this.view(row);
@@ -421,5 +442,19 @@ export class DomainsService {
   stopScheduler(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+}
+
+/** GET https://<host>/ with a short timeout; anything under 500 that is not a 4xx counts as serving. */
+export async function liveProbe(host: string): Promise<boolean> {
+  try {
+    const res = await fetch(`https://${host}/`, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(6000),
+    });
+    return res.status >= 200 && res.status < 400;
+  } catch {
+    return false;
   }
 }
