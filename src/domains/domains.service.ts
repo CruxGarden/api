@@ -14,6 +14,8 @@ import {
   normalizeHostname,
   verificationRecordName,
   norm,
+  isApexDomain,
+  pointsAt,
 } from './dns-verifier';
 import { type EdgeProvider, edgeProviderFromEnv } from './edge-provider';
 import { cruxIdFromPublishHost } from '../usage/cloudfront-logs';
@@ -25,7 +27,8 @@ export interface CustomDomainView {
   hostname: string;
   status: CustomDomainRow['status'];
   error: string | null;
-  records: { type: 'CNAME' | 'TXT'; name: string; value: string }[];
+  /** ALIAS for a bare domain (an apex cannot carry a CNAME), CNAME for a subdomain, plus the TXT proof. */
+  records: { type: 'CNAME' | 'ALIAS' | 'TXT'; name: string; value: string }[];
   created: string;
   updated: string;
 }
@@ -101,7 +104,11 @@ export class DomainsService {
       status: row.status,
       error: row.error,
       records: [
-        { type: 'CNAME', name: row.hostname, value: this.cnameTarget },
+        {
+          type: isApexDomain(row.hostname) ? 'ALIAS' : 'CNAME',
+          name: row.hostname,
+          value: this.cnameTarget,
+        },
         {
           type: 'TXT',
           name: verificationRecordName(row.hostname),
@@ -163,14 +170,14 @@ export class DomainsService {
     if (row.status === 'active') return this.view(row);
 
     if (row.status === 'pending_dns' || row.status === 'failed') {
-      const [cnames, txts] = await Promise.all([
-        this.dns.cnameTargets(row.hostname),
+      const [cnameOk, txts] = await Promise.all([
+        pointsAt(this.dns, row.hostname, this.cnameTarget),
         this.dns.txtValues(verificationRecordName(row.hostname)),
       ]);
-      const cnameOk = cnames.map(norm).includes(this.cnameTarget);
       const txtOk = txts.some((v) => v.trim() === `crux-verify=${row.token}`);
       if (!cnameOk || !txtOk) {
-        const missing = [!cnameOk && 'CNAME', !txtOk && 'TXT']
+        const pointer = isApexDomain(row.hostname) ? 'ALIAS' : 'CNAME';
+        const missing = [!cnameOk && pointer, !txtOk && 'TXT']
           .filter(Boolean)
           .join(' and ');
         const updated = await this.repo.update(id, {

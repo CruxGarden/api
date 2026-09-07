@@ -100,6 +100,7 @@ describe('DomainsService', () => {
     svc.useProviders(edge, {
       cnameTargets: async () => dns.cname,
       txtValues: async () => dns.txt,
+      addresses: async () => [],
     });
 
     const added = await svc.add('c1', 'a1', 'Blog.Example.com');
@@ -155,6 +156,7 @@ describe('DomainsService', () => {
     svc.useProviders(edge, {
       cnameTargets: async () => [],
       txtValues: async () => [],
+      addresses: async () => [],
     });
     await svc.add('c-squatter', 'a-squatter', 'blog.example.com');
     const mine = await svc.add('c1', 'a1', 'blog.example.com');
@@ -176,6 +178,7 @@ describe('DomainsService', () => {
     svc.useProviders(edge, {
       cnameTargets: async () => ['publish.crux.garden'],
       txtValues: async () => [],
+      addresses: async () => [],
     });
     const NEW = '550e8400-e29b-41d4-a716-446655440000';
     expect(await svc.resolveHost(`${NEW}.publish.crux.garden`)).toEqual({
@@ -215,12 +218,14 @@ describe('DomainsService', () => {
     svc.useProviders(edge, {
       cnameTargets: async () => ['publish.crux.garden'],
       txtValues: async () => [],
+      addresses: async () => [],
     });
     const added = await svc.add('c1', 'a1', 'a.example.com');
     const token = added.records[1].value;
     svc.useProviders(edge, {
       cnameTargets: async () => ['publish.crux.garden'],
       txtValues: async () => [token],
+      addresses: async () => [],
     });
     const v = await svc.verify(added.id);
     expect(v.status).toBe('failed');
@@ -240,6 +245,7 @@ describe('DomainsService', () => {
       txtValues: async () => [
         `crux-verify=${[...repo.rows.values()][0]?.token ?? ''}`,
       ],
+      addresses: async () => [],
     });
     const added = await svc.add('c1', 'a1', 'shop.example.com');
     // records present, but the crux was published before bucket-per-crux
@@ -282,6 +288,7 @@ describe('DomainsService', () => {
       cnameTargets: async () => ['publish.crux.garden'],
       txtValues: async () =>
         [...repo.rows.values()].map((r) => `crux-verify=${r.token}`),
+      addresses: async () => [],
     });
     const a = await svc.add('c1', 'a1', 'a.example.com');
     const b = await svc.add('c1', 'a1', 'b.example.com');
@@ -296,5 +303,37 @@ describe('DomainsService', () => {
     });
     await svc.invalidateForCrux('c-other');
     expect(edge.invalidations).toHaveLength(2);
+  });
+
+  it('an apex domain verifies through ALIAS addresses and is told ALIAS, not CNAME', async () => {
+    const repo = fakeRepo();
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider();
+    const dns = { a: [] as string[], txt: [] as string[] };
+    svc.useProviders(edge, {
+      cnameTargets: async () => [], // an apex never shows a CNAME
+      txtValues: async () => dns.txt,
+      // the gate resolves to CloudFront addresses; the apex mirrors some of them
+      addresses: async (h) =>
+        h === 'publish.crux.garden' ? ['13.249.52.67', '13.249.52.75'] : dns.a,
+    });
+    const added = await svc.add('c1', 'a1', 'zacos.tech');
+    expect(added.records[0]).toEqual({
+      type: 'ALIAS',
+      name: 'zacos.tech',
+      value: 'publish.crux.garden',
+    });
+    let v = await svc.verify(added.id);
+    expect(v.error).toBe('Waiting for the ALIAS and TXT record');
+    dns.txt = [added.records[1].value];
+    dns.a = ['1.2.3.4'];
+    v = await svc.verify(added.id);
+    expect(v.error).toBe('Waiting for the ALIAS record');
+    dns.a = ['13.249.52.75'];
+    v = await svc.verify(added.id);
+    expect(['issuing', 'active']).toContain(v.status); // the mock tenant deploys on its first check
+    // a subdomain is still asked for a CNAME
+    const sub = await svc.add('c1', 'a1', 'www.zacos.tech');
+    expect(sub.records[0].type).toBe('CNAME');
   });
 });
