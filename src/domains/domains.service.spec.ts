@@ -49,6 +49,9 @@ function fakeRepo() {
     findDeletedWithTenant: jest.fn(() =>
       ok([...rows.values()].filter((r) => r.deleted && r.tenant_id)),
     ),
+    findOpenHostnames: jest.fn(() =>
+      ok([...rows.values()].filter((r) => !r.deleted).map((r) => r.hostname)),
+    ),
     findLatestByHostnameForAuthor: jest.fn((h: string, a: string) =>
       ok(
         [...rows.values()]
@@ -547,5 +550,31 @@ describe('DomainsService', () => {
     expect(back.id).toBe(a.id);
     expect((await svc.verify(back.id)).status).toBe('active');
     expect(edge.tenants.size).toBe(1);
+  });
+
+  it('the sweep removes a tenant no live row claims, and keeps the claimed ones', async () => {
+    const repo = fakeRepo();
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider();
+    svc.useProviders(edge, {
+      cnameTargets: async () => ['publish.crux.garden'],
+      txtValues: async () =>
+        [...repo.rows.values()].map((r) => `crux-verify=${r.token}`),
+      addresses: async () => [],
+    });
+    const kept = await svc.add('c1', 'a1', 'kept.example.com');
+    await svc.verify(kept.id);
+    const lost = await svc.add('c2', 'a2', 'lost.example.com');
+    await svc.verify(lost.id);
+    // the row vanished without the tenant going with it (the old cascade on unpublish)
+    repo.rows.delete(lost.id);
+    expect(edge.tenants.size).toBe(2);
+    expect(await svc.sweepTenants()).toBe(1);
+    expect([...edge.tenants.values()].map((t) => t.hostname)).toEqual([
+      'kept.example.com',
+    ]);
+    // a pending row (tenant not yet created) is still a claim: nothing to sweep
+    await svc.add('c3', 'a3', 'soon.example.com');
+    expect(await svc.sweepTenants()).toBe(0);
   });
 });

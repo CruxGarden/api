@@ -83,6 +83,21 @@ export class DomainsRepository {
     }
   }
 
+  /** Hostnames with a live row (any status) — what the edge is allowed to serve. */
+  async findOpenHostnames(): Promise<RepositoryResponse<string[]>> {
+    try {
+      const data = await this.dbService
+        .query()
+        .from<CustomDomainRow>(DomainsRepository.TABLE)
+        .whereNull('deleted')
+        .select('hostname');
+      return success(data.map((r) => r.hostname.toLowerCase()));
+    } catch (error) {
+      this.logger.error('findOpenHostnames failed', error as Error);
+      return failure(error);
+    }
+  }
+
   /** Release pending_dns / failed claims older than `days` (soft delete). */
   async expirePending(days: number): Promise<RepositoryResponse<number>> {
     try {

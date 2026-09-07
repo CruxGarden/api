@@ -5,6 +5,7 @@ import {
   GetDistributionTenantCommand,
   GetDistributionTenantByDomainCommand,
   GetManagedCertificateDetailsCommand,
+  ListDistributionTenantsCommand,
   UpdateDistributionTenantCommand,
   DeleteDistributionTenantCommand,
   type DistributionTenant,
@@ -37,6 +38,19 @@ export interface EdgeProvider {
   deleteTenant(tenantId: string): Promise<'deleted' | 'disabling'>;
   /** Drop the tenant's cached objects after a republish (best effort). */
   invalidateTenant(tenantId: string, paths: string[]): Promise<void>;
+  /**
+   * Every tenant we own at the edge. The sweep compares this with the rows
+   * that are still connected: a tenant nobody claims is an orphan (a delete
+   * that never finished, a row lost to a bug) and gets removed — so what the
+   * edge serves is always what the garden says is connected.
+   */
+  listTenants(): Promise<EdgeTenant[]>;
+}
+
+export interface EdgeTenant {
+  tenantId: string;
+  hostname: string;
+  enabled: boolean;
 }
 
 export class MockEdgeProvider implements EdgeProvider {
@@ -83,6 +97,13 @@ export class MockEdgeProvider implements EdgeProvider {
   invalidations: { tenantId: string; paths: string[] }[] = [];
   async invalidateTenant(tenantId: string, paths: string[]) {
     this.invalidations.push({ tenantId, paths });
+  }
+  async listTenants(): Promise<EdgeTenant[]> {
+    return [...this.tenants].map(([tenantId, t]) => ({
+      tenantId,
+      hostname: t.hostname,
+      enabled: t.enabled,
+    }));
   }
 }
 
@@ -289,6 +310,42 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
         },
       }),
     );
+  }
+
+  /**
+   * Tenants on the multi-tenant distribution that this API created (named
+   * `<bucketPrefix><cruxId>-<hostname>`), one entry per domain. Anything else
+   * on the distribution is left alone.
+   */
+  async listTenants(): Promise<EdgeTenant[]> {
+    const prefix = this.cfg.bucketPrefix ?? 'crux-';
+    const out: EdgeTenant[] = [];
+    let marker: string | undefined;
+    do {
+      const res = await this.cf.send(
+        new ListDistributionTenantsCommand({
+          AssociationFilter: {
+            DistributionId:
+              this.cfg.tenantDistributionId ?? this.cfg.distributionId,
+          },
+          Marker: marker,
+          MaxItems: 100,
+        }),
+      );
+      for (const t of res.DistributionTenantList ?? []) {
+        if (!t.Id || !t.Name?.startsWith(prefix)) continue;
+        for (const d of t.Domains ?? []) {
+          if (!d.Domain) continue;
+          out.push({
+            tenantId: t.Id,
+            hostname: d.Domain.toLowerCase(),
+            enabled: t.Enabled !== false,
+          });
+        }
+      }
+      marker = res.NextMarker;
+    } while (marker);
+    return out;
   }
 }
 

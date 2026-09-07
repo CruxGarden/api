@@ -429,6 +429,44 @@ export class DomainsService {
         );
       }
     }
+    removed += await this.sweepOrphanTenants();
+    return removed;
+  }
+
+  /**
+   * The edge is reconciled against the database, not only the other way
+   * round: a tenant whose hostname no live row claims keeps serving a bucket
+   * that may have been republished under a crux which knows nothing about the
+   * domain. Whatever lost track of it — a failed delete, a row that went with
+   * its crux — the tenant goes. Returns how many were removed or disabled.
+   */
+  async sweepOrphanTenants(): Promise<number> {
+    const open = await this.repo.findOpenHostnames();
+    if (open.error) return 0; // never sweep against an unknown database state
+    const claimed = new Set(open.data ?? []);
+    let tenants;
+    try {
+      tenants = await this.edge.listTenants();
+    } catch (err) {
+      this.logger.error(`tenant list failed: ${(err as Error).message}`);
+      return 0;
+    }
+    let removed = 0;
+    for (const t of tenants) {
+      if (claimed.has(t.hostname)) continue;
+      try {
+        const outcome = await this.edge.deleteTenant(t.tenantId);
+        removed += 1;
+        this.logger.warn(`orphan tenant ${outcome}`, {
+          hostname: t.hostname,
+          tenantId: t.tenantId,
+        });
+      } catch (err) {
+        this.logger.error(
+          `orphan tenant delete failed for ${t.hostname}: ${(err as Error).message}`,
+        );
+      }
+    }
     return removed;
   }
 
