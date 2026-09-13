@@ -100,7 +100,7 @@ async function bootstrap() {
 
   const options = new DocumentBuilder()
     .setTitle('Crux Garden API')
-    .setDescription('Where Ideas Grow')
+    .setDescription('Grow Anything')
     .setVersion(API_VERSION)
     .build();
 

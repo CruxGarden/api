@@ -1,5 +1,5 @@
 <div align="center">
-  <img src=".github/banner.jpg" alt="Crux Garden - Where Ideas Grow" width="100%">
+  <img src=".github/banner.jpg" alt="Crux Garden - Grow Anything" width="100%">
 </div>
 
 ## What is Crux Garden?
