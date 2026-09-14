@@ -121,7 +121,10 @@ export class MockBillingProvider implements BillingProvider {
     this.customersByAccount.set(req.accountId, customerId);
     const subscriptionId = `sub_mock_${++this.n}`;
     const now = new Date();
-    const end = new Date(now.getTime() + 30 * 86_400_000);
+    const interval = (await this.prices([req.priceId]))[0].interval;
+    const end = new Date(now);
+    if (interval === 'year') end.setFullYear(end.getFullYear() + 1);
+    else end.setMonth(end.getMonth() + 1);
     this.subscriptions.set(subscriptionId, {
       customerId,
       subscriptionId,
@@ -177,11 +180,14 @@ export class MockBillingProvider implements BillingProvider {
       (id) =>
         this.mockPrices[id] ?? {
           priceId: id,
-          amount: id.includes('year') ? 5000 : 500,
+          amount:
+            (id.includes('year') || id.endsWith('_y') ? 10000 : 1000) *
+            (id.includes('gardener_plus') ? 2 : 1),
           currency: 'usd',
-          interval: id.includes('year')
-            ? ('year' as const)
-            : ('month' as const),
+          interval:
+            id.includes('year') || id.endsWith('_y')
+              ? ('year' as const)
+              : ('month' as const),
         },
     );
   }

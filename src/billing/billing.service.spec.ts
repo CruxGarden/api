@@ -95,6 +95,19 @@ describe('BillingService', () => {
     process.env = { ...env };
   });
 
+  it('does not present an unavailable subscription as a free account', async () => {
+    const repo = fakeRepo();
+    repo.byAccount.mockResolvedValue({
+      data: null,
+      error: new Error('database unavailable'),
+    } as never);
+    const svc = new BillingService(repo as never, logger, email as never);
+    await expect(svc.planIdFor('acct-1')).rejects.toMatchObject({
+      status: 503,
+    });
+    await expect(svc.me('acct-1')).rejects.toMatchObject({ status: 503 });
+  });
+
   it('free by default; catalog lists paid plans with prices', async () => {
     const repo = fakeRepo();
     const svc = new BillingService(repo as never, logger, email as never);
@@ -106,7 +119,11 @@ describe('BillingService', () => {
     expect(me.plan.id).toBe('free');
     expect(me.canManage).toBe(false);
     const cat = await svc.catalog();
-    expect(cat.plans.map((p) => p.plan.id)).toEqual(['free', 'gardener']);
+    expect(cat.plans.map((p) => p.plan.id)).toEqual([
+      'free',
+      'gardener',
+      'gardener_plus',
+    ]);
     expect(cat.plans[1].prices.map((p) => p.interval)).toEqual([
       'month',
       'year',

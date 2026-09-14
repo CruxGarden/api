@@ -170,7 +170,8 @@
       "node_modules/"
     ],
     "automock": false,
-    "resetMocks": false
+    "resetMocks": false,
+    "watchman": false
   },
   "env": {
     "required": [

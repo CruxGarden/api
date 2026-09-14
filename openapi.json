@@ -5436,6 +5436,144 @@
           "Store"
         ]
       }
+    },
+    "/store/{cruxId}/-/export": {
+      "get": {
+        "description": "Shape: { format: \"crux-store\", version: 1, cruxId, exportedAt, public: { key: value }, protected: { visitorId: { key: value } } }. The same document is accepted by import — on this crux, another crux, or the workspace's local store.",
+        "operationId": "StoreController_exportAll",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "description": "The published crux whose store this is",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The store document"
+          },
+          "401": {
+            "description": "Token required"
+          },
+          "403": {
+            "description": "Not the crux author"
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Export the whole store of a crux as one JSON document (author only)",
+        "tags": [
+          "Store"
+        ]
+      }
+    },
+    "/store/{cruxId}/-/import": {
+      "post": {
+        "description": "Body is a document from export. Keys are upserted over what is there; `?mode=replace` empties the store first. Per-visitor values whose visitor is not an account are skipped and counted.",
+        "operationId": "StoreController_importAll",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "description": "The published crux whose store this is",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ imported, skipped }"
+          },
+          "400": {
+            "description": "Not a Crux Store export"
+          },
+          "401": {
+            "description": "Token required"
+          },
+          "403": {
+            "description": "Not the crux author"
+          },
+          "404": {
+            "description": "Crux not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Import a store document into a crux (author only)",
+        "tags": [
+          "Store"
+        ]
+      }
+    },
+    "/inference/usage": {
+      "get": {
+        "operationId": "InferenceController_usage",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inference"
+        ]
+      }
+    },
+    "/inference/v1/messages": {
+      "post": {
+        "operationId": "InferenceController_stream",
+        "parameters": [
+          {
+            "name": "x-request-id",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Anthropic Messages events; tools execute in the client."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inference"
+        ]
+      }
     }
   },
   "info": {
@@ -5994,7 +6132,8 @@
             "type": "string",
             "description": "A paid plan id",
             "enum": [
-              "gardener"
+              "gardener",
+              "gardener_plus"
             ]
           },
           "interval": {

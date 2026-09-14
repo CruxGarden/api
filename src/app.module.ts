@@ -1,3 +1,4 @@
+import { InferenceModule } from './inference/inference.module';
 import { Module } from '@nestjs/common';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_FILTER } from '@nestjs/core';
@@ -52,6 +53,7 @@ import { BillingModule } from './billing/billing.module';
     UsageModule,
     DomainsModule,
     BillingModule,
+    InferenceModule,
   ],
   controllers: [AppController],
   providers: [

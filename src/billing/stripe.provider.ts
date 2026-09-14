@@ -180,9 +180,18 @@ export class StripeBillingProvider implements BillingProvider {
     for (const id of priceIds) {
       try {
         const p = await this.stripe.prices.retrieve(id);
+        if (
+          !p.active ||
+          p.unit_amount === null ||
+          p.unit_amount < 0 ||
+          !p.recurring ||
+          !['month', 'year'].includes(p.recurring.interval) ||
+          p.recurring.interval_count !== 1
+        )
+          continue;
         out.push({
           priceId: p.id,
-          amount: p.unit_amount ?? 0,
+          amount: p.unit_amount,
           currency: p.currency,
           interval: p.recurring?.interval === 'year' ? 'year' : 'month',
         });

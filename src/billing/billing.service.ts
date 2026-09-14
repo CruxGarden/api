@@ -3,6 +3,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { LoggerService } from '../common/services/logger.service';
 import { toEntityFields } from '../common/helpers/case-helpers';
@@ -92,7 +93,7 @@ export class BillingService {
         'Billing in MOCK mode — STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET not set; checkouts succeed instantly',
       );
     }
-    this.priceMap = priceMapFromEnv();
+    this.priceMap = priceMapFromEnv(this.provider.name === 'mock');
   }
 
   /** tests */
@@ -117,11 +118,20 @@ export class BillingService {
   ): Promise<string> {
     if (!accountId) return 'free';
     const r = await this.repo.byAccount(accountId);
+    if (r.error)
+      throw new ServiceUnavailableException(
+        'Subscription status is unavailable.',
+      );
     return effectivePlanId(r.data, now);
   }
 
   async me(accountId: string, now = new Date()): Promise<BillingMe> {
-    const row = (await this.repo.byAccount(accountId)).data;
+    const result = await this.repo.byAccount(accountId);
+    if (result.error)
+      throw new ServiceUnavailableException(
+        'Subscription status is unavailable.',
+      );
+    const row = result.data;
     const planId = effectivePlanId(row, now);
     return {
       plan: planById(planId),
@@ -153,7 +163,7 @@ export class BillingService {
         .filter(([, v]) => v.planId === id)
         .map(([priceId, v]) => {
           const p = byId.get(priceId);
-          return p
+          return p && p.interval === v.interval
             ? {
                 interval: v.interval,
                 priceId,
@@ -188,6 +198,17 @@ export class BillingService {
     );
     if (!entry) throw new BadRequestException('That plan is not available');
     const [priceId] = entry;
+    const catalog = await this.catalog();
+    if (
+      !catalog.plans.some(
+        (p) =>
+          p.plan.id === planId &&
+          p.prices.some((price) => price.priceId === priceId),
+      )
+    )
+      throw new BadRequestException(
+        'That plan price is unavailable or misconfigured',
+      );
     const email = (await this.repo.accountEmail(accountId)).data;
     if (!email) throw new NotFoundException('Account not found');
     const existing = (await this.repo.byAccount(accountId)).data;
@@ -475,10 +496,9 @@ function returnBase(): string {
 }
 
 /** STRIPE_PRICE_<PLAN>_<INTERVAL> env → price map. Mock mode gets synthetic ids. */
-function priceMapFromEnv(): Map<
-  string,
-  { planId: PaidPlanId; interval: BillingInterval }
-> {
+export function priceMapFromEnv(
+  mock = false,
+): Map<string, { planId: PaidPlanId; interval: BillingInterval }> {
   const m = new Map<
     string,
     { planId: PaidPlanId; interval: BillingInterval }
@@ -486,11 +506,35 @@ function priceMapFromEnv(): Map<
   const pairs: [PaidPlanId, BillingInterval, string][] = [
     ['gardener', 'month', 'STRIPE_PRICE_GARDENER_MONTHLY'],
     ['gardener', 'year', 'STRIPE_PRICE_GARDENER_YEARLY'],
+    ['gardener_plus', 'month', 'STRIPE_PRICE_GARDENER_PLUS_MONTHLY'],
+    ['gardener_plus', 'year', 'STRIPE_PRICE_GARDENER_PLUS_YEARLY'],
+  ];
+  const testPrices = process.env.STRIPE_USE_GARDENER_TEST_PRICES === '1';
+  if (testPrices && !process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_'))
+    throw new Error('Gardener test prices require a Stripe test key.');
+  const suppliedTestIds = [
+    'price_0UFcNylLTquvz3Ep5Unmm6th',
+    'price_0UFcP3lLTquvz3Ep0wwokR7y',
+    'price_0UFcPllLTquvz3EpxSSwY84B',
+    'price_0UFcQ6lLTquvz3EpSM2HD4si',
   ];
   const anyEnv = pairs.some(([, , k]) => !!process.env[k]);
-  for (const [planId, interval, key] of pairs) {
+  for (const [index, [planId, interval, key]] of pairs.entries()) {
     const id =
-      process.env[key] || (!anyEnv ? `price_mock_${planId}_${interval}` : '');
+      process.env[key] ||
+      (testPrices
+        ? suppliedTestIds[index]
+        : mock && !anyEnv
+          ? `price_mock_${planId}_${interval}`
+          : '');
+    if (
+      id &&
+      suppliedTestIds.includes(id) &&
+      !process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_')
+    )
+      throw new Error(
+        'A supplied test price cannot be used with live Stripe billing.',
+      );
     if (id) m.set(id, { planId, interval });
   }
   return m;

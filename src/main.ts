@@ -56,6 +56,7 @@ async function bootstrap() {
       'Authorization',
       'api-version',
       'X-Anthropic-Key',
+      'X-Request-Id',
     ],
   });
 
