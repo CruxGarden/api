@@ -15,8 +15,8 @@ import {
 } from './inference.repository';
 import {
   ALLOWANCES,
-  HAIKU,
   SONNET,
+  EFFORT,
   HOUR,
   cost,
   reservation,
@@ -102,11 +102,7 @@ export class InferenceService {
       available: this.available(),
       planId,
       eligible: !!limits,
-      model:
-        planId === 'gardener_plus' &&
-        totals.premiumFiveHour < limits.premiumFiveHour
-          ? SONNET
-          : HAIKU,
+      model: SONNET,
       asOf: now.toISOString(),
       windows: limits
         ? [
@@ -177,7 +173,8 @@ export class InferenceService {
     let upstreamStarted = false;
     let tokens: Tokens | null = null;
     try {
-      const models = planId === 'gardener_plus' ? [SONNET, HAIKU] : [HAIKU];
+      // One model for both tiers; the tier shows up as effort and allowance.
+      const models = [SONNET];
       const choices = await Promise.all(
         models.map(async (model) => {
           const result = await provider.messages.countTokens(
@@ -225,6 +222,7 @@ export class InferenceService {
         {
           ...body,
           model: reserved.model,
+          output_config: { effort: EFFORT[planId] ?? 'medium' },
           stream: true,
         } as Anthropic.MessageCreateParamsStreaming,
         { signal: abort.signal },

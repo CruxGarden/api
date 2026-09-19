@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { success, failure } from '../common/helpers/repository-helpers';
 import type { RepositoryResponse } from '../common/types/interfaces';
 import { DbService } from '../common/services/db.service';
-import { HOUR, SONNET, type Allowance, type Tokens } from './policy';
+import { HOUR, type Allowance, type Tokens } from './policy';
 export interface UsageRow {
   id: string;
   model: string;
@@ -71,9 +71,7 @@ export class InferenceRepository {
           const choice = choices.find(
             (c) =>
               totals.thirtyDay + c.amount <= limit.thirtyDay &&
-              totals.fiveHour + c.amount <= limit.fiveHour &&
-              (c.model !== SONNET ||
-                totals.premiumFiveHour + c.amount <= limit.premiumFiveHour),
+              totals.fiveHour + c.amount <= limit.fiveHour,
           );
           if (!choice) throw new ReservationError('allowance');
           await tx('inference_requests').insert({
@@ -129,6 +127,5 @@ export function usageTotals(rows: UsageRow[], now = new Date()) {
   return {
     thirtyDay: sum(rows),
     fiveHour: sum(recent),
-    premiumFiveHour: sum(recent.filter((r) => r.model === SONNET)),
   };
 }

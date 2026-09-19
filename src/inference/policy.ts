@@ -1,20 +1,31 @@
 import { BadRequestException } from '@nestjs/common';
-export const HAIKU = 'claude-haiku-4-5-20251001';
+/**
+ * Both tiers run Claude Sonnet 5. They differ by allowance and by effort, not
+ * by model: Sonnet is twice Haiku's price but has a 1M context instead of
+ * 200K, supports effort (Haiku 4.5 does not), and its retirement commitment
+ * runs to 2027-06-30 where Haiku 4.5's window opens 2026-10-15. One model also
+ * means one prompt-cache namespace — the old Sonnet→Haiku fallback threw the
+ * cache away exactly when an account was running low, which is the worst
+ * moment to start paying full input price.
+ */
 export const SONNET = 'claude-sonnet-5';
 export const HOUR = 3_600_000;
+/**
+ * Effort is the per-tier cost lever that a second, weaker model used to be.
+ * Lower effort means less thinking and fewer, more consolidated tool calls.
+ */
+export const EFFORT: Record<string, 'low' | 'medium' | 'high'> = {
+  gardener: 'medium',
+  gardener_plus: 'high',
+};
 export interface Allowance {
   fiveHour: number;
   thirtyDay: number;
-  premiumFiveHour: number;
 }
 /** Microdollars, independent of monthly/annual Stripe renewal dates. */
 export const ALLOWANCES: Record<string, Allowance> = {
-  gardener: { fiveHour: 750_000, thirtyDay: 4_000_000, premiumFiveHour: 0 },
-  gardener_plus: {
-    fiveHour: 2_000_000,
-    thirtyDay: 8_000_000,
-    premiumFiveHour: 1_500_000,
-  },
+  gardener: { fiveHour: 750_000, thirtyDay: 4_000_000 },
+  gardener_plus: { fiveHour: 2_000_000, thirtyDay: 8_000_000 },
 };
 export interface Tokens {
   input: number;
@@ -22,8 +33,15 @@ export interface Tokens {
   cacheRead: number;
   cacheWrite: number;
 }
+/**
+ * Microdollars for one request. `input` is the model's dollars per million
+ * input tokens; output is 5x input, a cache read a tenth, a cache write 1.25x
+ * — the same ratios across the current Claude lineup. Verified 2026-09-18:
+ * Sonnet 5 is $2 in / $10 out per MTok.
+ */
+const INPUT_PRICE: Record<string, number> = { [SONNET]: 2 };
 export function cost(model: string, t: Tokens): number {
-  const input = model === SONNET ? 2 : 1;
+  const input = INPUT_PRICE[model] ?? 2;
   return Math.ceil(
     input * (t.input + t.output * 5 + t.cacheRead / 10 + t.cacheWrite * 1.25),
   );
@@ -64,7 +82,7 @@ export function validateRequest(value: unknown): Record<string, unknown> {
   ];
   if (Object.keys(body).some((k) => !allowed.includes(k)))
     fail('Unsupported included collaborator request option.');
-  if (!['garden-included', HAIKU, SONNET].includes(String(body.model)))
+  if (!['garden-included', SONNET].includes(String(body.model)))
     fail('Choose the included collaborator.');
   if (
     !Array.isArray(body.messages) ||

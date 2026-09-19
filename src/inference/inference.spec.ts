@@ -14,7 +14,6 @@ import { BillingService } from '../billing/billing.service';
 import { LoggerService } from '../common/services/logger.service';
 import {
   ALLOWANCES,
-  HAIKU,
   SONNET,
   HOUR,
   cost,
@@ -31,9 +30,10 @@ const request = () => ({
 function fixture(plan = 'gardener') {
   const repo = {
     rows: jest.fn().mockResolvedValue({ data: [], error: null }),
-    reserve: jest
-      .fn()
-      .mockResolvedValue({ data: { model: HAIKU, amount: 8000 }, error: null }),
+    reserve: jest.fn().mockResolvedValue({
+      data: { model: SONNET, amount: 8000 },
+      error: null,
+    }),
     settle: jest.fn().mockResolvedValue({ data: true, error: null }),
   };
   const billing = { planIdFor: jest.fn().mockResolvedValue(plan) };
@@ -83,9 +83,8 @@ async function* completed() {
 describe('Included request policy', () => {
   it('prices cache creation and reads independently, with conservative reservation', () => {
     const tokens = { input: 100, output: 50, cacheRead: 200, cacheWrite: 40 };
-    expect(cost(HAIKU, tokens)).toBe(420);
     expect(cost(SONNET, tokens)).toBe(840);
-    expect(reservation(HAIKU, 100, 1000)).toBeGreaterThan(6000);
+    expect(reservation(SONNET, 100, 1000)).toBeGreaterThan(6000);
   });
   it('rejects unsupported models, costly options, remote files and server tools', () => {
     for (const extra of [
@@ -172,7 +171,7 @@ describe('Included streaming and accounting', () => {
     expect(f.repo.settle).toHaveBeenCalledWith(
       'account',
       id,
-      420,
+      840,
       { input: 100, output: 50, cacheRead: 200, cacheWrite: 40 },
       'complete',
     );
@@ -180,16 +179,30 @@ describe('Included streaming and accounting', () => {
     expect(f.res.write).toHaveBeenCalledWith(
       expect.stringContaining('event: message_stop'),
     );
-    expect(f.provider.messages.create.mock.calls[0][0].model).toBe(HAIKU);
+    expect(f.provider.messages.create.mock.calls[0][0].model).toBe(SONNET);
   });
-  it('gives Plus the ordered Sonnet/Haiku choices and honors the reserved fallback', async () => {
-    const f = fixture('gardener_plus');
-    f.provider.messages.create.mockResolvedValue(completed());
-    await f.service.stream('account', randomUUID(), request(), f.res);
+  it('runs both tiers on Sonnet and separates them by effort', async () => {
+    const base = fixture();
+    base.provider.messages.create.mockResolvedValue(completed());
+    await base.service.stream('account', randomUUID(), request(), base.res);
     expect(
-      f.repo.reserve.mock.calls[0][2].map((c: { model: string }) => c.model),
-    ).toEqual([SONNET, HAIKU]);
-    expect(f.provider.messages.create.mock.calls[0][0].model).toBe(HAIKU);
+      base.repo.reserve.mock.calls[0][2].map((c: { model: string }) => c.model),
+    ).toEqual([SONNET]);
+    expect(base.provider.messages.create.mock.calls[0][0]).toMatchObject({
+      model: SONNET,
+      output_config: { effort: 'medium' },
+    });
+
+    const plus = fixture('gardener_plus');
+    plus.provider.messages.create.mockResolvedValue(completed());
+    await plus.service.stream('account', randomUUID(), request(), plus.res);
+    expect(
+      plus.repo.reserve.mock.calls[0][2].map((c: { model: string }) => c.model),
+    ).toEqual([SONNET]);
+    expect(plus.provider.messages.create.mock.calls[0][0]).toMatchObject({
+      model: SONNET,
+      output_config: { effort: 'high' },
+    });
   });
   it('retains the reservation after unknown transport failure rather than inventing zero usage', async () => {
     const f = fixture();
@@ -264,7 +277,7 @@ describe('Included streaming and accounting', () => {
         created: new Date(now.getTime() - 6 * HOUR),
       },
       {
-        model: HAIKU,
+        model: SONNET,
         status: 'uncertain',
         charged_microdollars: 50000,
         created: new Date(now.getTime() - HOUR),
@@ -274,7 +287,6 @@ describe('Included streaming and accounting', () => {
     expect(usageTotals(rows, now)).toEqual({
       fiveHour: 50000,
       thirtyDay: 150000,
-      premiumFiveHour: 0,
     });
     const usage = await f.service.usage('account', now);
     expect(usage.windows[0].nextReleaseAt).toBe('2026-09-15T00:00:00.000Z');

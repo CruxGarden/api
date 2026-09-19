@@ -5,7 +5,7 @@ import knex, { Knex } from 'knex';
 import { randomUUID } from 'crypto';
 import { InferenceRepository } from './inference.repository';
 import { DbService } from '../common/services/db.service';
-import { HAIKU, SONNET, HOUR, ALLOWANCES } from './policy';
+import { SONNET, HOUR, ALLOWANCES } from './policy';
 import { up } from '../../db/migrations/20260914170000_included_inference';
 const url = process.env.INCLUDED_TEST_DATABASE_URL;
 (url ? describe : describe.skip)(
@@ -51,7 +51,7 @@ const url = process.env.INCLUDED_TEST_DATABASE_URL;
           repo.reserve(
             account,
             randomUUID(),
-            [{ model: HAIKU, amount: 200000 }],
+            [{ model: SONNET, amount: 200000 }],
             ALLOWANCES.gardener,
           ),
         ),
@@ -63,7 +63,7 @@ const url = process.env.INCLUDED_TEST_DATABASE_URL;
           await repo.reserve(
             another,
             randomUUID(),
-            [{ model: HAIKU, amount: 200000 }],
+            [{ model: SONNET, amount: 200000 }],
             ALLOWANCES.gardener,
           )
         ).error,
@@ -76,7 +76,7 @@ const url = process.env.INCLUDED_TEST_DATABASE_URL;
           repo.reserve(
             account,
             randomUUID(),
-            [{ model: HAIKU, amount: 500000 }],
+            [{ model: SONNET, amount: 500000 }],
             ALLOWANCES.gardener,
           ),
         ),
@@ -89,13 +89,13 @@ const url = process.env.INCLUDED_TEST_DATABASE_URL;
         repo.reserve(
           account,
           id,
-          [{ model: HAIKU, amount: 5000 }],
+          [{ model: SONNET, amount: 5000 }],
           ALLOWANCES.gardener,
         ),
         repo.reserve(
           account,
           id,
-          [{ model: HAIKU, amount: 5000 }],
+          [{ model: SONNET, amount: 5000 }],
           ALLOWANCES.gardener,
         ),
       ]);
@@ -112,25 +112,25 @@ const url = process.env.INCLUDED_TEST_DATABASE_URL;
         Number((await repo.rows(account)).data![0].charged_microdollars),
       ).toBe(200);
     });
-    it('falls back from Sonnet without exceeding the shared account allowance', async () => {
+    it('refuses a request the remaining allowance cannot cover', async () => {
       const id = randomUUID();
       await repo.reserve(
         account,
         id,
-        [{ model: SONNET, amount: 1490000 }],
+        [{ model: SONNET, amount: 1_900_000 }],
         ALLOWANCES.gardener_plus,
       );
-      await repo.settle(account, id, 1490000, null, 'uncertain');
+      await repo.settle(account, id, 1_900_000, null, 'uncertain');
+      // One model now, so there is nothing cheaper to fall back to: the
+      // account waits for the window rather than being served a lesser model.
       const chosen = await repo.reserve(
         account,
         randomUUID(),
-        [
-          { model: SONNET, amount: 30000 },
-          { model: HAIKU, amount: 15000 },
-        ],
+        [{ model: SONNET, amount: 200_000 }],
         ALLOWANCES.gardener_plus,
       );
-      expect(chosen.data?.model).toBe(HAIKU);
+      expect(chosen.error).toBeTruthy();
+      expect(chosen.data).toBeFalsy();
     });
     it('retains interrupted cost after the concurrency lease expires; aging out releases each window', async () => {
       const now = new Date();
@@ -138,7 +138,7 @@ const url = process.env.INCLUDED_TEST_DATABASE_URL;
       await repo.reserve(
         account,
         id,
-        [{ model: HAIKU, amount: 700000 }],
+        [{ model: SONNET, amount: 700000 }],
         ALLOWANCES.gardener,
         new Date(now.getTime() - HOUR),
       );
@@ -147,7 +147,7 @@ const url = process.env.INCLUDED_TEST_DATABASE_URL;
           await repo.reserve(
             account,
             randomUUID(),
-            [{ model: HAIKU, amount: 100000 }],
+            [{ model: SONNET, amount: 100000 }],
             ALLOWANCES.gardener,
             now,
           )
@@ -158,7 +158,7 @@ const url = process.env.INCLUDED_TEST_DATABASE_URL;
           await repo.reserve(
             account,
             randomUUID(),
-            [{ model: HAIKU, amount: 100000 }],
+            [{ model: SONNET, amount: 100000 }],
             ALLOWANCES.gardener,
             new Date(now.getTime() + 5 * HOUR),
           )
