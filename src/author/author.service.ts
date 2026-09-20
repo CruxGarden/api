@@ -62,6 +62,23 @@ export class AuthorService {
     return this.asAuthor(author);
   }
 
+  /** The directory, for inviting: id, username and display name only. */
+  async search(
+    q: string,
+  ): Promise<{ id: string; username: string; displayName: string }[]> {
+    const clean = String(q ?? '')
+      .replace(/^@/, '')
+      .trim()
+      .slice(0, 40);
+    if (!clean) return [];
+    const r = await this.authorRepository.search(clean, 10);
+    return (r.data ?? []).map((a) => ({
+      id: a.id,
+      username: a.username,
+      displayName: a.display_name,
+    }));
+  }
+
   async findByUsername(username: string): Promise<Author> {
     const { data: author, error } =
       await this.authorRepository.findByUsername(username);

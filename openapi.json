@@ -598,6 +598,29 @@
         ]
       }
     },
+    "/authors/search": {
+      "get": {
+        "operationId": "AuthorController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
     "/authors/check-username": {
       "get": {
         "description": "Checks if a username is available for use. Returns true if available or if it belongs to the current user.",
@@ -5120,6 +5143,20 @@
         ]
       }
     },
+    "/store/gardens/mine": {
+      "get": {
+        "operationId": "StoreController_gardensMine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Store"
+        ]
+      }
+    },
     "/store/{cruxId}/{key}": {
       "get": {
         "description": "Public keys need no token and return the shared value. Protected keys return the caller’s own slot (token needed; otherwise `{ value: null }`). A key has one mode, fixed by its first write. Every write (set, increment, delete) needs a signed-in account. `public` — open: one shared value belonging to the crux that anyone reads. `protected` — per user: one private slot per account, read and written only by its owner.",
@@ -6406,7 +6443,8 @@
               "image",
               "notes",
               "mood",
-              "tool"
+              "tool",
+              "garden"
             ],
             "example": "webapp"
           },
@@ -6518,7 +6556,8 @@
               "image",
               "notes",
               "mood",
-              "tool"
+              "tool",
+              "garden"
             ],
             "example": "webapp",
             "nullable": true

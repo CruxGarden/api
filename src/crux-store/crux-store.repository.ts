@@ -342,4 +342,52 @@ export class StoreRepository {
       return failure(error);
     }
   }
+
+  /**
+   * The gardens an author belongs to (GARDEN-MEMBERS-PLAN): every published
+   * crux of kind `garden` whose Store holds `members/<authorId>` — written by
+   * the garden's own functions. The value is the membership as the garden
+   * keeps it (role, status, since).
+   */
+  async gardensFor(authorId: string): Promise<
+    RepositoryResponse<
+      {
+        crux_id: string;
+        title: string | null;
+        slug: string;
+        author_id: string;
+        author_username: string;
+        meta: Record<string, unknown> | null;
+        value: unknown;
+        updated_at: Date | string;
+      }[]
+    >
+  > {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from(`${StoreRepository.TABLE} as s`)
+        .join('cruxes as c', 'c.id', 's.crux_id')
+        .join('authors as a', 'a.id', 'c.author_id')
+        .where('s.key', `members/${authorId}`)
+        .whereNull('s.visitor_id')
+        .where('c.kind', 'garden')
+        .whereNull('c.deleted')
+        .select(
+          's.crux_id',
+          'c.title',
+          'c.slug',
+          'c.author_id',
+          'a.username as author_username',
+          'c.meta',
+          's.value',
+          's.updated_at',
+        )
+        .orderBy('s.updated_at', 'desc');
+      return success(rows);
+    } catch (error) {
+      this.logger.error('gardensFor failed', error as Error);
+      return failure(error);
+    }
+  }
 }

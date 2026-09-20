@@ -331,4 +331,30 @@ export class StoreService {
     }
     return data || 0;
   }
+
+  /** The gardens an author belongs to, as their Stores say (GARDEN-MEMBERS-PLAN). */
+  async gardensFor(authorId: string): Promise<
+    {
+      cruxId: string;
+      title: string;
+      slug: string;
+      authorId: string;
+      authorUsername: string;
+      published: boolean;
+      membership: unknown;
+      updatedAt: string;
+    }[]
+  > {
+    const r = await this.repository.gardensFor(authorId);
+    return (r.data ?? []).map((row) => ({
+      cruxId: row.crux_id,
+      title: row.title ?? '',
+      slug: row.slug,
+      authorId: row.author_id,
+      authorUsername: row.author_username,
+      published: !!row.meta?.publishedAt,
+      membership: row.value,
+      updatedAt: new Date(row.updated_at).toISOString(),
+    }));
+  }
 }

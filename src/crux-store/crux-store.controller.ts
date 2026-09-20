@@ -76,6 +76,17 @@ export class StoreController {
   }
 
   /**
+   * GET /store/gardens/mine — the gardens I belong to (GARDEN-MEMBERS-PLAN):
+   * garden cruxes whose Store names me under members/<me>.
+   */
+  @Get('gardens/mine')
+  @UseGuards(AuthGuard)
+  async gardensMine(@Req() req: AuthRequest) {
+    const author = await this.authorService.findByAccountId(req.account.id);
+    return this.storeService.gardensFor(author.id);
+  }
+
+  /**
    * Resolve the crux author ID from a crux ID.
    * Every store operation needs the author ID for billing.
    */

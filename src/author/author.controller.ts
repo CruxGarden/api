@@ -85,6 +85,13 @@ export class AuthorController {
     return true;
   }
 
+  /** The directory of people, for inviting into a garden: `?q=` matches @username or a name. */
+  @Get('search')
+  @UseGuards(AuthGuard)
+  async search(@Query('q') q: string) {
+    return this.authorService.search(q ?? '');
+  }
+
   @Get('check-username')
   @UseGuards(AuthGuard)
   @AuthorSwagger.CheckUsername()

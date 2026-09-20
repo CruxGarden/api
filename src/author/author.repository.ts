@@ -52,6 +52,31 @@ export class AuthorRepository {
     }
   }
 
+  /** The directory: authors by username prefix or display name, for inviting (GARDEN-MEMBERS-PLAN). */
+  async search(
+    q: string,
+    limit = 10,
+  ): Promise<RepositoryResponse<AuthorRaw[]>> {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from<AuthorRaw>(AuthorRepository.TABLE_NAME)
+        .select(AuthorRepository.BASE_SELECT)
+        .whereNull('deleted')
+        .andWhere((b) => {
+          b.whereILike('username', `${q}%`).orWhereILike(
+            'display_name',
+            `%${q}%`,
+          );
+        })
+        .orderBy('username')
+        .limit(limit);
+      return success(rows);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
   async findByUsername(
     username: string,
   ): Promise<RepositoryResponse<AuthorRaw>> {
