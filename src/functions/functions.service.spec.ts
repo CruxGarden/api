@@ -64,6 +64,66 @@ function service(
     },
   };
   const usage = { noteFunctionRun: jest.fn() };
+  // The schedules table, in memory: what load() declares, what runDue() claims.
+  const table = new Map<
+    string,
+    { name: string; schedule: string; nextRun: Date; status?: string }
+  >();
+  const schedules = {
+    table,
+    syncSchedules: jest.fn(
+      async (
+        cruxId: string,
+        rows: { name: string; schedule: string; nextRun: Date }[],
+      ) => {
+        for (const k of [...table.keys()])
+          if (!rows.some((r) => `${cruxId}|${r.name}` === k)) table.delete(k);
+        for (const r of rows) {
+          const k = `${cruxId}|${r.name}`;
+          const prev = table.get(k);
+          table.set(k, prev && prev.schedule === r.schedule ? prev : { ...r });
+        }
+        return { data: undefined };
+      },
+    ),
+    deleteSchedules: jest.fn(async () => ({ data: undefined })),
+    listSchedules: jest.fn(async (cruxId: string) => ({
+      data: [...table.entries()]
+        .filter(([k]) => k.startsWith(`${cruxId}|`))
+        .map(([, v]) => ({
+          crux_id: cruxId,
+          name: v.name,
+          schedule: v.schedule,
+          next_run: v.nextRun,
+          last_run: null,
+          last_status: v.status ?? null,
+        })),
+    })),
+    claimDue: jest.fn(async (now: Date, next: (row: any) => Date | null) => {
+      const due: any[] = [];
+      for (const [k, v] of table) {
+        if (v.nextRun.getTime() > now.getTime()) continue;
+        const row = {
+          crux_id: k.split('|')[0],
+          name: v.name,
+          schedule: v.schedule,
+          next_run: v.nextRun,
+          last_run: null,
+          last_status: null,
+        };
+        const n = next(row);
+        if (n) v.nextRun = n;
+        else table.delete(k);
+        due.push(row);
+      }
+      return { data: due };
+    }),
+    setStatus: jest.fn(async (cruxId: string, name: string, status: string) => {
+      const v = table.get(`${cruxId}|${name}`);
+      if (v) v.status = status;
+      return { data: undefined };
+    }),
+  };
   const svc = new FunctionsService(
     logger as any,
     fileStore as any,
@@ -71,8 +131,13 @@ function service(
     cruxService as any,
     kv as any,
     usage as any,
+    schedules as any,
   );
-  return Object.assign(svc, { metered: usage });
+  return Object.assign(svc, {
+    metered: usage,
+    clock: schedules,
+    kvStore: store,
+  });
 }
 
 describe('Crux Functions runner', () => {
@@ -138,6 +203,73 @@ describe('Crux Functions runner', () => {
     });
     expect(a.body).toEqual({ n: 1, owner: false, ownerId: 'author-1' });
     expect(b.body).toEqual({ n: 2, owner: true, ownerId: 'author-1' });
+  });
+
+  it("is the crux's own API: any method, the rest of the path, the query and the headers reach req; text and redirects come back shaped", async () => {
+    const s = service({
+      'functions/orders.js':
+        'export default async function (req, ctx) { if (req.method === "GET") return ctx.text("order " + req.params[0] + " for " + req.query.who, 200); if (req.method === "DELETE") return ctx.redirect("/gone", 303); return ctx.json({ ua: req.headers["user-agent"], path: req.path }, 201); }',
+    });
+    const get = await s.call('crux-1', 'orders', {
+      body: null,
+      visitorId: null,
+      method: 'GET',
+      rest: '42/items',
+      query: { who: 'ada' },
+    });
+    expect(get).toMatchObject({
+      status: 200,
+      body: 'order 42 for ada',
+      contentType: 'text/plain; charset=utf-8',
+    });
+    const del = await s.call('crux-1', 'orders', {
+      body: null,
+      visitorId: null,
+      method: 'DELETE',
+      rest: '42',
+    });
+    expect(del).toMatchObject({ status: 303, headers: { Location: '/gone' } });
+    const post = await s.call('crux-1', 'orders', {
+      body: {},
+      visitorId: null,
+      method: 'POST',
+      rest: 'a/b',
+      headers: { 'user-agent': 'curl' },
+    });
+    expect(post).toMatchObject({
+      status: 201,
+      body: { ua: 'curl', path: 'a/b' },
+    });
+  });
+
+  it('declares schedules when the folder loads, runs the due ones on the clock with ctx.event, and drops an unpublished crux', async () => {
+    const s = service({
+      'functions/digest.js':
+        'export const schedule = "every 10m";\nexport default async (req, ctx) => { await ctx.store.set("last-digest", ctx.event.data.at); return { ran: ctx.event.name }; }',
+      'functions/bad.js':
+        'export const schedule = "every 90m";\nexport default async () => 1;',
+      'functions/hello.js': 'export default async () => 1;',
+    });
+    const listed = await s.listWithSchedules('crux-1');
+    expect(listed.find((f) => f.name === 'digest')).toMatchObject({
+      schedule: '*/10 * * * *',
+    });
+    expect(listed.find((f) => f.name === 'bad')?.schedule).toBeUndefined();
+    expect(listed.find((f) => f.name === 'digest')?.nextRun).toBeTruthy();
+    expect(s.clock.table.size).toBe(1);
+
+    // Nothing due yet, then the clock passes next_run.
+    expect(await s.runDue(new Date('2020-01-01T00:00:00Z'))).toBe(0);
+    const row = s.clock.table.get('crux-1|digest')!;
+    const later = new Date(row.nextRun.getTime() + 1000);
+    expect(await s.runDue(later)).toBe(1);
+    expect(s.kvStore.get('last-digest')).toBe(later.toISOString());
+    expect(row.status).toBe('200');
+    expect(row.nextRun.getTime()).toBeGreaterThan(later.getTime());
+    expect(s.metered.noteFunctionRun).toHaveBeenCalledWith(
+      'crux-1',
+      expect.any(Number),
+    );
   });
 
   it('meters every run, whatever it answered', async () => {

@@ -15,16 +15,24 @@ import { CruxService } from '../crux/crux.service';
 import { StoreService } from '../crux-store/crux-store.service';
 import { ResourceType } from '../common/types/enums';
 import { UsageService } from '../usage/usage.service';
+import {
+  FunctionsRepository,
+  FunctionScheduleRow,
+} from './functions.repository';
+import { cronError, nextCron, normalizeSchedule } from './cron';
 
 /**
  * Crux Functions (CRUX-FUNCTIONS-PLAN, ADR 0023 — F0 and F6): small handlers
  * a person or their agent writes into a crux's `functions/` folder, published
  * with the crux, run here by the API against the crux's own Store.
  *
- *   functions/hello.js        HTTP     POST /fn/<cruxId>/hello
+ *   functions/hello.js        HTTP     any method at /fn/<cruxId>/hello[/rest]
  *   functions/on-score.js     event    runs when the crux emits "score"
  *                                      (a page's crux.emit, a Store write as
  *                                      "store:write", another handler's ctx.emit)
+ *   functions/digest.js       schedule `export const schedule = '0 9 * * *'`
+ *                                      (or 'every 10m'): runs on the API's clock
+ *                                      with ctx.event = { name: 'schedule' } (F3)
  *
  * A handler is `export default async function (req, ctx) {}`; an event
  * handler may also `export const match = 'score*'`. `ctx` is the whole world
@@ -42,6 +50,12 @@ export interface FunctionSource {
   path: string;
   kind: 'http' | 'event';
   event?: string;
+  /** A cron expression (or `every <n>m|h|d`) the handler also runs on. */
+  schedule?: string;
+  /** When the scheduler will run it next, once the crux is published. */
+  nextRun?: string | null;
+  lastRun?: string | null;
+  lastStatus?: string | null;
 }
 
 export interface CruxEvent {
@@ -56,6 +70,9 @@ export interface RunResult {
   body: unknown;
   logs: string[];
   ms: number;
+  /** For an HTTP answer that is not JSON: the body's media type (text/plain, text/html…). */
+  contentType?: string;
+  headers?: Record<string, string>;
 }
 
 class FunctionReject extends Error {
@@ -94,8 +111,106 @@ export class FunctionsService {
     private readonly store: StoreService,
     @Inject(forwardRef(() => UsageService))
     private readonly usage: UsageService,
+    private readonly schedules: FunctionsRepository,
   ) {
     this.logger = loggerService.createChildLogger('FunctionsService');
+  }
+
+  // ── Schedules (F3) ────────────────────────────────────────────────────
+  private ticker: ReturnType<typeof setInterval> | null = null;
+  tickMs = 30_000;
+
+  startScheduler(): void {
+    if (this.ticker) return;
+    this.ticker = setInterval(() => void this.runDue(), this.tickMs);
+  }
+  stopScheduler(): void {
+    if (this.ticker) clearInterval(this.ticker);
+    this.ticker = null;
+  }
+
+  /** Run every scheduled handler that is due; each firing is one metered run. */
+  async runDue(now = new Date()): Promise<number> {
+    const claimed = await this.schedules.claimDue(now, (row) =>
+      nextCron(row.schedule, now),
+    );
+    if (claimed.error || !claimed.data) return 0;
+    let ran = 0;
+    for (const row of claimed.data) {
+      const status = await this.fire(row, now);
+      await this.schedules.setStatus(row.crux_id, row.name, status);
+      ran += 1;
+    }
+    return ran;
+  }
+
+  private async fire(row: FunctionScheduleRow, now: Date): Promise<string> {
+    let loaded: Loaded;
+    try {
+      loaded = await this.load(row.crux_id);
+    } catch {
+      // Unpublished or gone: its schedules go with it.
+      await this.schedules.deleteSchedules(row.crux_id);
+      return 'unpublished';
+    }
+    const code = loaded.code.get(row.name);
+    if (!code) return 'missing';
+    const event: CruxEvent = {
+      name: 'schedule',
+      data: { schedule: row.schedule, at: now.toISOString(), name: row.name },
+      visitorId: null,
+      at: now.toISOString(),
+    };
+    try {
+      const r = await this.execute(row.crux_id, row.name, code, {
+        req: { method: 'SCHEDULE', body: null, json: async () => null },
+        visitorId: null,
+        event,
+      });
+      this.bus.next({ cruxId: row.crux_id, event });
+      return `${r.status}`;
+    } catch (error) {
+      return `error: ${(error as Error).message}`.slice(0, 200);
+    }
+  }
+
+  /** `export const schedule = '…'` in a handler, validated. */
+  private scheduleOf(code: string): string | null {
+    const m = /export\s+const\s+schedule\s*=\s*(['"`])([^'"`]+)\1/.exec(code);
+    if (!m) return null;
+    const expr = m[2].trim();
+    return cronError(expr) ? null : normalizeSchedule(expr);
+  }
+
+  /** The table mirrors what the published folder declares. */
+  private async syncSchedules(cruxId: string, loaded: Loaded): Promise<void> {
+    const now = new Date();
+    const rows = loaded.sources
+      .filter((s) => s.schedule)
+      .map((s) => ({
+        name: s.name,
+        schedule: s.schedule!,
+        nextRun:
+          nextCron(s.schedule!, now) ?? new Date(now.getTime() + 86_400_000),
+      }));
+    await this.schedules.syncSchedules(cruxId, rows);
+  }
+
+  /** What a published crux's handlers run on, with when-next, for the Share pane. */
+  async listWithSchedules(cruxId: string): Promise<FunctionSource[]> {
+    const loaded = await this.load(cruxId);
+    const rows = (await this.schedules.listSchedules(cruxId)).data ?? [];
+    return loaded.sources.map((s) => {
+      const row = rows.find((r) => r.name === s.name);
+      return row
+        ? {
+            ...s,
+            nextRun: new Date(row.next_run).toISOString(),
+            lastRun: row.last_run ? new Date(row.last_run).toISOString() : null,
+            lastStatus: row.last_status,
+          }
+        : s;
+    });
   }
 
   /** The stream of a crux's events, for the SSE endpoint. */
@@ -126,16 +241,21 @@ export class FunctionsService {
       const bytes = await this.readPublished(crux.id, crux.meta, path);
       if (!bytes) continue;
       const event = name.startsWith('on-') ? name.slice(3) : undefined;
+      const text = bytes.toString('utf8');
+      const schedule = this.scheduleOf(text);
       sources.push({
         name,
         path,
         kind: event ? 'event' : 'http',
         ...(event ? { event } : {}),
+        ...(schedule ? { schedule } : {}),
       });
-      code.set(name, bytes.toString('utf8'));
+      code.set(name, text);
     }
     const loaded = { version, sources, code };
     this.cache.set(cruxId, loaded);
+    // A new published version re-declares its schedules.
+    await this.syncSchedules(cruxId, loaded);
     return loaded;
   }
 
@@ -170,17 +290,36 @@ export class FunctionsService {
   async call(
     cruxId: string,
     name: string,
-    input: { body: unknown; visitorId: string | null; method?: string },
+    input: {
+      body: unknown;
+      visitorId: string | null;
+      method?: string;
+      /** The path after the handler's name: `/fn/<id>/orders/42/items` → `42/items`. */
+      rest?: string;
+      query?: Record<string, string | string[]>;
+      headers?: Record<string, string>;
+    },
   ): Promise<RunResult> {
     const loaded = await this.load(cruxId);
     const source = loaded.sources.find((s) => s.name === name);
     if (!source || source.kind !== 'http')
       throw new NotFoundException(`No function "${name}" in this crux`);
+    const body = input.body;
     return this.execute(cruxId, name, loaded.code.get(name)!, {
       req: {
         method: input.method ?? 'POST',
-        body: input.body,
-        json: async () => input.body,
+        body,
+        json: async () => body,
+        text: async () =>
+          body == null
+            ? ''
+            : typeof body === 'string'
+              ? body
+              : JSON.stringify(body),
+        path: input.rest ?? '',
+        params: (input.rest ?? '').split('/').filter(Boolean),
+        query: input.query ?? {},
+        headers: input.headers ?? {},
       },
       visitorId: input.visitorId,
     });
@@ -241,7 +380,16 @@ export class FunctionsService {
     name: string,
     code: string,
     input: {
-      req: { method: string; body: unknown; json: () => Promise<unknown> };
+      req: {
+        method: string;
+        body: unknown;
+        json: () => Promise<unknown>;
+        text?: () => Promise<string>;
+        path?: string;
+        params?: string[];
+        query?: Record<string, string | string[]>;
+        headers?: Record<string, string>;
+      };
       visitorId: string | null;
       event?: CruxEvent;
       depth?: number;
@@ -264,11 +412,7 @@ export class FunctionsService {
         WALL_MS,
         name,
       );
-      const body =
-        outcome && typeof outcome === 'object' && '__json' in outcome
-          ? (outcome as { __json: unknown }).__json
-          : (outcome ?? null);
-      return { status: 200, body, logs, ms: Date.now() - started };
+      return { ...answerOf(outcome), logs, ms: Date.now() - started };
     } catch (error) {
       if (error instanceof FunctionReject)
         return {
@@ -364,7 +508,29 @@ export class FunctionsService {
               .join(' '),
           );
       },
-      json: (value: unknown) => ({ __json: value }),
+      json: (value: unknown, status = 200) => ({
+        __json: value,
+        __status: status,
+      }),
+      text: (
+        body: unknown,
+        status = 200,
+        type = 'text/plain; charset=utf-8',
+      ) => ({
+        __text: String(body ?? ''),
+        __status: status,
+        __type: type,
+      }),
+      html: (body: unknown, status = 200) => ({
+        __text: String(body ?? ''),
+        __status: status,
+        __type: 'text/html; charset=utf-8',
+      }),
+      redirect: (url: string, status = 302) => ({
+        __text: '',
+        __status: status,
+        __headers: { Location: String(url) },
+      }),
       reject: (message: string, status = 400) => {
         throw new FunctionReject(String(message), status);
       },
@@ -415,6 +581,29 @@ export class FunctionsService {
       }),
     });
   }
+}
+
+/** What a handler returned, as an HTTP answer: ctx.json / ctx.text / ctx.html / ctx.redirect, or a plain value as JSON. */
+function answerOf(outcome: unknown): {
+  status: number;
+  body: unknown;
+  contentType?: string;
+  headers?: Record<string, string>;
+} {
+  if (outcome && typeof outcome === 'object') {
+    const o = outcome as Record<string, unknown>;
+    if ('__text' in o)
+      return {
+        status: Number(o.__status) || 200,
+        body: o.__text,
+        contentType:
+          typeof o.__type === 'string' ? o.__type : 'text/plain; charset=utf-8',
+        headers: (o.__headers as Record<string, string>) ?? {},
+      };
+    if ('__json' in o)
+      return { status: Number(o.__status) || 200, body: o.__json };
+  }
+  return { status: 200, body: outcome ?? null };
 }
 
 /** `score*` matches `score` and `score:saved`; `*` matches everything. */

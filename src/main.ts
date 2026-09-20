@@ -42,14 +42,7 @@ async function bootstrap() {
   const originAllowed = makeOriginCheck(
     async (hostname) => (await domains.resolve(hostname)) !== null,
   );
-  app.enableCors({
-    origin: (origin, callback) => {
-      originAllowed(origin).then(
-        (ok) =>
-          ok ? callback(null, true) : callback(new Error('CORS blocked')),
-        () => callback(new Error('CORS blocked')),
-      );
-    },
+  const corsBase = {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
@@ -58,6 +51,22 @@ async function bootstrap() {
       'X-Anthropic-Key',
       'X-Request-Id',
     ],
+  };
+  app.enableCors((req, callback) => {
+    // A crux's functions and events are its public API (CRUX-FUNCTIONS-PLAN):
+    // any page may call them, as any page may call a published site.
+    const url = (req as { url?: string }).url ?? '';
+    if (url.startsWith('/fn/') || url.startsWith('/events/'))
+      return callback(null, { ...corsBase, origin: true });
+    const origin = (req as { headers?: Record<string, string> }).headers
+      ?.origin;
+    originAllowed(origin).then(
+      (ok) =>
+        ok
+          ? callback(null, { ...corsBase, origin: true })
+          : callback(new Error('CORS blocked')),
+      () => callback(new Error('CORS blocked')),
+    );
   });
 
   // Request validation. Without this every class-validator decorator on the

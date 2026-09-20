@@ -5552,8 +5552,8 @@
       }
     },
     "/fn/{cruxId}/{name}": {
-      "post": {
-        "operationId": "FunctionsController_call",
+      "get": {
+        "operationId": "FunctionsController_call_get",
         "parameters": [
           {
             "name": "cruxId",
@@ -5573,7 +5573,444 @@
           }
         ],
         "responses": {
-          "201": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "post": {
+        "operationId": "FunctionsController_call_post",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "put": {
+        "operationId": "FunctionsController_call_put",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "delete": {
+        "operationId": "FunctionsController_call_delete",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "patch": {
+        "operationId": "FunctionsController_call_patch",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "options": {
+        "operationId": "FunctionsController_call_options",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "head": {
+        "operationId": "FunctionsController_call_head",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "search": {
+        "operationId": "FunctionsController_call_search",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/fn/{cruxId}/{name}/{rest}": {
+      "get": {
+        "operationId": "FunctionsController_callRest_get",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "post": {
+        "operationId": "FunctionsController_callRest_post",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "put": {
+        "operationId": "FunctionsController_callRest_put",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "delete": {
+        "operationId": "FunctionsController_callRest_delete",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "patch": {
+        "operationId": "FunctionsController_callRest_patch",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "options": {
+        "operationId": "FunctionsController_callRest_options",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "head": {
+        "operationId": "FunctionsController_callRest_head",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "search": {
+        "operationId": "FunctionsController_callRest_search",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         },
