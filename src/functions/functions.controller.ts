@@ -2,10 +2,14 @@ import {
   All,
   Body,
   Controller,
+  Delete,
+  ForbiddenException,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
   Post,
+  Put,
   Req,
   Res,
   Sse,
@@ -15,6 +19,8 @@ import {
 import type { Response } from 'express';
 import { Observable, filter, map } from 'rxjs';
 import { OptionalAuthGuard } from '../common/guards/optional-auth.guard';
+import { AuthGuard } from '../common/guards/auth.guard';
+import { CruxService } from '../crux/crux.service';
 import { AuthRequest } from '../common/types/interfaces';
 import { AuthorService } from '../author/author.service';
 import { FunctionsService } from './functions.service';
@@ -36,7 +42,49 @@ export class FunctionsController {
   constructor(
     private readonly functions: FunctionsService,
     private readonly authorService: AuthorService,
+    private readonly cruxService: CruxService,
   ) {}
+
+  private async assertOwner(cruxId: string, req: AuthRequest): Promise<void> {
+    const crux = await this.cruxService.findById(cruxId);
+    if (!crux) throw new NotFoundException('Crux not found');
+    const author = await this.authorService.findByAccountId(req.account.id);
+    if (!author || author.id !== crux.authorId)
+      throw new ForbiddenException('You do not own this crux');
+  }
+
+  // ── Secrets (F1): the author's, encrypted, read by handlers only ──────
+  @Get('fn/:cruxId/secrets')
+  @UseGuards(AuthGuard)
+  async listSecrets(@Param('cruxId') cruxId: string, @Req() req: AuthRequest) {
+    await this.assertOwner(cruxId, req);
+    return this.functions.listSecretNames(cruxId);
+  }
+
+  @Put('fn/:cruxId/secrets/:name')
+  @UseGuards(AuthGuard)
+  async putSecret(
+    @Param('cruxId') cruxId: string,
+    @Param('name') name: string,
+    @Body() body: { value?: unknown },
+    @Req() req: AuthRequest,
+  ) {
+    await this.assertOwner(cruxId, req);
+    await this.functions.setSecret(cruxId, name, String(body?.value ?? ''));
+    return { name, set: true };
+  }
+
+  @Delete('fn/:cruxId/secrets/:name')
+  @UseGuards(AuthGuard)
+  async deleteSecret(
+    @Param('cruxId') cruxId: string,
+    @Param('name') name: string,
+    @Req() req: AuthRequest,
+  ) {
+    await this.assertOwner(cruxId, req);
+    await this.functions.deleteSecret(cruxId, name);
+    return { name, set: false };
+  }
 
   private async visitorId(req: AuthRequest): Promise<string | null> {
     if (!req.account) return null;

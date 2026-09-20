@@ -11,7 +11,12 @@ function service(
   store = new Map<string, unknown>(),
 ) {
   const logger = {
-    createChildLogger: () => ({ warn: jest.fn(), info: jest.fn() }),
+    createChildLogger: () => ({
+      warn: jest.fn(),
+      info: jest.fn(),
+      debug: jest.fn(),
+      error: jest.fn(),
+    }),
   };
   const crux = {
     id: 'crux-1',
@@ -69,8 +74,29 @@ function service(
     string,
     { name: string; schedule: string; nextRun: Date; status?: string }
   >();
+  const vault = new Map<
+    string,
+    { ciphertext: string; iv: string; tag: string }
+  >();
   const schedules = {
     table,
+    vault,
+    putSecret: jest.fn(async (_c: string, name: string, enc: any) => {
+      vault.set(name, enc);
+      return { data: undefined };
+    }),
+    deleteSecret: jest.fn(async (_c: string, name: string) => {
+      vault.delete(name);
+      return { data: undefined };
+    }),
+    secretsFor: jest.fn(async (cruxId: string) => ({
+      data: [...vault.entries()].map(([name, enc]) => ({
+        crux_id: cruxId,
+        name,
+        ...enc,
+        updated: new Date(),
+      })),
+    })),
     syncSchedules: jest.fn(
       async (
         cruxId: string,
@@ -270,6 +296,77 @@ describe('Crux Functions runner', () => {
       'crux-1',
       expect.any(Number),
     );
+  });
+
+  it('keeps secrets encrypted at rest and hands them to handlers only', async () => {
+    process.env.JWT_SECRET =
+      process.env.JWT_SECRET || 'spec-secret-at-least-32-characters-long';
+    const s = service({
+      'functions/pay.js':
+        'export default async (req, ctx) => ({ has: ctx.secrets.has("STRIPE"), len: (ctx.secrets.get("STRIPE") || "").length, none: ctx.secrets.get("NOPE") });',
+    });
+    await s.setSecret('crux-1', 'STRIPE', 'sk_test_123');
+    const stored = s.clock.vault.get('STRIPE')!;
+    expect(stored.ciphertext).not.toContain('sk_test');
+    expect(await s.listSecretNames('crux-1')).toMatchObject([
+      { name: 'STRIPE' },
+    ]);
+    const r = await s.call('crux-1', 'pay', { body: null, visitorId: null });
+    expect(r.body).toEqual({ has: true, len: 11, none: null });
+    await expect(s.setSecret('crux-1', 'bad name', 'x')).rejects.toThrow(
+      /letters, digits/,
+    );
+    await s.deleteSecret('crux-1', 'STRIPE');
+    expect(await s.listSecretNames('crux-1')).toEqual([]);
+  });
+
+  it('reaches out only to the hosts functions/egress.json names, never the private network', async () => {
+    const realFetch = global.fetch;
+    const calls: string[] = [];
+    global.fetch = jest.fn(async (url: any) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ pong: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as any;
+    try {
+      const s = service({
+        'functions/egress.json': JSON.stringify({
+          hosts: ['api.example.com', '*.stripe.com'],
+        }),
+        'functions/out.js':
+          'export default async (req, ctx) => { const r = await ctx.fetch(req.body.url, { method: "POST", body: { a: 1 } }); return { status: r.status, data: await r.json() }; }',
+      });
+      const ok = await s.call('crux-1', 'out', {
+        body: { url: 'https://api.example.com/ping' },
+        visitorId: null,
+      });
+      expect(ok.body).toEqual({ status: 200, data: { pong: true } });
+      const sub = await s.call('crux-1', 'out', {
+        body: { url: 'https://api.stripe.com/v1/x' },
+        visitorId: null,
+      });
+      expect(sub.status).toBe(200);
+      const no = await s.call('crux-1', 'out', {
+        body: { url: 'https://evil.example.org/' },
+        visitorId: null,
+      });
+      expect(no.status).toBe(403);
+      expect(String((no.body as { error: string }).error)).toMatch(
+        /egress\.json/,
+      );
+      const priv = await s.call('crux-1', 'out', {
+        body: { url: 'http://169.254.169.254/latest' },
+        visitorId: null,
+      });
+      expect(priv.status).toBe(403);
+      expect(calls).toHaveLength(2);
+      // "secrets" is the API's own route, never a handler
+      expect((await s.list('crux-1')).map((f) => f.name)).toEqual(['out']);
+    } finally {
+      global.fetch = realFetch;
+    }
   });
 
   it('meters every run, whatever it answered', async () => {

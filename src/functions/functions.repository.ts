@@ -4,6 +4,15 @@ import { LoggerService } from '../common/services/logger.service';
 import { RepositoryResponse } from '../common/types/interfaces';
 import { success, failure } from '../common/helpers/repository-helpers';
 
+export interface CruxSecretRow {
+  crux_id: string;
+  name: string;
+  ciphertext: string;
+  iv: string;
+  tag: string;
+  updated: Date | string;
+}
+
 export interface FunctionScheduleRow {
   crux_id: string;
   name: string;
@@ -138,6 +147,59 @@ export class FunctionsRepository {
       return success(undefined);
     } catch (error) {
       this.logger.error('setStatus failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  // ── Secrets (F1) ──────────────────────────────────────────────────────
+  async putSecret(
+    cruxId: string,
+    name: string,
+    enc: { ciphertext: string; iv: string; tag: string },
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService.query().raw(
+        `INSERT INTO crux_secrets (crux_id, name, ciphertext, iv, tag)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (crux_id, name) DO UPDATE SET
+           ciphertext = EXCLUDED.ciphertext, iv = EXCLUDED.iv, tag = EXCLUDED.tag, updated = now()`,
+        [cruxId, name, enc.ciphertext, enc.iv, enc.tag],
+      );
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('putSecret failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async deleteSecret(
+    cruxId: string,
+    name: string,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()('crux_secrets')
+        .where({ crux_id: cruxId, name })
+        .delete();
+      return success(undefined);
+    } catch (error) {
+      this.logger.error('deleteSecret failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  async secretsFor(
+    cruxId: string,
+  ): Promise<RepositoryResponse<CruxSecretRow[]>> {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from<CruxSecretRow>('crux_secrets')
+        .where({ crux_id: cruxId })
+        .select('*');
+      return success(rows);
+    } catch (error) {
+      this.logger.error('secretsFor failed', error as Error);
       return failure(error);
     }
   }

@@ -5528,6 +5528,89 @@
         ]
       }
     },
+    "/fn/{cruxId}/secrets": {
+      "get": {
+        "operationId": "FunctionsController_listSecrets",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/fn/{cruxId}/secrets/{name}": {
+      "put": {
+        "operationId": "FunctionsController_putSecret",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "delete": {
+        "operationId": "FunctionsController_deleteSecret",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
     "/fn/{cruxId}": {
       "get": {
         "operationId": "FunctionsController_list",

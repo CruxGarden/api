@@ -20,6 +20,12 @@ import {
   FunctionScheduleRow,
 } from './functions.repository';
 import { cronError, nextCron, normalizeSchedule } from './cron';
+import {
+  decryptSecret,
+  egressAllowed,
+  encryptSecret,
+  isPrivateHost,
+} from './secrets';
 
 /**
  * Crux Functions (CRUX-FUNCTIONS-PLAN, ADR 0023 — F0 and F6): small handlers
@@ -92,7 +98,14 @@ interface Loaded {
   version: unknown;
   sources: FunctionSource[];
   code: Map<string, string>;
+  /** Hosts `ctx.fetch` may reach: `functions/egress.json` → `{ "hosts": [...] }`. */
+  egress: string[];
 }
+
+const FETCH_MS = 4000;
+const FETCH_MAX_BYTES = 1_000_000;
+/** Handler names the API keeps for itself. */
+export const RESERVED_NAMES = new Set(['secrets']);
 
 @Injectable()
 export class FunctionsService {
@@ -174,6 +187,50 @@ export class FunctionsService {
     }
   }
 
+  // ── Secrets (F1) ──────────────────────────────────────────────────────
+  async setSecret(cruxId: string, name: string, value: string): Promise<void> {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name))
+      throw new BadRequestException(
+        'A secret name is letters, digits and underscores (≤64)',
+      );
+    if (typeof value !== 'string' || !value || value.length > 8192)
+      throw new BadRequestException('A secret is a string of up to 8 KB');
+    const r = await this.schedules.putSecret(
+      cruxId,
+      name,
+      encryptSecret(value),
+    );
+    if (r.error)
+      throw new ServiceUnavailableException('Could not save the secret');
+  }
+  async deleteSecret(cruxId: string, name: string): Promise<void> {
+    await this.schedules.deleteSecret(cruxId, name);
+  }
+  async listSecretNames(
+    cruxId: string,
+  ): Promise<{ name: string; updated: string }[]> {
+    const rows = (await this.schedules.secretsFor(cruxId)).data ?? [];
+    return rows
+      .map((r) => ({
+        name: r.name,
+        updated: new Date(r.updated).toISOString(),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  private async secretsMap(cruxId: string): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (const r of (await this.schedules.secretsFor(cruxId)).data ?? []) {
+      try {
+        out.set(r.name, decryptSecret(r));
+      } catch {
+        this.logger.warn(`secret ${r.name} does not decrypt (key rotated?)`, {
+          cruxId,
+        });
+      }
+    }
+    return out;
+  }
+
   /** `export const schedule = '…'` in a handler, validated. */
   private scheduleOf(code: string): string | null {
     const m = /export\s+const\s+schedule\s*=\s*(['"`])([^'"`]+)\1/.exec(code);
@@ -233,11 +290,24 @@ export class FunctionsService {
     const artifacts = await this.cruxService.getPublishedArtifacts(cruxId);
     const sources: FunctionSource[] = [];
     const code = new Map<string, string>();
+    let egress: string[] = [];
     for (const a of artifacts) {
       const path = (a.meta as { path?: string } | null)?.path ?? a.filename;
+      if (path === 'functions/egress.json') {
+        const bytes = await this.readPublished(crux.id, crux.meta, path);
+        try {
+          const parsed = JSON.parse(bytes?.toString('utf8') ?? '{}');
+          if (Array.isArray(parsed?.hosts))
+            egress = parsed.hosts.filter((h: unknown) => typeof h === 'string');
+        } catch {
+          this.logger.warn('functions/egress.json is not JSON', { cruxId });
+        }
+        continue;
+      }
       const m = /^functions\/([A-Za-z0-9._-]+)\.js$/.exec(path ?? '');
       if (!m) continue;
       const name = m[1];
+      if (RESERVED_NAMES.has(name)) continue;
       const bytes = await this.readPublished(crux.id, crux.meta, path);
       if (!bytes) continue;
       const event = name.startsWith('on-') ? name.slice(3) : undefined;
@@ -252,7 +322,7 @@ export class FunctionsService {
       });
       code.set(name, text);
     }
-    const loaded = { version, sources, code };
+    const loaded = { version, sources, code, egress };
     this.cache.set(cruxId, loaded);
     // A new published version re-declares its schedules.
     await this.syncSchedules(cruxId, loaded);
@@ -406,7 +476,11 @@ export class FunctionsService {
     try {
       const crux = await this.cruxService.findById(cruxId);
       const handler = this.compile(name, code);
-      const ctx = this.context(crux, input, logs);
+      const egress = this.cache.get(cruxId)?.egress ?? [];
+      const secrets = /ctx\.secrets/.test(code)
+        ? await this.secretsMap(cruxId)
+        : new Map<string, string>();
+      const ctx = this.context(crux, input, logs, { egress, secrets });
       const outcome = await withBudget(
         Promise.resolve(handler(input.req, ctx)),
         WALL_MS,
@@ -431,6 +505,100 @@ export class FunctionsService {
       this.running.set(cruxId, (this.running.get(cruxId) ?? 1) - 1);
       // A run consumes usage whatever it answered (CRUX-FUNCTIONS-PLAN metering).
       this.usage.noteFunctionRun(cruxId, Date.now() - started);
+    }
+  }
+
+  /**
+   * `ctx.fetch` (F1): outbound only to the hosts `functions/egress.json`
+   * names, never to the API's own network, four seconds, a megabyte back.
+   * The answer is a small object the sandbox can hold: status, headers,
+   * text(), json(). In nursery mode (one machine, no public reach) the local
+   * addresses are allowed so a garden can talk to its own API.
+   */
+  private async egressFetch(
+    cruxId: string,
+    egress: string[],
+    url: string,
+    init?: Record<string, unknown>,
+  ): Promise<{
+    ok: boolean;
+    status: number;
+    headers: Record<string, string>;
+    text: () => Promise<string>;
+    json: () => Promise<unknown>;
+  }> {
+    let target: URL;
+    try {
+      target = new URL(url);
+    } catch {
+      throw new FunctionReject(`fetch: "${url}" is not a URL`, 400);
+    }
+    if (target.protocol !== 'https:' && target.protocol !== 'http:')
+      throw new FunctionReject('fetch: only http and https', 400);
+    const local = process.env.NURSERY_MODE === 'true';
+    if (!local && isPrivateHost(target.hostname))
+      throw new FunctionReject(
+        `fetch: ${target.hostname} is not reachable`,
+        403,
+      );
+    if (!egressAllowed(target.hostname, egress))
+      throw new FunctionReject(
+        `fetch: ${target.hostname} is not in functions/egress.json ("hosts")`,
+        403,
+      );
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_MS);
+    try {
+      const method = String(init?.method ?? 'GET').toUpperCase();
+      const headers: Record<string, string> = {};
+      for (const [k, v] of Object.entries(
+        (init?.headers as Record<string, unknown>) ?? {},
+      ))
+        headers[k] = String(v);
+      const body =
+        init?.body === undefined || init?.body === null
+          ? undefined
+          : typeof init.body === 'string'
+            ? init.body
+            : JSON.stringify(init.body);
+      if (
+        body !== undefined &&
+        !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
+      )
+        headers['content-type'] = 'application/json';
+      const res = await fetch(target, {
+        method,
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > FETCH_MAX_BYTES)
+        throw new FunctionReject('fetch: the answer is over 1 MB', 502);
+      const text = buf.toString('utf8');
+      const outHeaders: Record<string, string> = {};
+      res.headers.forEach((v, k) => {
+        outHeaders[k] = v;
+      });
+      this.logger.debug(`fetch ${method} ${target.host} → ${res.status}`, {
+        cruxId,
+      });
+      return {
+        ok: res.ok,
+        status: res.status,
+        headers: outHeaders,
+        text: async () => text,
+        json: async () => JSON.parse(text) as unknown,
+      };
+    } catch (error) {
+      if (error instanceof FunctionReject) throw error;
+      throw new FunctionReject(
+        `fetch: ${(error as Error).name === 'AbortError' ? 'timed out' : (error as Error).message}`,
+        502,
+      );
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -490,14 +658,26 @@ export class FunctionsService {
     crux: { id: string; authorId: string },
     input: { visitorId: string | null; event?: CruxEvent; depth?: number },
     logs: string[],
+    world: { egress: string[]; secrets: Map<string, string> } = {
+      egress: [],
+      secrets: new Map(),
+    },
   ) {
     const cruxId = crux.id;
+    const fetchOut = async (url: string, init?: Record<string, unknown>) =>
+      this.egressFetch(cruxId, world.egress, String(url), init);
     const visitorId = input.visitorId;
     const writer = visitorId ?? crux.authorId;
     const isOwner = visitorId === crux.authorId;
     return Object.freeze({
+      crux: { id: cruxId },
       visitor: visitorId ? { id: visitorId, isOwner } : null,
       owner: { id: crux.authorId },
+      secrets: Object.freeze({
+        get: (name: string) => world.secrets.get(String(name)) ?? null,
+        has: (name: string) => world.secrets.has(String(name)),
+      }),
+      fetch: fetchOut,
       event: input.event ?? null,
       now: () => new Date().toISOString(),
       log: (...parts: unknown[]) => {
