@@ -26,6 +26,7 @@ import { StoreModule } from './crux-store/crux-store.module';
 import { UsageModule } from './usage/usage.module';
 import { DomainsModule } from './domains/domains.module';
 import { BillingModule } from './billing/billing.module';
+import { FunctionsModule } from './functions/functions.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { BillingModule } from './billing/billing.module';
     UsageModule,
     DomainsModule,
     BillingModule,
+    FunctionsModule,
     InferenceModule,
   ],
   controllers: [AppController],

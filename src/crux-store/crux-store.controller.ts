@@ -16,6 +16,8 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '../common/guards/auth.guard';
+import { FunctionsService } from '../functions/functions.service';
+import { forwardRef, Inject } from '@nestjs/common';
 import { OptionalAuthGuard } from '../common/guards/optional-auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
 import { CruxService } from '../crux/crux.service';
@@ -38,6 +40,8 @@ export class StoreController {
     private readonly cruxService: CruxService,
     private readonly authorService: AuthorService,
     private readonly usage: UsageService,
+    @Inject(forwardRef(() => FunctionsService))
+    private readonly functions: FunctionsService,
   ) {}
 
   /**
@@ -115,6 +119,12 @@ export class StoreController {
       visitorId,
     );
     this.usage.noteStoreRequest(cruxId, 'write');
+    // A Store write is an event the crux's functions may answer
+    // (functions/on-store.js with `export const match = 'store:*'`); it
+    // never slows or fails the write.
+    void this.functions
+      .emit(cruxId, 'store:write', { key, value: entry.value, mode }, visitorId)
+      .catch(() => undefined);
     return { value: entry.value };
   }
 

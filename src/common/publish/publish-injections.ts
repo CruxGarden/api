@@ -240,6 +240,36 @@ const CRUX_STORE_CLIENT: PublishInjection = {
       });
     }
   };
+  // Crux Functions (CRUX-FUNCTIONS-PLAN): the crux's backend, from the page.
+  //   crux.fn(name, body)      runs functions/<name>.js, returns what it returned
+  //   crux.emit(name, data)    raises an event: functions/on-<name>.js handlers run
+  //   crux.on(name, cb)        hears the crux's events (a server-sent stream); returns stop()
+  // Functions run where the crux is published; in the workspace preview they answer from there too.
+  function fnBase(){return (_cruxId&&BASE)?BASE.replace(/\/store\/[^/]+$/,''):'';}
+  window.crux.fn=function(name,body){
+    return _ready.then(function(){
+      var b=fnBase();if(!b)return Promise.reject(new Error('Functions run in the published crux'));
+      return fetch(b+'/fn/'+encodeURIComponent(_cruxId)+'/'+encodeURIComponent(name),{method:'POST',headers:hdr(),body:JSON.stringify(body===undefined?null:body)})
+        .then(function(r){if(!r.ok)return fail(r,'Function '+name);return r.status===204?null:r.json();});
+    });
+  };
+  window.crux.emit=function(name,data){
+    return _ready.then(function(){
+      var b=fnBase();if(!b)return Promise.reject(new Error('Events run in the published crux'));
+      return fetch(b+'/events/'+encodeURIComponent(_cruxId)+'/'+encodeURIComponent(name),{method:'POST',headers:hdr(),body:JSON.stringify(data===undefined?null:data)})
+        .then(function(r){if(!r.ok)return fail(r,'Event '+name);return r.json();});
+    });
+  };
+  window.crux.on=function(name,cb){
+    var es=null,stopped=false;
+    _ready.then(function(){
+      var b=fnBase();if(!b||stopped||typeof EventSource==='undefined')return;
+      es=new EventSource(b+'/events/'+encodeURIComponent(_cruxId));
+      function hear(e){try{var ev=JSON.parse(e.data);if(name==='*'||ev.name===name)cb(ev.data,ev);}catch(err){}}
+      if(name==='*')es.onmessage=hear;else{es.addEventListener(name,hear);es.onmessage=hear;}
+    });
+    return function(){stopped=true;if(es)es.close();};
+  };
   if(window.parent!==window)window.parent.postMessage({type:'crux:ready'},'*');
 })();`,
 };

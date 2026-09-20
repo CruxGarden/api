@@ -483,6 +483,8 @@ export class CruxService {
         publishedVersion,
         // where the files live — the origin router asks (ADR 0011 migration)
         publishLayout: this.publishLayout(),
+        // What the site weighs, so Explore can say what an install carries.
+        publishedBytes,
       },
       visibility: CruxVisibility.PUBLIC,
     });

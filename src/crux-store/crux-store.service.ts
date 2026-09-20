@@ -127,6 +127,25 @@ export class StoreService {
     return this.write(cruxId, authorId, key, value, requested, writer);
   }
 
+  /**
+   * A write by a Crux Function (functions/functions.service.ts): the writer
+   * is the visitor the call carried or, with none, the crux's owner — code
+   * the owner published acts for them. The mode rule still holds.
+   */
+  async serverSet(
+    cruxId: string,
+    authorId: string,
+    key: string,
+    value: any,
+    mode: StoreMode,
+    writer: string,
+  ): Promise<Store> {
+    const requested = normalizeStoreMode(mode) as StoreMode;
+    const modes = await this.keyModes(cruxId, key);
+    this.assertModeAllowed(key, modes, requested);
+    return this.write(cruxId, authorId, key, value, requested, writer);
+  }
+
   /** Upsert without the mode or sign-in checks — callers have done both. */
   private async write(
     cruxId: string,
