@@ -5528,6 +5528,114 @@
         ]
       }
     },
+    "/fn/{cruxId}": {
+      "get": {
+        "operationId": "FunctionsController_list",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/fn/{cruxId}/{name}": {
+      "post": {
+        "operationId": "FunctionsController_call",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/events/{cruxId}/{name}": {
+      "post": {
+        "operationId": "FunctionsController_emit",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/events/{cruxId}": {
+      "get": {
+        "operationId": "FunctionsController_stream",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
     "/inference/usage": {
       "get": {
         "operationId": "InferenceController_usage",
@@ -5777,7 +5885,8 @@
               "document",
               "image",
               "notes",
-              "mood"
+              "mood",
+              "tool"
             ],
             "example": "webapp"
           },
@@ -5888,7 +5997,8 @@
               "document",
               "image",
               "notes",
-              "mood"
+              "mood",
+              "tool"
             ],
             "example": "webapp",
             "nullable": true

@@ -58,13 +58,16 @@ function service(
       store.delete(key);
     },
   };
-  return new FunctionsService(
+  const usage = { noteFunctionRun: jest.fn() };
+  const svc = new FunctionsService(
     logger as any,
     fileStore as any,
     publishStorage as any,
     cruxService as any,
     kv as any,
+    usage as any,
   );
+  return Object.assign(svc, { metered: usage });
 }
 
 describe('Crux Functions runner', () => {
@@ -116,6 +119,20 @@ describe('Crux Functions runner', () => {
       visitorId: 'v-1',
     });
     expect(bad).toMatchObject({ status: 400, body: { error: 'nice try' } });
+  });
+
+  it('meters every run, whatever it answered', async () => {
+    const s = service({
+      'functions/ok.js': 'export default async () => 1;',
+      'functions/no.js': 'export default async (req, ctx) => ctx.reject("no");',
+    });
+    await s.call('crux-1', 'ok', { body: null, visitorId: null });
+    await s.call('crux-1', 'no', { body: null, visitorId: null });
+    expect(s.metered.noteFunctionRun).toHaveBeenCalledTimes(2);
+    expect(s.metered.noteFunctionRun).toHaveBeenCalledWith(
+      'crux-1',
+      expect.any(Number),
+    );
   });
 
   it('has nothing but the language in the sandbox', async () => {

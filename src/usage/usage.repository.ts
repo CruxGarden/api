@@ -62,6 +62,8 @@ export interface UsageStoreDailyRow {
   day: string;
   reads: string | number;
   writes: string | number;
+  fn_calls: string | number;
+  fn_ms: string | number;
 }
 export interface UsageDailyRow {
   author_id: string;
@@ -533,16 +535,20 @@ export class UsageRepository {
     day: string,
     reads: number,
     writes: number,
+    fnCalls = 0,
+    fnMs = 0,
   ): Promise<RepositoryResponse<void>> {
     try {
       await this.dbService.query().raw(
-        `INSERT INTO usage_store_daily (author_id, crux_id, day, reads, writes)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO usage_store_daily (author_id, crux_id, day, reads, writes, fn_calls, fn_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (crux_id, day) DO UPDATE SET
            reads = usage_store_daily.reads + EXCLUDED.reads,
            writes = usage_store_daily.writes + EXCLUDED.writes,
+           fn_calls = usage_store_daily.fn_calls + EXCLUDED.fn_calls,
+           fn_ms = usage_store_daily.fn_ms + EXCLUDED.fn_ms,
            updated = now()`,
-        [authorId, cruxId, day, reads, writes],
+        [authorId, cruxId, day, reads, writes, fnCalls, fnMs],
       );
       return success(undefined);
     } catch (error) {

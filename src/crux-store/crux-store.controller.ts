@@ -11,6 +11,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  HttpException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -43,6 +44,36 @@ export class StoreController {
     @Inject(forwardRef(() => FunctionsService))
     private readonly functions: FunctionsService,
   ) {}
+
+  /** Run the crux's `store:write` handlers before a write; a refusal throws. */
+  private async storeWriteHook(
+    cruxId: string,
+    key: string,
+    value: unknown,
+    mode: StoreMode,
+    visitorId: string | null,
+  ): Promise<void> {
+    let results: Record<string, { status: number; body: unknown }>;
+    try {
+      const before = (await this.storeService.get(cruxId, key, visitorId))
+        ?.value;
+      ({ results } = await this.functions.emit(
+        cruxId,
+        'store:write',
+        { key, value, mode, before: before ?? null },
+        visitorId,
+      ));
+    } catch {
+      return; // the runner itself failing is not the crux refusing
+    }
+    for (const [handler, r] of Object.entries(results)) {
+      if (r.status < 400 || r.status >= 500) continue;
+      const message =
+        (r.body as { error?: string } | null)?.error ??
+        `${handler} refused the write`;
+      throw new HttpException(message, r.status);
+    }
+  }
 
   /**
    * Resolve the crux author ID from a crux ID.
@@ -110,6 +141,11 @@ export class StoreController {
     const visitorId = await this.getVisitorId(req);
     const mode = normalizeStoreMode(dto.mode ?? 'protected') as StoreMode;
 
+    // A Store write is an event the crux's functions answer first
+    // (functions/on-store.js with `export const match = 'store:*'`,
+    // CRUX-FUNCTIONS-PLAN F2): a handler that calls ctx.reject refuses the
+    // write and its message is the answer. A broken handler never blocks one.
+    await this.storeWriteHook(cruxId, key, dto.value, mode, visitorId);
     const entry = await this.storeService.set(
       cruxId,
       authorId,
@@ -119,12 +155,6 @@ export class StoreController {
       visitorId,
     );
     this.usage.noteStoreRequest(cruxId, 'write');
-    // A Store write is an event the crux's functions may answer
-    // (functions/on-store.js with `export const match = 'store:*'`); it
-    // never slows or fails the write.
-    void this.functions
-      .emit(cruxId, 'store:write', { key, value: entry.value, mode }, visitorId)
-      .catch(() => undefined);
     return { value: entry.value };
   }
 

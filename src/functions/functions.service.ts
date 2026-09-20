@@ -14,6 +14,7 @@ import { PublishStorageService } from '../common/services/publish-storage.servic
 import { CruxService } from '../crux/crux.service';
 import { StoreService } from '../crux-store/crux-store.service';
 import { ResourceType } from '../common/types/enums';
+import { UsageService } from '../usage/usage.service';
 
 /**
  * Crux Functions (CRUX-FUNCTIONS-PLAN, ADR 0023 — F0 and F6): small handlers
@@ -90,6 +91,8 @@ export class FunctionsService {
     private readonly cruxService: CruxService,
     @Inject(forwardRef(() => StoreService))
     private readonly store: StoreService,
+    @Inject(forwardRef(() => UsageService))
+    private readonly usage: UsageService,
   ) {
     this.logger = loggerService.createChildLogger('FunctionsService');
   }
@@ -281,6 +284,8 @@ export class FunctionsService {
       );
     } finally {
       this.running.set(cruxId, (this.running.get(cruxId) ?? 1) - 1);
+      // A run consumes usage whatever it answered (CRUX-FUNCTIONS-PLAN metering).
+      this.usage.noteFunctionRun(cruxId, Date.now() - started);
     }
   }
 

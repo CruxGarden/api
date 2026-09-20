@@ -73,6 +73,8 @@ function fakeRepo() {
       day: string;
       reads: number;
       writes: number;
+      fn_calls: number;
+      fn_ms: number;
     }
   >();
   const periodRows: Array<
@@ -189,7 +191,15 @@ function fakeRepo() {
       ok(storeBytesRows.get(c) ?? { bytes: 0, keys: 0 }),
     ),
     addStoreDaily: jest.fn(
-      (a: string, c: string, day: string, reads: number, writes: number) => {
+      (
+        a: string,
+        c: string,
+        day: string,
+        reads: number,
+        writes: number,
+        fnCalls = 0,
+        fnMs = 0,
+      ) => {
         const k = `${c}|${day}`;
         const row = storeDaily.get(k) ?? {
           author_id: a,
@@ -197,9 +207,13 @@ function fakeRepo() {
           day,
           reads: 0,
           writes: 0,
+          fn_calls: 0,
+          fn_ms: 0,
         };
         row.reads += reads;
         row.writes += writes;
+        row.fn_calls += fnCalls;
+        row.fn_ms += fnMs;
         storeDaily.set(k, row);
         return ok(undefined);
       },
@@ -523,6 +537,9 @@ describe('UsageService', () => {
     svc.noteStoreRequest(CRUX, 'read', now);
     svc.noteStoreRequest(CRUX, 'write', now);
     svc.noteStoreRequest('00000000-0000-4000-8000-000000000000', 'read', now);
+    // Crux Functions consume usage too: two runs, 40 ms between them.
+    svc.noteFunctionRun(CRUX, 12, now);
+    svc.noteFunctionRun(CRUX, 28.4, now);
     expect(await svc.flushStoreCounts()).toBe(1);
     expect(repo.addStoreDaily).toHaveBeenCalledWith(
       'a1',
@@ -530,6 +547,8 @@ describe('UsageService', () => {
       '2026-09-03',
       2,
       1,
+      2,
+      40,
     );
     // a second flush with nothing buffered is a no-op
     expect(await svc.flushStoreCounts()).toBe(0);
@@ -540,22 +559,28 @@ describe('UsageService', () => {
       keys: 3,
       reads: 2,
       writes: 1,
-      requests: 3,
+      fnCalls: 2,
+      fnMs: 40,
+      requests: 5, // function runs count as Store requests
     });
     expect(u.storageBytes).toBe(2048); // store bytes count toward storage
-    expect(u.budgets.storeRequests).toMatchObject({ used: 3, limit: 100_000 });
+    expect(u.budgets.storeRequests).toMatchObject({ used: 5, limit: 100_000 });
     expect(u.cruxes[0]).toMatchObject({
       cruxId: CRUX,
       storeBytes: 2048,
       storeKeys: 3,
       storeReads: 2,
       storeWrites: 1,
+      fnCalls: 2,
+      fnMs: 40,
     });
     const one = await svc.forCrux(CRUX, now);
     expect(one).toMatchObject({
       storeBytes: 2048,
       storeReads: 2,
       storeWrites: 1,
+      fnCalls: 2,
+      fnMs: 40,
     });
   });
 
