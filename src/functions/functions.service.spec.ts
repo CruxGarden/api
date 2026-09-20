@@ -57,6 +57,11 @@ function service(
     delete: async (_c: string, key: string) => {
       store.delete(key);
     },
+    increment: async (_c: string, _a: string, key: string, by: number) => {
+      const next = (Number(store.get(key)) || 0) + by;
+      store.set(key, next);
+      return next;
+    },
   };
   const usage = { noteFunctionRun: jest.fn() };
   const svc = new FunctionsService(
@@ -119,6 +124,20 @@ describe('Crux Functions runner', () => {
       visitorId: 'v-1',
     });
     expect(bad).toMatchObject({ status: 400, body: { error: 'nice try' } });
+  });
+
+  it('gives a handler counters and the owner: increment is atomic-shaped, isOwner tells the author apart', async () => {
+    const s = service({
+      'functions/next.js':
+        'export default async (req, ctx) => ({ n: await ctx.store.increment("orders:next"), owner: ctx.visitor && ctx.visitor.isOwner, ownerId: ctx.owner.id });',
+    });
+    const a = await s.call('crux-1', 'next', { body: null, visitorId: 'v-9' });
+    const b = await s.call('crux-1', 'next', {
+      body: null,
+      visitorId: 'author-1',
+    });
+    expect(a.body).toEqual({ n: 1, owner: false, ownerId: 'author-1' });
+    expect(b.body).toEqual({ n: 2, owner: true, ownerId: 'author-1' });
   });
 
   it('meters every run, whatever it answered', async () => {

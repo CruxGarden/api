@@ -30,7 +30,8 @@ import { UsageService } from '../usage/usage.service';
  * handler may also `export const match = 'score*'`. `ctx` is the whole world
  * it sees: `ctx.store` (get/set/list/del on this crux's Store, writes as the
  * visitor or, with none, as the crux's owner), `ctx.visitor`, `ctx.event`,
- * `ctx.emit`, `ctx.now()`, `ctx.log()`, `ctx.json()`, `ctx.reject()`.
+ * `ctx.emit`, `ctx.now()`, `ctx.log()`, `ctx.json()`, `ctx.reject()`; `ctx.owner`
+ * and `ctx.visitor.isOwner` tell a handler whether the caller is the crux's author.
  *
  * The sandbox is Node's `vm` with a bare context (no `require`, `process`,
  * `fetch` or filesystem) and a wall-clock budget; `isolated-vm` is the
@@ -349,8 +350,10 @@ export class FunctionsService {
     const cruxId = crux.id;
     const visitorId = input.visitorId;
     const writer = visitorId ?? crux.authorId;
+    const isOwner = visitorId === crux.authorId;
     return Object.freeze({
-      visitor: visitorId ? { id: visitorId } : null,
+      visitor: visitorId ? { id: visitorId, isOwner } : null,
+      owner: { id: crux.authorId },
       event: input.event ?? null,
       now: () => new Date().toISOString(),
       log: (...parts: unknown[]) => {
@@ -391,6 +394,19 @@ export class FunctionsService {
               writer,
             )
           ).value,
+        increment: async (
+          key: string,
+          by = 1,
+          mode: 'public' | 'protected' = 'public',
+        ) =>
+          this.store.increment(
+            cruxId,
+            crux.authorId,
+            String(key),
+            Number(by) || 1,
+            writer,
+            mode,
+          ),
         list: async (prefix = '') =>
           (await this.store.list(cruxId))
             .filter((e) => e.key.startsWith(String(prefix)))
