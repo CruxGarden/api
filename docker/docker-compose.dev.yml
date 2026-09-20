@@ -10,7 +10,9 @@ services:
       POSTGRES_USER: cruxgarden
       POSTGRES_PASSWORD: cruxgarden_dev_password
     ports:
-      - "5432:5432"
+      # Host ports are overridable: another Postgres/Redis often owns 5432/6379
+      # on a developer machine (POSTGRES_PORT=5433 REDIS_PORT=6380 npm run docker:db).
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
     healthcheck:
@@ -25,7 +27,7 @@ services:
     container_name: cruxgarden-dev-redis
     command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data_dev:/data
     healthcheck:

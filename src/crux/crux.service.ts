@@ -346,7 +346,27 @@ export class CruxService {
       throw new NotFoundException('Artifact not found for this crux');
     }
 
-    return this.artifactService.downloadArtifact(artifactId);
+    try {
+      return await this.artifactService.downloadArtifact(artifactId);
+    } catch (error) {
+      // A published Crux's files live in the published bucket only — the
+      // records are metadata (publishCrux step 2). Serve them from there, so
+      // what a garden publishes another garden can fetch and install
+      // (Explore → Install a Crux Tool, a Mood).
+      const path = (artifact.meta as { path?: string } | null)?.path;
+      if (!crux.meta?.publishedAt || !path || this.publishLayout() !== 'shared')
+        throw error;
+      const result = await this.storeService.download({
+        namespace:
+          process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published',
+        path: `${crux.id}/${path}`,
+      });
+      return {
+        data: result.data,
+        filename: artifact.filename,
+        mimeType: artifact.mimeType,
+      };
+    }
   }
 
   /* ~crux artifacts */

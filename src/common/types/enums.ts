@@ -21,6 +21,8 @@ export enum CruxKind {
   NOTES = 'notes',
   /** A shareable Mood: theme + background + persona + soundscape (.cruxmood) */
   MOOD = 'mood',
+  /** A Crux Tool published as a Template Crux: its built runtime and files, installed by cloning (ADR 0050) */
+  TOOL = 'tool',
 }
 
 export enum CruxVisibility {
