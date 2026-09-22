@@ -353,15 +353,10 @@ export class CruxService {
       throw new NotFoundException('Artifact not found for this crux');
     }
 
-    try {
-      return await this.artifactService.downloadArtifact(artifactId);
-    } catch (error) {
-      // A published Crux's files live in the published bucket only — the
-      // records are metadata (publishCrux step 2). Serve them from there, so
-      // what a garden publishes another garden can fetch and install
-      // (Explore → Install a Crux Tool, a Mood).
-      const path = (artifact.meta as { path?: string } | null)?.path;
-      if (!crux.meta?.publishedAt || !path) throw error;
+    const path = (artifact.meta as { path?: string } | null)?.path;
+    const published = async () => {
+      if (!path)
+        throw new NotFoundException('Published artifact path is missing');
       if (
         (crux.meta.publishLayout || this.publishLayout()) === 'bucket-per-crux'
       ) {
@@ -382,6 +377,23 @@ export class CruxService {
         filename: artifact.filename,
         mimeType: artifact.mimeType,
       };
+    };
+    // Tool packages never have a separate working-file object. Go straight
+    // to the published archive rather than paying for a guaranteed S3 miss.
+    if (
+      crux.kind === 'tool' &&
+      crux.meta?.toolPackage?.artifactId === artifactId &&
+      crux.meta?.publishedAt &&
+      path
+    )
+      return published();
+    try {
+      return await this.artifactService.downloadArtifact(artifactId);
+    } catch (error) {
+      // Older publications and ordinary projects may also live only in the
+      // published store. Preserve their working-copy-first fallback.
+      if (!crux.meta?.publishedAt || !path) throw error;
+      return published();
     }
   }
 

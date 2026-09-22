@@ -156,6 +156,7 @@ describe('single-package tool publication', () => {
         size: file.size,
         unpackedBytes: 15,
       });
+      jest.spyOn(f.service, 'findById').mockResolvedValue(result);
       // Retrieval follows the recorded layout even if the current deployment default changed.
       process.env.PUBLISH_LAYOUT =
         layout === 'shared' ? 'bucket-per-crux' : 'shared';
@@ -164,6 +165,7 @@ describe('single-package tool publication', () => {
           await f.service.downloadArtifact('c1', 'archive-artifact')
         ).data.toString(),
       ).toBe(layout === 'shared' ? 'shared' : 'per-crux');
+      expect(f.artifact.downloadArtifact).not.toHaveBeenCalled();
     },
   );
   it('rejects a corrupt archive before deleting a previous publication', async () => {
