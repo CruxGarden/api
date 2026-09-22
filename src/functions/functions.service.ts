@@ -1,4 +1,3 @@
-import { compileToCjs } from './compiler';
 import {
   BadRequestException,
   forwardRef,
@@ -8,7 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Subject } from 'rxjs';
-import * as vm from 'node:vm';
+import { runIsolatedFunction, IsolatedFunctionError } from './isolated-runner';
 import { LoggerService } from '../common/services/logger.service';
 import { StoreService as FileStore } from '../common/services/store.service';
 import { PublishStorageService } from '../common/services/publish-storage.service';
@@ -48,9 +47,8 @@ import {
  * `ctx.emit`, `ctx.now()`, `ctx.log()`, `ctx.json()`, `ctx.reject()`; `ctx.owner`
  * and `ctx.visitor.isOwner` tell a handler whether the caller is the crux's author.
  *
- * The sandbox is Node's `vm` with a bare context (no `require`, `process`,
- * `fetch` or filesystem) and a wall-clock budget; `isolated-vm` is the
- * hardening step the plan names for a public host.
+ * Handlers run in a separate V8 isolate with copied inputs, explicit capability
+ * callbacks, a memory ceiling and an enforceable execution budget (ADR 0051).
  */
 export interface FunctionSource {
   name: string;
@@ -113,6 +111,7 @@ export class FunctionsService {
   private readonly logger: LoggerService;
   private readonly cache = new Map<string, Loaded>();
   private readonly running = new Map<string, number>();
+  private runningTotal = 0;
   private readonly bus = new Subject<{ cruxId: string; event: CruxEvent }>();
 
   constructor(
@@ -467,29 +466,34 @@ export class FunctionsService {
     },
   ): Promise<RunResult> {
     const inFlight = this.running.get(cruxId) ?? 0;
-    if (inFlight >= MAX_CONCURRENT)
+    if (inFlight >= MAX_CONCURRENT || this.runningTotal >= 4)
       throw new ServiceUnavailableException(
         'This crux is running as many functions as it may at once',
       );
     this.running.set(cruxId, inFlight + 1);
+    this.runningTotal++;
     const started = Date.now();
     const logs: string[] = [];
     try {
       const crux = await this.cruxService.findById(cruxId);
-      const handler = this.compile(name, code);
       const egress = this.cache.get(cruxId)?.egress ?? [];
       const secrets = /ctx\.secrets/.test(code)
         ? await this.secretsMap(cruxId)
         : new Map<string, string>();
       const ctx = this.context(crux, input, logs, { egress, secrets });
-      const outcome = await withBudget(
-        Promise.resolve(handler(input.req, ctx)),
-        WALL_MS,
+      const outcome = await runIsolatedFunction(
         name,
+        code,
+        input.req,
+        ctx,
+        WALL_MS,
       );
       return { ...answerOf(outcome), logs, ms: Date.now() - started };
     } catch (error) {
-      if (error instanceof FunctionReject)
+      if (
+        error instanceof FunctionReject ||
+        error instanceof IsolatedFunctionError
+      )
         return {
           status: error.status,
           body: { error: error.message },
@@ -504,6 +508,7 @@ export class FunctionsService {
       );
     } finally {
       this.running.set(cruxId, (this.running.get(cruxId) ?? 1) - 1);
+      this.runningTotal--;
       // A run consumes usage whatever it answered (CRUX-FUNCTIONS-PLAN metering).
       this.usage.noteFunctionRun(cruxId, Date.now() - started);
     }
@@ -601,37 +606,6 @@ export class FunctionsService {
     } finally {
       clearTimeout(timer);
     }
-  }
-
-  /**
-   * The handler as a callable: its ESM exports become `module.exports`, and
-   * it is compiled in a bare context — no `require`, `process`, `fetch`,
-   * timers or filesystem; only the language.
-   */
-  private compile(
-    name: string,
-    code: string,
-  ): (req: unknown, ctx: unknown) => unknown {
-    const cjs = compileToCjs(code);
-    const sandbox: Record<string, unknown> = { module: { exports: {} } };
-    vm.createContext(sandbox, { name: `crux-function:${name}` });
-    try {
-      vm.runInContext(cjs, sandbox, {
-        filename: `${name}.js`,
-        timeout: 200,
-      });
-    } catch (error) {
-      throw new FunctionReject(
-        `"${name}" could not be loaded: ${(error as Error).message}`,
-        500,
-      );
-    }
-    const exported = (sandbox.module as { exports: Record<string, unknown> })
-      .exports;
-    const fn = exported.default;
-    if (typeof fn !== 'function')
-      throw new FunctionReject(`"${name}" has no default export`, 500);
-    return fn as (req: unknown, ctx: unknown) => unknown;
   }
 
   private context(
@@ -771,19 +745,6 @@ export function matches(pattern: string, name: string): boolean {
   if (pattern === '*' || pattern === name) return true;
   if (pattern.endsWith('*')) return name.startsWith(pattern.slice(0, -1));
   return false;
-}
-
-function withBudget<T>(p: Promise<T>, ms: number, name: string): Promise<T> {
-  let timer: NodeJS.Timeout;
-  return Promise.race([
-    p.finally(() => clearTimeout(timer)),
-    new Promise<T>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new FunctionReject(`"${name}" ran past ${ms} ms`, 504)),
-        ms,
-      );
-    }),
-  ]);
 }
 
 export { ResourceType as _ResourceType };

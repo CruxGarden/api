@@ -10,6 +10,8 @@ COPY package*.json ./
 # Copy source code (needed before npm install due to prepare script)
 COPY . .
 
+RUN apk add --no-cache python3 make g++
+
 # Install dependencies (including dev dependencies for build)
 # The prepare script will run build automatically
 RUN npm run build:ci
@@ -21,7 +23,7 @@ FROM node:22-alpine
 WORKDIR /app
 
 # Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init libstdc++
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
@@ -48,4 +50,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 ENTRYPOINT ["dumb-init", "--"]
 
 # Start the application
-CMD ["node", "dist/src/main.js"]
+CMD ["node", "--no-node-snapshot", "dist/src/main.js"]

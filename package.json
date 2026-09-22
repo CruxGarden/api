@@ -34,19 +34,19 @@
     "build": "nest build",
     "build:ci": "npm ci --include=dev --legacy-peer-deps && npm run build",
     "build:prod": "npm ci --include=dev && npm run lint && npm run test:all && npm run build",
-    "start": "nest start",
+    "start": "node --no-node-snapshot node_modules/@nestjs/cli/bin/nest.js start --exec \"node --no-node-snapshot\"",
     "openapi": "ts-node -r tsconfig-paths/register scripts/emit-openapi.ts",
-    "start:dev": "nest start --watch",
-    "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/src/main",
+    "start:dev": "node --no-node-snapshot node_modules/@nestjs/cli/bin/nest.js start --watch --exec \"node --no-node-snapshot\"",
+    "start:debug": "node --no-node-snapshot node_modules/@nestjs/cli/bin/nest.js start --debug --watch --exec \"node --no-node-snapshot\"",
+    "start:prod": "node --no-node-snapshot dist/src/main",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "jest --silent",
+    "test": "node --no-node-snapshot node_modules/jest/bin/jest.js --silent",
     "test:all": "npm run test && npm run test:integration",
-    "test:watch": "jest --watch",
+    "test:watch": "node --no-node-snapshot node_modules/jest/bin/jest.js --watch",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:coverage": "jest --coverage --silent --coveragePathIgnorePatterns=\".spec.ts$|.integration-spec.ts$|swagger|module.ts|dto|entities|/dist/|/db/|/node_modules/\" --testRegex=\"(spec|integration-spec)\\.ts$\" --rootDir=. --testPathIgnorePatterns=\"/node_modules/|/dist/|/db/\"",
-    "test:integration": "jest --config ./test/jest-integration.json --silent",
+    "test:integration": "node --no-node-snapshot node_modules/jest/bin/jest.js --config ./test/jest-integration.json --silent",
     "test:module": "jest --testPathPatterns",
     "migrate:dev": "npx knex migrate:latest --env development --verbose && npx knex seed:run --env development --verbose",
     "migrate:prod": "npx knex migrate:latest --env production --verbose && npx knex seed:run --env production --verbose",
@@ -75,7 +75,7 @@
     "release:patch": "npm version patch && git push --follow-tag",
     "release:minor": "npm version minor && git push --follow-tag",
     "release:major": "npm version major && git push --follow-tag",
-    "verify": "eslint \"{src,test}/**/*.ts\" --max-warnings=0 && jest && nest build"
+    "verify": "eslint \"{src,test}/**/*.ts\" --max-warnings=0 && node --no-node-snapshot node_modules/jest/bin/jest.js && nest build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -98,6 +98,7 @@
     "dotenv": "^17.2.0",
     "format-link-header": "^3.1.1",
     "helmet": "^8.1.0",
+    "isolated-vm": "5.0.4",
     "jsonwebtoken": "^9.0.2",
     "jszip": "3.10.1",
     "knex": "^3.1.0",
@@ -151,7 +152,8 @@
     "moduleFileExtensions": [
       "js",
       "json",
-      "ts"
+      "ts",
+      "node"
     ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
