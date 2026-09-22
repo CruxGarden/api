@@ -1,32 +1,23 @@
+import { CruxGraphService } from './crux-graph.service';
 import {
   Injectable,
   BadRequestException,
   PayloadTooLargeException,
   NotFoundException,
-  ConflictException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { Knex } from 'knex';
-import { toEntityFields } from '../common/helpers/case-helpers';
 import { CreateCruxDto } from './dto/create-crux.dto';
-import { UpdateCruxDto } from './dto/update-crux.dto';
 import { CruxRepository } from './crux.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { DimensionService } from '../dimension/dimension.service';
-import CruxRaw from './entities/crux-raw.entity';
 import Crux from './entities/crux.entity';
-import Dimension from '../dimension/entities/dimension.entity';
-import DimensionRaw from '../dimension/entities/dimension-raw.entity';
 import {
   CruxStatus,
   CruxType,
   CruxVisibility,
-  DimensionType,
   ResourceType,
 } from '../common/types/enums';
-import { CreateDimensionDto } from '../dimension/dto/create-dimension.dto';
-import { UpdateDimensionDto } from '../dimension/dto/update-dimension.dto';
 import { TagService } from '../tag/tag.service';
 import Tag from '../tag/entities/tag.entity';
 import { ArtifactService } from '../artifact/artifact.service';
@@ -45,14 +36,14 @@ import {
 } from '../common/publish/tool-package';
 
 @Injectable()
-export class CruxService {
+export class CruxService extends CruxGraphService {
   private readonly logger: LoggerService;
 
   constructor(
-    private readonly cruxRepository: CruxRepository,
-    private readonly keyMaster: KeyMaster,
+    cruxRepository: CruxRepository,
+    keyMaster: KeyMaster,
     private readonly loggerService: LoggerService,
-    private readonly dimensionService: DimensionService,
+    dimensionService: DimensionService,
     private readonly tagService: TagService,
     private readonly artifactService: ArtifactService,
     private readonly storeService: StoreService,
@@ -62,6 +53,7 @@ export class CruxService {
     private readonly notifications: NotificationsService,
     private readonly domainsService: DomainsService,
   ) {
+    super(cruxRepository, keyMaster, dimensionService);
     this.logger = this.loggerService.createChildLogger('CruxService');
   }
 
@@ -72,73 +64,11 @@ export class CruxService {
       : 'shared';
   }
 
-  asCrux(data: CruxRaw): Crux {
-    const entityFields = toEntityFields(data);
-    return new Crux(entityFields);
-  }
-
-  asCruxes(rows: CruxRaw[]): Crux[] {
-    return rows.map((data) => this.asCrux(data));
-  }
-
-  findAllByAuthorQuery(
-    authorId: string,
-  ): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
-    return this.cruxRepository.findAllByAuthorQuery(authorId);
-  }
-
-  findPublicByAuthorQuery(
-    authorId: string,
-  ): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
-    return this.cruxRepository.findPublicByAuthorQuery(authorId);
-  }
-
-  async findById(id: string): Promise<Crux> {
-    const { data, error } = await this.cruxRepository.findBy('id', id);
-
-    if (error || !data) {
-      throw new NotFoundException('Crux not found');
-    }
-
-    return this.asCrux(data);
-  }
-
-  async findBySlug(slug: string): Promise<Crux> {
-    const { data, error } = await this.cruxRepository.findBy('slug', slug);
-
-    if (error || !data) {
-      throw new NotFoundException('Crux not found');
-    }
-
-    return this.asCrux(data);
-  }
-
-  async findByAuthorAndSlug(authorId: string, slug: string): Promise<Crux> {
-    const { data, error } = await this.cruxRepository.findByAuthorAndSlug(
-      authorId,
-      slug,
-    );
-
-    if (error || !data) {
-      throw new NotFoundException('Crux not found');
-    }
-
-    return this.asCrux(data);
-  }
-
-  async findByIdentifier(identifier: string): Promise<Crux> {
-    // If it looks like a UUID, search by ID
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (uuidPattern.test(identifier)) {
-      return this.findById(identifier);
-    }
-
-    // Otherwise, treat it as a slug
-    return this.findBySlug(identifier);
-  }
-
-  async create(createCruxDto: CreateCruxDto, authorId?: string): Promise<Crux> {
+  /** Hosted publication ingestion retains its existing explicit replacement policy. */
+  override async create(
+    createCruxDto: CreateCruxDto,
+    authorId?: string,
+  ): Promise<Crux> {
     createCruxDto.id = createCruxDto.id || this.keyMaster.generateId();
 
     this.applyDefaults(createCruxDto);
@@ -178,37 +108,6 @@ export class CruxService {
       );
 
     return this.asCrux(created.data);
-  }
-
-  async update(cruxId: string, updateCruxDto: UpdateCruxDto): Promise<Crux> {
-    // 1) fetch crux
-    const cruxToUpdate = await this.findById(cruxId);
-
-    // 2) check slug uniqueness (per author, excluding this crux)
-    if (updateCruxDto.slug && updateCruxDto.slug !== cruxToUpdate.slug) {
-      const existing = await this.cruxRepository.findByAuthorAndSlug(
-        cruxToUpdate.authorId,
-        updateCruxDto.slug,
-      );
-      if (existing.data) {
-        throw new ConflictException(
-          `Slug "${updateCruxDto.slug}" is already in use`,
-        );
-      }
-    }
-
-    // 3) update crux
-    const updated = await this.cruxRepository.update(
-      cruxToUpdate.id,
-      updateCruxDto,
-    );
-    if (updated.error) {
-      throw new InternalServerErrorException(
-        `Crux update error: ${updated.error}`,
-      );
-    }
-
-    return this.asCrux(updated.data);
   }
 
   async delete(cruxId: string, hard = false): Promise<null> {
@@ -251,43 +150,6 @@ export class CruxService {
 
     return null;
   }
-
-  /* crux dimensions */
-
-  getDimensionsQuery(
-    sourceCruxId: string,
-    dimensionType?: DimensionType,
-    embedSource = false,
-    embedTarget = true,
-  ): Knex.QueryBuilder<DimensionRaw, DimensionRaw[]> {
-    return this.dimensionService.findBySourceIdAndTypeQuery(
-      sourceCruxId,
-      dimensionType,
-      embedSource,
-      embedTarget,
-    );
-  }
-
-  async createDimension(
-    cruxId: string,
-    createDimensionDto: CreateDimensionDto,
-  ): Promise<Dimension> {
-    const sourceCrux = await this.findById(cruxId);
-    if (!sourceCrux) {
-      throw new NotFoundException('Crux not found');
-    }
-    createDimensionDto.sourceId = sourceCrux.id;
-    return this.dimensionService.create(createDimensionDto);
-  }
-
-  async updateDimension(
-    dimensionId: string,
-    updateDimensionDto: UpdateDimensionDto,
-  ): Promise<Dimension> {
-    return this.dimensionService.update(dimensionId, updateDimensionDto);
-  }
-
-  /* ~crux dimensions */
 
   /* crux tags */
 

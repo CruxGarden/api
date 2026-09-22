@@ -212,6 +212,22 @@ describe('CruxService', () => {
       authorId: 'author-123',
     };
 
+    it('keeps hosted publication replacement separate from ordinary graph creation', async () => {
+      repository.findByAuthorAndSlug.mockResolvedValue({
+        data: mockCruxRaw,
+        error: null,
+      });
+      repository.delete.mockResolvedValue({ data: null, error: null });
+      repository.create.mockResolvedValue({ data: mockCruxRaw, error: null });
+      await service.create({ ...createDto });
+      expect(repository.delete).toHaveBeenCalledWith(
+        mockCruxRaw.id,
+        undefined,
+        true,
+      );
+      expect(repository.create).toHaveBeenCalled();
+    });
+
     it('should create a crux successfully', async () => {
       repository.findByAuthorAndSlug.mockResolvedValue({
         data: null,

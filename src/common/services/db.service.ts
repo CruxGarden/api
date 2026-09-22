@@ -1,8 +1,12 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-// import { Knex, knex } from 'knex';
+import {
+  Inject,
+  Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { types } from 'pg';
 import knex, { Knex } from 'knex';
-import knexConfig from '../../../knexfile';
 import { attachPaginate } from 'knex-paginate';
 import { URL } from 'url';
 import { Request, Response } from 'express';
@@ -11,6 +15,9 @@ import { LoggerService } from './logger.service';
 import { toEntityFields } from '../helpers/case-helpers';
 
 attachPaginate();
+
+/** A deployment supplies its database; repositories keep the same contract. */
+export const DATABASE_CONFIG = Symbol('DATABASE_CONFIG');
 
 export interface PaginationOptions<TRaw = any, TModel = any> {
   model?: new (data: TRaw) => TModel;
@@ -25,13 +32,15 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   private readonly logger: LoggerService;
   private hasLoggedConnectionError = false;
 
-  constructor(private readonly loggerService: LoggerService) {
+  constructor(
+    private readonly loggerService: LoggerService,
+    @Optional() @Inject(DATABASE_CONFIG) databaseConfig?: Knex.Config,
+  ) {
     this.logger = this.loggerService.createChildLogger('DbService');
 
-    const config =
-      process.env.NODE_ENV === 'production'
-        ? knexConfig.production
-        : knexConfig.development;
+    // Load hosted environment/config only when no deployment adapter is given.
+    // A local API must not discover credentials from a developer's .env file.
+    const config = databaseConfig ?? this.hostedConfig();
 
     // DATE columns (usage_daily.day, usage_periods.period_start…) are calendar
     // days in UTC. node-pg would turn them into local-midnight Date objects and
@@ -52,6 +61,13 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         }
       });
     }
+  }
+
+  private hostedConfig(): Knex.Config {
+    const knexConfig = require('../../../knexfile').default;
+    return process.env.NODE_ENV === 'production'
+      ? knexConfig.production
+      : knexConfig.development;
   }
 
   async onModuleInit() {
