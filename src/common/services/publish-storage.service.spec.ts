@@ -79,6 +79,10 @@ describe('PublishStorageService', () => {
       { path: 'a.css', data: Buffer.alloc(10), contentType: 'text/css' },
     ]);
     expect(r).toEqual({ bytes: 21, files: 2 });
+    expect(await svc.downloadFile('c1', 'index.html')).toEqual(
+      Buffer.from('<h1>hi</h1>'),
+    );
+    await expect(svc.downloadFile('c1', 'missing.zip')).rejects.toThrow();
     expect(Object.keys(svc.mockContents('c1')!)).toEqual([
       'index.html',
       'a.css',

@@ -23,6 +23,7 @@ export const PUBLIC_META_KEYS = [
   'publishedVersion',
   'publishLayout',
   'publishedBytes',
+  'toolPackage',
 ] as const;
 
 export function publicCruxMeta(

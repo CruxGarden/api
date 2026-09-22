@@ -1,5 +1,7 @@
 import {
   Injectable,
+  BadRequestException,
+  PayloadTooLargeException,
   NotFoundException,
   ConflictException,
   InternalServerErrorException,
@@ -36,6 +38,11 @@ import { NotificationsService } from '../usage/notifications.service';
 import { DomainsService } from '../domains/domains.service';
 import Artifact from '../artifact/entities/artifact.entity';
 import { UploadArtifactDto } from '../artifact/dto/upload-artifact.dto';
+import { MAX_ARTIFACT_SIZE } from '../common/types/constants';
+import {
+  inspectToolPackage,
+  TOOL_PACKAGE_PATH,
+} from '../common/publish/tool-package';
 
 @Injectable()
 export class CruxService {
@@ -354,8 +361,17 @@ export class CruxService {
       // what a garden publishes another garden can fetch and install
       // (Explore → Install a Crux Tool, a Mood).
       const path = (artifact.meta as { path?: string } | null)?.path;
-      if (!crux.meta?.publishedAt || !path || this.publishLayout() !== 'shared')
-        throw error;
+      if (!crux.meta?.publishedAt || !path) throw error;
+      if (
+        (crux.meta.publishLayout || this.publishLayout()) === 'bucket-per-crux'
+      ) {
+        const data = await this.publishStorage.downloadFile(crux.id, path);
+        return {
+          data,
+          filename: artifact.filename,
+          mimeType: artifact.mimeType,
+        };
+      }
       const result = await this.storeService.download({
         namespace:
           process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published',
@@ -381,6 +397,28 @@ export class CruxService {
     accountId?: string,
   ): Promise<Crux> {
     const crux = await this.findById(cruxId);
+
+    // Validate the one tool-version entity before replacing an existing publication.
+    let toolPackage: Awaited<ReturnType<typeof inspectToolPackage>> | undefined;
+    if (crux.kind === 'tool') {
+      if (files.length !== 1 || fileMetas[0]?.path !== TOOL_PACKAGE_PATH)
+        throw new BadRequestException(
+          'Publish a Crux Tool as one package. Update Crux Garden and try again.',
+        );
+      toolPackage = await inspectToolPackage(
+        files[0].buffer,
+        crux.meta?.template,
+      );
+      files[0].mimetype = 'application/zip';
+      files[0].originalname = 'tool-package.zip';
+      fileMetas = [
+        { path: TOOL_PACKAGE_PATH, type: 'artifact', kind: 'tool-package' },
+      ];
+    } else if (files.some((file) => file.size > MAX_ARTIFACT_SIZE)) {
+      throw new PayloadTooLargeException(
+        'Individual files must be 250MB or smaller.',
+      );
+    }
 
     // 0. Plan limits (grace-first): refuse only past 2× the plan's storage.
     const incoming = files.reduce(
@@ -485,6 +523,14 @@ export class CruxService {
         publishLayout: this.publishLayout(),
         // What the site weighs, so Explore can say what an install carries.
         publishedBytes,
+        ...(toolPackage
+          ? {
+              toolPackage: {
+                ...toolPackage,
+                artifactId: artifactRecords[0].id,
+              },
+            }
+          : {}),
       },
       visibility: CruxVisibility.PUBLIC,
     });

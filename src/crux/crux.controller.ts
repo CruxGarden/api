@@ -43,11 +43,7 @@ import { SyncTagsDto } from '../tag/dto/sync-tags.dto';
 import Tag from '../tag/entities/tag.entity';
 import { HomeService } from '../home/home.service';
 import { UploadArtifactDto } from '../artifact/dto/upload-artifact.dto';
-import {
-  MAX_ARTIFACT_SIZE,
-  MAX_PUBLISH_SIZE,
-  MAX_PUBLISH_FILES,
-} from '../common/types/constants';
+import { MAX_PUBLISH_SIZE, MAX_PUBLISH_FILES } from '../common/types/constants';
 import Artifact from '../artifact/entities/artifact.entity';
 import { publishUploadStorage } from '../common/publish/upload-storage';
 
@@ -291,7 +287,7 @@ export class CruxController {
   @UseInterceptors(
     FilesInterceptor('files', MAX_PUBLISH_FILES, {
       storage: publishUploadStorage(),
-      limits: { fileSize: MAX_ARTIFACT_SIZE },
+      limits: { fileSize: MAX_PUBLISH_SIZE },
     }),
   )
   async publish(

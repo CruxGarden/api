@@ -8,6 +8,7 @@ import {
   PutBucketPolicyCommand,
   PutBucketTaggingCommand,
   PutObjectCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
   DeleteBucketCommand,
@@ -42,7 +43,7 @@ export class PublishStorageService {
   readonly mockMode: boolean;
   readonly config: PublishStorageConfig;
   /** mock mode only: bucket → set of keys */
-  private readonly mockBuckets = new Map<string, Map<string, number>>();
+  private readonly mockBuckets = new Map<string, Map<string, Buffer>>();
 
   // The S3 client is injectable only so tests can hand in a fake; Nest has no
   // provider for it, so it must be optional or the API cannot boot.
@@ -195,8 +196,8 @@ export class PublishStorageService {
     const bucket = this.bucketName(cruxId);
     const bytes = files.reduce((n, f) => n + f.data.length, 0);
     if (this.mockMode) {
-      const keys = new Map<string, number>();
-      for (const f of files) keys.set(f.path, f.data.length);
+      const keys = new Map<string, Buffer>();
+      for (const f of files) keys.set(f.path, f.data);
       this.mockBuckets.set(bucket, keys);
       this.logger.info('Files published (mock)', {
         bucket,
@@ -268,7 +269,23 @@ export class PublishStorageService {
   /** mock mode: what's in a bucket (tests) */
   mockContents(cruxId: string): Record<string, number> | null {
     const m = this.mockBuckets.get(this.bucketName(cruxId));
-    return m ? Object.fromEntries(m) : null;
+    return m
+      ? Object.fromEntries([...m].map(([path, data]) => [path, data.length]))
+      : null;
+  }
+
+  async downloadFile(cruxId: string, path: string): Promise<Buffer> {
+    const bucket = this.bucketName(cruxId);
+    if (this.mockMode) {
+      const bytes = this.mockBuckets.get(bucket)?.get(path);
+      if (!bytes) throw new Error('Published file not found');
+      return bytes;
+    }
+    const result = await this.s3!.send(
+      new GetObjectCommand({ Bucket: bucket, Key: path }),
+    );
+    if (!result.Body) throw new Error('Published file not found');
+    return Buffer.from(await result.Body.transformToByteArray());
   }
 
   private async listKeys(bucket: string): Promise<string[]> {
