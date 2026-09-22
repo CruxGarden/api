@@ -174,7 +174,10 @@ export class FunctionsController {
       res.send(result.body);
       return undefined;
     }
-    return result.body;
+    // Every ordinary handler result is JSON, including strings and null.
+    // Nest otherwise sends string results as text, unlike objects and arrays.
+    res.json(result.body);
+    return undefined;
   }
 
   @Post('events/:cruxId/:name')

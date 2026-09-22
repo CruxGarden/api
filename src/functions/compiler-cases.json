@@ -1,0 +1,52 @@
+[
+  {
+    "name": "default async function",
+    "code": "export default async function(req) { return await req.json(); }",
+    "body": {
+      "value": 3
+    },
+    "expected": {
+      "value": 3
+    }
+  },
+  {
+    "name": "named default binding",
+    "code": "export default function handler() { return identify(); }\nfunction identify() { return handler.name; }",
+    "body": null,
+    "expected": "handler"
+  },
+  {
+    "name": "exported constants and helpers",
+    "code": "export const value = 7;\nexport function twice(n) { return n * 2; }\nexport default async function(req) { return twice(value) + (await req.json()).n; }",
+    "body": {
+      "n": 1
+    },
+    "expected": 15
+  },
+  {
+    "name": "async helper and metadata",
+    "code": "export const match = 'score:*';\nexport async function answer() { return match; }\nexport default async (req) => answer();",
+    "body": null,
+    "expected": "score:*"
+  },
+  {
+    "name": "default identifier",
+    "code": "const run = () => ({ ok: true });\nexport default run;",
+    "body": null,
+    "expected": {
+      "ok": true
+    }
+  },
+  {
+    "name": "export keywords in strings stay intact",
+    "code": "const text = \"export default function\"; export default () => text;",
+    "body": null,
+    "expected": "export default function"
+  },
+  {
+    "name": "export list and destructuring",
+    "code": "export const {value} = {value: 4}; const run = () => value; export {run as default};",
+    "body": null,
+    "expected": 4
+  }
+]

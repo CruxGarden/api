@@ -1,3 +1,4 @@
+import { compileToCjs } from './compiler';
 import {
   BadRequestException,
   forwardRef,
@@ -611,28 +612,7 @@ export class FunctionsService {
     name: string,
     code: string,
   ): (req: unknown, ctx: unknown) => unknown {
-    const cjs = code
-      .replace(
-        /export\s+default\s+async\s+function/g,
-        'module.exports.default = async function',
-      )
-      .replace(
-        /export\s+default\s+function/g,
-        'module.exports.default = function',
-      )
-      .replace(/export\s+default\s+/g, 'module.exports.default = ')
-      .replace(
-        /export\s+(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g,
-        'module.exports.$2 =',
-      )
-      .replace(
-        /export\s+async\s+function\s+([A-Za-z_$][\w$]*)/g,
-        'module.exports.$1 = async function $1',
-      )
-      .replace(
-        /export\s+function\s+([A-Za-z_$][\w$]*)/g,
-        'module.exports.$1 = function $1',
-      );
+    const cjs = compileToCjs(code);
     const sandbox: Record<string, unknown> = { module: { exports: {} } };
     vm.createContext(sandbox, { name: `crux-function:${name}` });
     try {
