@@ -57,9 +57,11 @@ export function sqliteGraphConfig(filename: string): Knex.Config {
     client: SqliteGraphClient,
     connection: { filename },
     useNullAsDefault: true,
+    acquireConnectionTimeout: 5000,
     pool: {
       min: 1,
       max: 1,
+      propagateCreateError: true,
       afterCreate(
         connection: any,
         done: (error: Error | null, connection: any) => void,

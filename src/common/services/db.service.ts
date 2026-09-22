@@ -5,7 +5,6 @@ import {
   OnModuleInit,
   Optional,
 } from '@nestjs/common';
-import { types } from 'pg';
 import knex, { Knex } from 'knex';
 import { attachPaginate } from 'knex-paginate';
 import { URL } from 'url';
@@ -13,6 +12,7 @@ import { Request, Response } from 'express';
 import * as formatLink from 'format-link-header';
 import { LoggerService } from './logger.service';
 import { toEntityFields } from '../helpers/case-helpers';
+import { AsyncLocalStorage } from 'async_hooks';
 
 attachPaginate();
 
@@ -31,6 +31,7 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   private client: Knex;
   private readonly logger: LoggerService;
   private hasLoggedConnectionError = false;
+  private readonly transactionScope = new AsyncLocalStorage<Knex.Transaction>();
 
   constructor(
     private readonly loggerService: LoggerService,
@@ -45,7 +46,10 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     // DATE columns (usage_daily.day, usage_periods.period_start…) are calendar
     // days in UTC. node-pg would turn them into local-midnight Date objects and
     // shift them across time zones; keep them as 'YYYY-MM-DD' strings.
-    types.setTypeParser(1082, (v: string) => v);
+    if (!databaseConfig) {
+      const { types } = require('pg');
+      types.setTypeParser(1082, (v: string) => v);
+    }
     this.client = knex(config);
 
     // Set up connection pool event listeners
@@ -82,7 +86,14 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   }
 
   query(): Knex {
-    return this.client;
+    return this.transactionScope.getStore() ?? this.client;
+  }
+
+  /** All repositories called by this operation use the same transaction. */
+  async transaction<T>(operation: () => Promise<T>): Promise<T> {
+    return this.query().transaction((trx) =>
+      this.transactionScope.run(trx, operation),
+    );
   }
 
   async paginate<TRaw = any, TModel = any>(
