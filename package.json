@@ -75,7 +75,9 @@
     "release:patch": "npm version patch && git push --follow-tag",
     "release:minor": "npm version minor && git push --follow-tag",
     "release:major": "npm version major && git push --follow-tag",
-    "verify": "eslint \"{src,test}/**/*.ts\" --max-warnings=0 && node --no-node-snapshot node_modules/jest/bin/jest.js && nest build"
+    "verify": "eslint \"{src,test}/**/*.ts\" --max-warnings=0 && node --no-node-snapshot node_modules/jest/bin/jest.js && nest build && npm run verify:local",
+    "build:local": "npm run build && node scripts/package-local-runtime.mjs",
+    "verify:local": "node scripts/package-local-runtime.mjs && node scripts/check-local-runtime.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

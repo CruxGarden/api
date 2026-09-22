@@ -72,6 +72,9 @@ export function sqliteGraphConfig(filename: string): Knex.Config {
           connection.pragma('journal_mode = WAL');
           done(null, connection);
         } catch (error) {
+          // Knex never receives ownership of a connection whose afterCreate
+          // hook rejects, so its pool cannot destroy that connection for us.
+          connection.close();
           done(error, connection);
         }
       },

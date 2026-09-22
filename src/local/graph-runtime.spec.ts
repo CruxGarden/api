@@ -207,6 +207,12 @@ describe('single-owner local API runtime', () => {
   it('refuses a corrupt database without retaining a connection pool', async () => {
     const broken = join(scratch, 'corrupt.db');
     writeFileSync(broken, 'not a sqlite database');
-    await expect(LocalGraphRuntime.open(broken)).rejects.toThrow();
+    const close = jest.spyOn(Database.prototype, 'close');
+    try {
+      await expect(LocalGraphRuntime.open(broken)).rejects.toThrow();
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      close.mockRestore();
+    }
   });
 });

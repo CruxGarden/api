@@ -12,7 +12,7 @@ import { LoggerService } from '../common/services/logger.service';
 import { toEntityFields } from '../common/helpers/case-helpers';
 import Dimension from './entities/dimension.entity';
 import DimensionRaw from './entities/dimension-raw.entity';
-import { DimensionType } from 'src/common';
+import { DimensionType } from '../common/types/enums';
 
 @Injectable()
 export class DimensionService {
