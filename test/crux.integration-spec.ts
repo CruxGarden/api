@@ -524,6 +524,45 @@ describe('Crux Integration Tests', () => {
       expect(mockDimensionRepository.create).toHaveBeenCalled();
     });
 
+    it('preserves relationship role and metadata through the HTTP create contract', async () => {
+      const payload = {
+        ...createDimensionDto,
+        type: 'garden',
+        kind: 'membership',
+        meta: { displayOrder: 3, origin: { cruxId: targetCruxId } },
+      };
+      mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
+      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
+      mockDimensionRepository.create.mockImplementation(async (dto) =>
+        success({
+          id: dto.id,
+          source_id: dto.sourceId,
+          target_id: dto.targetId,
+          type: dto.type,
+          kind: dto.kind,
+          meta: dto.meta,
+          author_id: dto.authorId,
+          home_id: dto.homeId,
+          created: new Date(),
+          updated: new Date(),
+        } as DimensionRaw),
+      );
+      const response = await request(app.getHttpServer())
+        .post(`/cruxes/${testCruxId}/dimensions`)
+        .set(authHeader(generateToken(testAccountId)))
+        .send(payload)
+        .expect(201);
+      expect(response.body).toMatchObject({
+        sourceId: testCruxId,
+        targetId: targetCruxId,
+        kind: payload.kind,
+        meta: payload.meta,
+      });
+      expect(mockDimensionRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: payload.kind, meta: payload.meta }),
+      );
+    });
+
     it('should return 404 when source crux not found', async () => {
       const token = generateToken(testAccountId);
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));

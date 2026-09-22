@@ -3,6 +3,8 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  IsObject,
+  ValidateIf,
   IsString,
   IsUUID,
   Min,
@@ -34,6 +36,23 @@ export class CreateDimensionDto {
   })
   @IsEnum(DimensionType)
   type: string;
+
+  @ApiPropertyOptional({
+    description: 'Relationship role within its dimension type',
+    example: 'membership',
+  })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString()
+  kind?: string;
+
+  @ApiPropertyOptional({
+    description: 'Relationship metadata; updates shallow-merge top-level keys',
+    type: 'object',
+    additionalProperties: true,
+  })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsObject()
+  meta?: Record<string, unknown>;
 
   @ApiPropertyOptional({
     description: 'Weight of the relationship (integer)',

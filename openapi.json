@@ -6633,6 +6633,16 @@
             ],
             "example": "gate"
           },
+          "kind": {
+            "type": "string",
+            "description": "Relationship role within its dimension type",
+            "example": "membership"
+          },
+          "meta": {
+            "type": "object",
+            "description": "Relationship metadata; updates shallow-merge top-level keys",
+            "additionalProperties": true
+          },
           "weight": {
             "type": "number",
             "description": "Weight of the relationship (integer)",
@@ -6781,6 +6791,16 @@
               "graft"
             ],
             "example": "gate"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Relationship role within its dimension type",
+            "example": "membership"
+          },
+          "meta": {
+            "type": "object",
+            "description": "Relationship metadata; updates shallow-merge top-level keys",
+            "additionalProperties": true
           },
           "weight": {
             "type": "number",

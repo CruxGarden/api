@@ -80,7 +80,12 @@ export class DimensionService {
 
     const updated = await this.dimensionRepository.update(
       dimensionToUpdate.id,
-      updateDimensionDto,
+      {
+        ...updateDimensionDto,
+        ...(updateDimensionDto.meta !== undefined
+          ? { meta: { ...dimensionToUpdate.meta, ...updateDimensionDto.meta } }
+          : {}),
+      },
     );
     if (updated.error) {
       throw new InternalServerErrorException(

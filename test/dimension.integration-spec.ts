@@ -166,6 +166,40 @@ describe('Dimension Integration Tests', () => {
   });
 
   describe('PATCH /dimensions/:dimensionId', () => {
+    it('patches relationship metadata without discarding unrelated keys', async () => {
+      const existing = {
+        ...testDimensionRaw,
+        kind: 'membership',
+        meta: { displayOrder: 1, origin: { cruxId: testSourceCruxId } },
+      };
+      mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
+      mockDimensionRepository.findBy.mockResolvedValue(success(existing));
+      mockDimensionRepository.update.mockImplementation(async (_id, dto) =>
+        success({ ...existing, ...dto } as DimensionRaw),
+      );
+      const response = await request(app.getHttpServer())
+        .patch(`/dimensions/${testDimensionId}`)
+        .set(authHeader(generateToken(testAccountId)))
+        .send({ kind: 'association', meta: { displayOrder: 2 } })
+        .expect(200);
+      expect(response.body).toMatchObject({
+        kind: 'association',
+        meta: { displayOrder: 2, origin: { cruxId: testSourceCruxId } },
+      });
+    });
+
+    it.each([[], 'invalid', 4, null])(
+      'rejects non-object relationship metadata: %j',
+      async (meta) => {
+        await request(app.getHttpServer())
+          .patch(`/dimensions/${testDimensionId}`)
+          .set(authHeader(generateToken(testAccountId)))
+          .send({ meta })
+          .expect(400);
+        expect(mockDimensionRepository.update).not.toHaveBeenCalled();
+      },
+    );
+
     const updateDimensionDto = {
       type: 'garden',
       weight: 5,
