@@ -70,6 +70,20 @@ export interface GraphOperations {
   workingCopy: WorkingCopyService;
 }
 
+/** Ephemeral invalidation for named commands, never a content payload or durable log.
+ * Compatibility SQL and arbitrary execute callbacks do not produce notifications. */
+export interface LocalGraphChange {
+  readonly streamId: string;
+  readonly sequence: number;
+  readonly entity: 'crux' | 'working-copy' | 'garden-membership' | 'database';
+  readonly id?: string;
+  readonly cruxId?: string;
+  readonly fields?: readonly string[];
+  readonly metaKeys?: readonly string[];
+}
+type ChangeDetail = Omit<LocalGraphChange, 'streamId' | 'sequence'>;
+type ChangeListener = (change: LocalGraphChange) => void | Promise<void>;
+
 /**
  * One local API owner over one existing desktop database. No hosted AppModule,
  * HTTP listener, renderer backend switch or credentials are started here.
@@ -86,6 +100,9 @@ export class LocalGraphRuntime {
   private closing: Promise<void> | null = null;
   private recoveryClosing: Promise<ArrayBuffer> | null = null;
   private readonly commandScope = new AsyncLocalStorage<boolean>();
+  private readonly streamId = randomUUID();
+  private sequence = 0;
+  private readonly listeners = new Set<ChangeListener>();
   private replacing = false;
   private failure: Error | null = null;
   private db: DbService;
@@ -231,21 +248,74 @@ export class LocalGraphRuntime {
     );
   }
 
+  onChange(listener: ChangeListener): () => void {
+    const refused = this.admissionError();
+    if (refused) throw refused;
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(detail: ChangeDetail): void {
+    const change: LocalGraphChange = Object.freeze({
+      ...detail,
+      ...(detail.fields ? { fields: Object.freeze([...detail.fields]) } : {}),
+      ...(detail.metaKeys
+        ? { metaKeys: Object.freeze([...detail.metaKeys]) }
+        : {}),
+      streamId: this.streamId,
+      sequence: ++this.sequence,
+    });
+    // Subscribers may enqueue reads after commit. Never await them inside the
+    // owner queue, and never let a broken observer turn a committed save into failure.
+    this.commandScope.exit(() => {
+      for (const listener of [...this.listeners]) {
+        try {
+          Promise.resolve(listener(change)).catch(() => {});
+        } catch {
+          /* observer only */
+        }
+      }
+    });
+  }
+
+  private executeChanged<T>(
+    operation: (services: GraphOperations) => Promise<T>,
+    change: (result: T) => ChangeDetail,
+  ): Promise<T> {
+    return this.enqueue(async () => {
+      const result = await this.db.transaction(() =>
+        operation(this.operations),
+      );
+      this.notify(change(result));
+      return result;
+    });
+  }
+
   /** Capture a complete detail patch, then read/merge/write in one transaction. */
   async updateCrux(id: string, patch: LocalCruxUpdate): Promise<void> {
     if (typeof id !== 'string' || !id) throw new Error('Use a Crux identity');
     const captured = captureCruxUpdate(patch);
-    await this.execute(async ({ crux }) => {
-      const current = await crux.findById(id);
-      // Enum strings were checked at admission. The desktop-only remoteId is
-      // retained by the repository; it is never added to the hosted HTTP DTO.
-      await crux.update(id, {
-        ...captured,
-        ...(captured.meta === undefined
-          ? {}
-          : { meta: { ...current.meta, ...captured.meta } }),
-      } as UpdateCruxDto);
-    });
+    await this.executeChanged(
+      async ({ crux }) => {
+        const current = await crux.findById(id);
+        // Enum strings were checked at admission. The desktop-only remoteId is
+        // retained by the repository; it is never added to the hosted HTTP DTO.
+        await crux.update(id, {
+          ...captured,
+          ...(captured.meta === undefined
+            ? {}
+            : { meta: { ...current.meta, ...captured.meta } }),
+        } as UpdateCruxDto);
+      },
+      () => ({
+        entity: 'crux',
+        id,
+        fields: Object.keys(captured),
+        metaKeys: Object.keys(captured.meta ?? {}),
+      }),
+    );
   }
 
   /** Compatibility for hosts that adopted metadata commands first. */
@@ -273,18 +343,36 @@ export class LocalGraphRuntime {
     )
       throw new Error('Use a Working Copy identity and metadata object');
     const captured = captureCruxUpdate({ meta: patch, title });
-    return this.execute(({ workingCopy }) =>
-      workingCopy.updateMeta(id, captured.meta!, captured.title),
+    await this.executeChanged(
+      ({ workingCopy }) =>
+        workingCopy.updateMeta(id, captured.meta!, captured.title),
+      (cruxId) => ({
+        entity: 'working-copy',
+        id,
+        cruxId,
+        fields: Object.keys(captured),
+        metaKeys: Object.keys(captured.meta!),
+      }),
     );
   }
 
   addGardenMember(input: AddGardenMember) {
     const captured = { ...input };
-    return this.execute(({ garden }) => garden.add(captured));
+    return this.executeChanged(
+      ({ garden }) => garden.add(captured),
+      () => ({
+        entity: 'garden-membership',
+        id: captured.gardenId,
+        cruxId: captured.memberId,
+      }),
+    );
   }
 
   removeGardenMember(gardenId: string, memberId: string) {
-    return this.execute(({ garden }) => garden.remove(gardenId, memberId));
+    return this.executeChanged(
+      ({ garden }) => garden.remove(gardenId, memberId),
+      () => ({ entity: 'garden-membership', id: gardenId, cruxId: memberId }),
+    );
   }
 
   listGardenMembers(
@@ -397,9 +485,17 @@ export class LocalGraphRuntime {
       this.replaceCapturedDatabase(captured),
     );
     this.replacing = true;
-    return replacement.finally(() => {
-      this.replacing = false;
-    });
+    return replacement.then(
+      (previous) => {
+        this.replacing = false;
+        this.notify({ entity: 'database' });
+        return previous;
+      },
+      (error) => {
+        this.replacing = false;
+        throw error;
+      },
+    );
   }
 
   private reserveCurrentIdentity(): void {
@@ -548,6 +644,7 @@ export class LocalGraphRuntime {
     this.closing ??= this.pending.then(async () => {
       if (this.failure) throw this.failure;
       await this.context.close();
+      this.listeners.clear();
       // Release only after SQLite is closed; failed shutdown must not admit
       // another owner over a potentially live connection.
       this.ownershipKeys.forEach((key) =>

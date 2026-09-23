@@ -20,7 +20,7 @@ export class WorkingCopyService {
     id: string,
     patch: Record<string, unknown>,
     title?: string,
-  ): Promise<void> {
+  ): Promise<string> {
     const result = await this.copies.find(id);
     if (result.error)
       throw new InternalServerErrorException(result.error.message);
@@ -54,5 +54,6 @@ export class WorkingCopyService {
       throw new ConflictException(
         'This task changed while saving. Reload it before retrying.',
       );
+    return copy.crux_id;
   }
 }
