@@ -54,6 +54,114 @@ describe('single-owner local API runtime', () => {
     rmSync(scratch, { recursive: true, force: true });
   });
 
+  it('bootstraps a fresh API-owned file, uses graph commands and reopens its recovery image', async () => {
+    const freshPath = join(scratch, 'fresh.db');
+    let fresh = await LocalGraphRuntime.create(freshPath);
+    try {
+      const garden = await fresh.execute(({ crux }) => crux.create(input()));
+      const child = await fresh.execute(({ crux }) => crux.create(input()));
+      await fresh.addGardenMember({
+        gardenId: garden.id,
+        memberId: child.id,
+        authorId,
+        homeId,
+      });
+      await fresh.run('INSERT INTO settings (key, value) VALUES (?, ?)', [
+        'fixture',
+        'preserved',
+      ]);
+      const image = await fresh.closeWithRecoveryImage();
+      expect(inspectDesktopRecovery(image).schemaVersion).toBe(4);
+      const recoveredPath = join(scratch, 'fresh-recovered.db');
+      writeFileSync(recoveredPath, Buffer.from(image));
+      fresh = await LocalGraphRuntime.open(recoveredPath);
+      expect(
+        (await fresh.listGardenMembers(garden.id)).items.map((item) => item.id),
+      ).toEqual([child.id]);
+      expect(
+        await fresh.get('SELECT value FROM settings WHERE key = ?', [
+          'fixture',
+        ]),
+      ).toEqual({ value: 'preserved' });
+      expect(
+        await fresh.all(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('accounts', 'subscriptions', 'billing_simulation')",
+        ),
+      ).toEqual([]);
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  it('never overwrites existing bytes and admits only one concurrent fresh creator', async () => {
+    const untouched = join(scratch, 'not-a-database.db');
+    const bytes = Buffer.from('existing content');
+    writeFileSync(untouched, bytes);
+    await expect(LocalGraphRuntime.create(untouched)).rejects.toThrow();
+    expect(readFileSync(untouched)).toEqual(bytes);
+    const freshPath = join(scratch, 'concurrent.db');
+    const results = await Promise.allSettled([
+      LocalGraphRuntime.create(freshPath),
+      LocalGraphRuntime.create(freshPath),
+    ]);
+    const owners = results.flatMap((result) =>
+      result.status === 'fulfilled' ? [result.value] : [],
+    );
+    try {
+      expect(owners).toHaveLength(1);
+      await expect(LocalGraphRuntime.open(freshPath)).rejects.toThrow(
+        'already owned',
+      );
+      const crux = await owners[0].execute(({ crux }) => crux.create(input()));
+      expect(
+        (await owners[0].execute(({ crux: graph }) => graph.findById(crux.id)))
+          .id,
+      ).toBe(crux.id);
+    } finally {
+      await Promise.all(owners.map((owner) => owner.close()));
+    }
+    const saved = readFileSync(freshPath);
+    await expect(LocalGraphRuntime.create(freshPath)).rejects.toThrow();
+    expect(readFileSync(freshPath)).toEqual(saved);
+  });
+
+  it('rolls back failed bootstrap DDL and releases ownership without deleting the file', async () => {
+    const failedPath = join(scratch, 'failed-bootstrap.db');
+    const original = Database.prototype.exec;
+    const fail = jest
+      .spyOn(Database.prototype, 'exec')
+      .mockImplementation(function (this: unknown, sql: unknown) {
+        const result = original.call(this, sql);
+        if (
+          typeof sql === 'string' &&
+          sql.includes('INSERT INTO schema_version (version) VALUES (4)')
+        )
+          throw new Error('bootstrap interrupted');
+        return result;
+      });
+    try {
+      await expect(LocalGraphRuntime.create(failedPath)).rejects.toThrow(
+        'bootstrap interrupted',
+      );
+    } finally {
+      fail.mockRestore();
+    }
+    const inspect = new Database(failedPath, { fileMustExist: true });
+    try {
+      expect(
+        inspect
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+          .all(),
+      ).toEqual([]);
+      // The failed file stays available for diagnosis; explicit repair can reopen it.
+      inspect.exec(schema);
+    } finally {
+      inspect.close();
+    }
+    const repaired = await LocalGraphRuntime.open(failedPath);
+    await repaired.close();
+  });
+
   it('shares graph and legacy operations while preserving their distinct row contracts', async () => {
     const crux = await runtime.execute(({ crux }) => crux.create(input()));
     const legacy = await runtime.get<{

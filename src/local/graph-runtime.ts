@@ -1,8 +1,9 @@
 import 'reflect-metadata';
 import { DynamicModule, INestApplicationContext, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { isAbsolute } from 'path';
-import { realpath, stat } from 'fs/promises';
+import { isAbsolute, dirname, basename, join } from 'path';
+import { realpath, stat, open as openFile } from 'fs/promises';
+import { bootstrapDesktopDatabase } from './desktop-bootstrap';
 import { AsyncLocalStorage } from 'async_hooks';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
@@ -78,18 +79,36 @@ export class LocalGraphRuntime {
     });
   }
 
-  static async open(filename: string): Promise<LocalGraphRuntime> {
+  static open(filename: string): Promise<LocalGraphRuntime> {
+    return this.start(filename, false);
+  }
+
+  /** Explicit fresh-file creation; never overwrites or bootstraps an existing file. */
+  static create(filename: string): Promise<LocalGraphRuntime> {
+    return this.start(filename, true);
+  }
+
+  private static async start(
+    filename: string,
+    create: boolean,
+  ): Promise<LocalGraphRuntime> {
     if (!isAbsolute(filename)) {
-      throw new Error('Local API requires an existing absolute database file');
+      throw new Error('Local API requires an absolute database file');
     }
-    const canonical = await realpath(filename);
-    const file = await stat(canonical, { bigint: true });
-    if (!file.isFile()) {
-      throw new Error('Local API requires an existing absolute database file');
+    const canonical = create
+      ? join(await realpath(dirname(filename)), basename(filename))
+      : await realpath(filename);
+    const ownershipKeys = [`path:${canonical}`];
+    if (!create) {
+      const file = await stat(canonical, { bigint: true });
+      if (!file.isFile())
+        throw new Error(
+          'Local API requires an existing absolute database file',
+        );
+      ownershipKeys.push(`file:${file.dev}:${file.ino}`);
     }
-    // Canonical path catches symlinks and reopens while draining; file identity
-    // also catches hard links. Reserve synchronously before any startup await.
-    const ownershipKeys = [`path:${canonical}`, `file:${file.dev}:${file.ino}`];
+    // Reserve canonical location before creating/opening. Existing files also
+    // reserve inode identity, so symlink/hard-link aliases cannot gain an owner.
     if (ownershipKeys.some((key) => this.ownedFiles.has(key))) {
       throw new Error('Local API database is already owned in this process');
     }
@@ -97,13 +116,25 @@ export class LocalGraphRuntime {
     let database: DbService | undefined;
     let context: INestApplicationContext | undefined;
     try {
+      if (create) {
+        const file = await openFile(canonical, 'wx', 0o600);
+        try {
+          const identity = await file.stat({ bigint: true });
+          const key = `file:${identity.dev}:${identity.ino}`;
+          ownershipKeys.push(key);
+          this.ownedFiles.add(key);
+        } finally {
+          await file.close();
+        }
+      }
       const logger = new LoggerService();
       database = new DbService(logger, sqliteGraphConfig(canonical));
       context = await NestFactory.createApplicationContext(
         LocalGraphModule.register(database, logger),
         { logger: false, abortOnError: false },
       );
-      await prepareDesktopGraph(database.query());
+      if (create) await bootstrapDesktopDatabase(database.query());
+      else await prepareDesktopGraph(database.query());
       return new LocalGraphRuntime(context, ownershipKeys);
     } catch (error) {
       if (context) await context.close();
