@@ -10,7 +10,7 @@ interface CopyRow {
   revision: number;
   meta: Record<string, any>;
 }
-interface MergeRow {
+export interface MergeRow {
   id: string;
   crux_id: string;
   copy_id: string;
@@ -19,6 +19,7 @@ interface MergeRow {
   data: string;
 }
 export interface MergeState {
+  present?: boolean;
   merge?: MergeRow;
   copy?: CopyRow;
   candidate?: CopyRow;
@@ -28,6 +29,64 @@ export interface MergeState {
 @Injectable()
 export class TaskMergeRepository {
   constructor(private readonly db: DbService) {}
+  async reviewAvailable(cruxId: string, candidateId: string, id: string) {
+    try {
+      const db = this.db.query();
+      const pending = await db('task_merges')
+        .where({ crux_id: cruxId, phase: 'applying' })
+        .first('id');
+      const used = await db('task_merges')
+        .where({ candidate_id: candidateId })
+        .whereNot({ id })
+        .first('id');
+      return success({ available: !pending && !used });
+    } catch (error) {
+      return failure<{ available: boolean }>(error);
+    }
+  }
+  async saveReview(state: MergeState, data: Record<string, unknown>) {
+    try {
+      const db = this.db.query();
+      const merge = state.merge!;
+      const serialized = JSON.stringify(data);
+      if (state.present) {
+        const changed = await db('task_merges')
+          .where({ id: merge.id, phase: 'review', data: merge.data })
+          .update({ data: serialized });
+        if (changed !== 1) throw new Error('The review changed while saving');
+      } else {
+        await db('task_merges').insert({
+          ...merge,
+          data: serialized,
+          created: new Date(),
+        });
+      }
+      const saved = await db('task_merges').where({ id: merge.id }).first();
+      if (
+        saved?.phase !== 'review' ||
+        saved?.data !== serialized ||
+        saved?.crux_id !== merge.crux_id ||
+        saved?.copy_id !== merge.copy_id ||
+        saved?.candidate_id !== merge.candidate_id
+      )
+        throw new Error('The review did not persist');
+      for (const copy of [state.copy!, state.candidate!]) {
+        const current = await db('working_copies')
+          .where({ id: copy.id })
+          .first();
+        if (
+          current?.phase !== 'ready' ||
+          current?.revision !== copy.revision ||
+          current?.crux_id !== merge.crux_id ||
+          current?.role !== copy.role
+        )
+          throw new Error('The Task changed while saving the review');
+      }
+      return success({ saved: true });
+    } catch (error) {
+      return failure<{ saved: boolean }>(error);
+    }
+  }
   async admissionContext(cruxId: string, copyId: string) {
     try {
       const db = this.db.query();
@@ -79,10 +138,11 @@ export class TaskMergeRepository {
       return failure<{ admitted: boolean }>(error);
     }
   }
-  async inspect(id: string, resultHead?: string) {
+  async inspect(id: string, resultHead?: string, draft?: MergeRow) {
     try {
       const db = this.db.query();
-      const merge = await db('task_merges').where({ id }).first();
+      const stored = await db('task_merges').where({ id }).first();
+      const merge = stored ?? draft;
       if (!merge) return success<MergeState>({ linked: false });
       const copy = await db('working_copies')
         .where({ id: merge.copy_id })
@@ -106,7 +166,14 @@ export class TaskMergeRepository {
           })
           .whereNull('deleted')
           .first('id'));
-      return success<MergeState>({ merge, copy, candidate, result, linked });
+      return success<MergeState>({
+        present: !!stored,
+        merge,
+        copy,
+        candidate,
+        result,
+        linked,
+      });
     } catch (error) {
       return failure<MergeState>(error);
     }

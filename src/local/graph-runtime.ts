@@ -379,6 +379,24 @@ export class LocalGraphRuntime {
     );
   }
 
+  async saveTaskReview(
+    reviewData: string,
+    expectedData?: string,
+  ): Promise<void> {
+    if (
+      typeof reviewData !== 'string' ||
+      (expectedData !== undefined && typeof expectedData !== 'string')
+    )
+      throw new Error('Use serialized review data');
+    const next = JSON.parse(reviewData);
+    const expected =
+      expectedData === undefined ? undefined : JSON.parse(expectedData);
+    await this.executeChanged(
+      ({ taskMerge }) => taskMerge.save(next, expected),
+      (copy) => ({ entity: 'working-copy', ...copy, fields: ['phase'] }),
+    );
+  }
+
   async beginTaskMerge(id: string, reviewData: string): Promise<void> {
     if (typeof id !== 'string' || !id || typeof reviewData !== 'string')
       throw new Error('Use a review identity and its checked journal');

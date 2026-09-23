@@ -4,7 +4,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { CruxGraphService } from '../crux/crux-graph.service';
-import { TaskMergeRepository } from './task-merge.repository';
+import { TaskMergeRepository, MergeRow } from './task-merge.repository';
 
 /** Durable review closure/finalization. Host file projection and Growth capture remain recoverable earlier steps. */
 @Injectable()
@@ -13,8 +13,15 @@ export class TaskMergeService {
     private readonly repository: TaskMergeRepository,
     private readonly crux: CruxGraphService,
   ) {}
-  private async ownedState(id: string, resultHead?: string, closing = false) {
-    const inspected = await this.repository.inspect(id, resultHead);
+  private async ownedState(
+    id: string,
+    options: { resultHead?: string; closing?: boolean; draft?: MergeRow } = {},
+  ) {
+    const inspected = await this.repository.inspect(
+      id,
+      options.resultHead,
+      options.draft,
+    );
     if (inspected.error)
       throw new InternalServerErrorException(inspected.error.message);
     const state = inspected.data!;
@@ -34,7 +41,11 @@ export class TaskMergeService {
       // Old Garden restore cancelled only the indexed phase. Only closure may
       // repair that exact shape; applying journals still require recovery.
       (data.phase !== merge.phase &&
-        !(closing && merge.phase === 'cancelled' && data.phase === 'review')) ||
+        !(
+          options.closing &&
+          merge.phase === 'cancelled' &&
+          data.phase === 'review'
+        )) ||
       copy.id === candidate.id ||
       copy.crux_id !== merge.crux_id ||
       candidate.crux_id !== merge.crux_id ||
@@ -55,6 +66,93 @@ export class TaskMergeService {
     return { state, merge, copy, candidate, data, crux };
   }
 
+  async save(next: Record<string, any>, expected?: Record<string, any>) {
+    if (
+      !next ||
+      typeof next !== 'object' ||
+      Array.isArray(next) ||
+      next.phase !== 'review' ||
+      [
+        'id',
+        'cruxId',
+        'copyId',
+        'candidateId',
+        'sourceHead',
+        'targetHead',
+      ].some((key) => typeof next[key] !== 'string' || !next[key]) ||
+      ['base', 'main', 'task', 'manifest', 'resolutions'].some(
+        (key) =>
+          !next[key] ||
+          typeof next[key] !== 'object' ||
+          Array.isArray(next[key]),
+      ) ||
+      !Array.isArray(next.conflicts) ||
+      next.resultHead !== undefined
+    )
+      throw new ConflictException('Use a complete unapplied Task review.');
+    const draft: MergeRow = {
+      id: next.id,
+      crux_id: next.cruxId,
+      copy_id: next.copyId,
+      candidate_id: next.candidateId,
+      phase: 'review',
+      data: JSON.stringify(next),
+    };
+    const { state, merge, copy, candidate, data } = await this.ownedState(
+      next.id,
+      { draft: expected === undefined ? draft : undefined },
+    );
+    if (
+      merge.phase !== 'review' ||
+      copy.phase !== 'ready' ||
+      candidate.phase !== 'ready'
+    )
+      throw new ConflictException('This review is no longer open for changes.');
+    if (state.present && expected === undefined) {
+      if (JSON.stringify(data) !== JSON.stringify(next))
+        throw new ConflictException('This review already exists.');
+      return { id: copy.id, cruxId: merge.crux_id }; // Lost-response retry, no timestamp/revision change.
+    }
+    if (expected !== undefined) {
+      if (JSON.stringify(data) !== JSON.stringify(expected))
+        throw new ConflictException(
+          'This review changed while you were checking it. Check the current review again.',
+        );
+      const editable = new Set([
+        'manifest',
+        'conflicts',
+        'resolutions',
+        'verifiedKey',
+        'verificationLog',
+        'previewUrl',
+      ]);
+      for (const key of new Set([...Object.keys(data), ...Object.keys(next)]))
+        if (
+          !editable.has(key) &&
+          JSON.stringify(data[key]) !== JSON.stringify(next[key])
+        )
+          throw new ConflictException(
+            'The review’s ownership, history and retained evidence cannot be replaced.',
+          );
+    }
+    if (next.verifiedKey !== undefined) this.assertVerified(next);
+    const availability = await this.repository.reviewAvailable(
+      merge.crux_id,
+      candidate.id,
+      merge.id,
+    );
+    if (availability.error)
+      throw new InternalServerErrorException(availability.error.message);
+    if (!availability.data!.available)
+      throw new ConflictException(
+        'Finish the existing merge or prepare a separate review candidate.',
+      );
+    const saved = await this.repository.saveReview(state, next);
+    if (saved.error)
+      throw new InternalServerErrorException(saved.error.message);
+    return { id: copy.id, cruxId: merge.crux_id };
+  }
+
   async begin(id: string, expected: unknown) {
     const { state, merge, copy, candidate, data, crux } =
       await this.ownedState(id);
@@ -67,37 +165,7 @@ export class TaskMergeService {
       throw new ConflictException(
         'This review changed. Prepare or check it again before merging.',
       );
-    if (
-      !Array.isArray(data.conflicts) ||
-      data.conflicts.length ||
-      !data.manifest ||
-      typeof data.manifest !== 'object' ||
-      Array.isArray(data.manifest)
-    )
-      throw new ConflictException(
-        'Check the resolved candidate before merging.',
-      );
-    const paths = Object.keys(data.manifest).sort();
-    if (
-      paths.some(
-        (path) =>
-          !data.manifest[path] ||
-          typeof data.manifest[path].fingerprint !== 'string' ||
-          !data.manifest[path].fingerprint ||
-          !Number.isSafeInteger(data.manifest[path].mode),
-      ) ||
-      data.verifiedKey !==
-        JSON.stringify(
-          paths.map((path) => [
-            path,
-            data.manifest[path].fingerprint,
-            data.manifest[path].mode,
-          ]),
-        )
-    )
-      throw new ConflictException(
-        'Check the resolved candidate before merging.',
-      );
+    this.assertVerified(data);
     const inspected = await this.repository.admissionContext(
       merge.crux_id,
       copy.id,
@@ -142,12 +210,44 @@ export class TaskMergeService {
     return { id: copy.id, cruxId: merge.crux_id };
   }
 
+  private assertVerified(data: Record<string, any>) {
+    if (
+      !Array.isArray(data.conflicts) ||
+      data.conflicts.length ||
+      !data.manifest ||
+      typeof data.manifest !== 'object' ||
+      Array.isArray(data.manifest)
+    )
+      throw new ConflictException(
+        'Check the resolved candidate before merging.',
+      );
+    const paths = Object.keys(data.manifest).sort();
+    if (
+      paths.some(
+        (path) =>
+          !data.manifest[path] ||
+          typeof data.manifest[path].fingerprint !== 'string' ||
+          !data.manifest[path].fingerprint ||
+          !Number.isSafeInteger(data.manifest[path].mode),
+      ) ||
+      data.verifiedKey !==
+        JSON.stringify(
+          paths.map((path) => [
+            path,
+            data.manifest[path].fingerprint,
+            data.manifest[path].mode,
+          ]),
+        )
+    )
+      throw new ConflictException(
+        'Check the resolved candidate before merging.',
+      );
+  }
+
   async release(id: string) {
-    const { state, merge, candidate, copy, data } = await this.ownedState(
-      id,
-      undefined,
-      true,
-    );
+    const { state, merge, candidate, copy, data } = await this.ownedState(id, {
+      closing: true,
+    });
     if (merge.phase === 'applying')
       throw new ConflictException(
         'Finish recovering this merge before closing its review.',
@@ -170,10 +270,9 @@ export class TaskMergeService {
   }
 
   async complete(id: string, resultHead: string) {
-    const { state, merge, copy, candidate, data } = await this.ownedState(
-      id,
+    const { state, merge, copy, candidate, data } = await this.ownedState(id, {
       resultHead,
-    );
+    });
     const { result, linked } = state;
     if (!['ready', 'merged'].includes(copy.phase))
       throw new ConflictException('The source Task is not awaiting a merge');

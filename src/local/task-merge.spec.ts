@@ -138,6 +138,115 @@ describe('owned Task merge finalization', () => {
     ]);
     return data;
   }
+  it('creates a review without changing its copies and safely repeats after restart', async () => {
+    const review = {
+      ...(await verifiedReview()),
+      extension: { preserved: ['opaque', 1] },
+    };
+    await owner.run('DELETE FROM task_merges WHERE id = ?', [merge]);
+    const before = await state();
+    await owner.saveTaskReview(JSON.stringify(review));
+    const saved = await state();
+    expect(saved.copies).toEqual(before.copies);
+    expect(JSON.parse(saved.merge.data)).toEqual(review);
+    expect(saved.merge.phase).toBe('review');
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    await owner.saveTaskReview(JSON.stringify(review));
+    expect(await state()).toEqual(saved);
+  });
+  it('allows a verified update only against the exact previous review and retains extension data', async () => {
+    const original = {
+      ...(await verifiedReview()),
+      extension: { retained: true },
+    };
+    await owner.run('UPDATE task_merges SET data = ? WHERE id = ?', [
+      JSON.stringify(original),
+      merge,
+    ]);
+    const next = {
+      ...original,
+      verificationLog: 'Rechecked preview',
+      previewUrl: 'http://localhost:23456',
+    };
+    await owner.saveTaskReview(JSON.stringify(next), JSON.stringify(original));
+    expect(JSON.parse((await state()).merge.data)).toEqual(next);
+    const saved = await state();
+    await expect(
+      owner.saveTaskReview(
+        JSON.stringify({ ...original, verificationLog: 'Late check' }),
+        JSON.stringify(original),
+      ),
+    ).rejects.toThrow();
+    expect(await state()).toEqual(saved);
+  });
+  it.each(['cancelled', 'applying', 'merged'])(
+    'never resurrects a %s journal with a late verification',
+    async (phase) => {
+      const review = await verifiedReview();
+      await owner.run(
+        'UPDATE task_merges SET phase = ?, data = ? WHERE id = ?',
+        [phase, JSON.stringify({ ...review, phase }), merge],
+      );
+      const before = await state();
+      await expect(
+        owner.saveTaskReview(
+          JSON.stringify({ ...review, verificationLog: 'Late build' }),
+          JSON.stringify(review),
+        ),
+      ).rejects.toThrow();
+      expect(await state()).toEqual(before);
+    },
+  );
+  it.each(['candidateId', 'sourceHead', 'main'])(
+    'refuses rewriting the fixed %s reference of a review',
+    async (field) => {
+      const review = await verifiedReview();
+      const before = await state();
+      const changed = {
+        ...review,
+        [field]: field === 'main' ? { 'other.txt': {} } : randomUUID(),
+      };
+      await expect(
+        owner.saveTaskReview(JSON.stringify(changed), JSON.stringify(review)),
+      ).rejects.toThrow();
+      expect(await state()).toEqual(before);
+    },
+  );
+  it('refuses using another review’s candidate or a missing expected review', async () => {
+    const review = await verifiedReview();
+    const second = { ...review, id: randomUUID() };
+    const before = await state();
+    await expect(
+      owner.saveTaskReview(JSON.stringify(second)),
+    ).rejects.toThrow();
+    await expect(
+      owner.saveTaskReview(JSON.stringify(second), JSON.stringify(second)),
+    ).rejects.toThrow();
+    expect(await state()).toEqual(before);
+  });
+  it.each(['insert', 'update'])(
+    'rolls back an ignored review %s and retries without dropping evidence',
+    async (operation) => {
+      const review = await verifiedReview();
+      if (operation === 'insert')
+        await owner.run('DELETE FROM task_merges WHERE id = ?', [merge]);
+      await owner.run(
+        `CREATE TRIGGER ignore_review BEFORE ${operation.toUpperCase()} ON task_merges BEGIN SELECT RAISE(IGNORE); END`,
+      );
+      const before = await state();
+      const next = { ...review, verificationLog: 'New evidence' };
+      const expected =
+        operation === 'update' ? JSON.stringify(review) : undefined;
+      await expect(
+        owner.saveTaskReview(JSON.stringify(next), expected),
+      ).rejects.toThrow();
+      expect(await state()).toEqual(before);
+      await owner.run('DROP TRIGGER ignore_review');
+      await owner.saveTaskReview(JSON.stringify(next), expected);
+      expect(JSON.parse((await state()).merge.data)).toEqual(next);
+    },
+  );
   it('admits the checked review durably before file projection without changing Task state', async () => {
     const review = await verifiedReview();
     const before = await state();
