@@ -350,7 +350,7 @@ describe('single-owner local API runtime', () => {
     ).rejects.toThrow('within a command');
     const created = await runtime.execute(({ crux }) => crux.create(input()));
     const image = await runtime.closeWithRecoveryImage();
-    expect(inspectDesktopRecovery(image).schemaVersion).toBe(0);
+    expect(inspectDesktopRecovery(image).schemaVersion).toBe(4);
     runtime = await LocalGraphRuntime.open(filename);
     expect(
       await runtime.execute(({ crux }) => crux.findById(created.id)),

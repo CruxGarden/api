@@ -1,3 +1,4 @@
+import { inspectDesktopSchema } from './desktop-schema';
 const Database = require('better-sqlite3');
 
 export interface DesktopRecoveryInspection {
@@ -61,6 +62,7 @@ export function inspectDesktopRecovery(
       schemaVersion > 4
     )
       throw new Error('Unsupported recovery schema version');
+    inspectDesktopSchema(db);
     const references: { fingerprint: string }[] = db
       .prepare(
         `

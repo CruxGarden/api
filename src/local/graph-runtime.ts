@@ -14,15 +14,14 @@ import {
 } from 'fs';
 import { randomUUID } from 'crypto';
 import { inspectDesktopRecovery } from './desktop-recovery';
+import { inspectDesktopFile } from './desktop-schema';
+import { migrateDesktopDatabase } from './desktop-migration';
 import { bootstrapDesktopDatabase } from './desktop-bootstrap';
 import { AsyncLocalStorage } from 'async_hooks';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
 import { KeyMaster } from '../common/services/key.master';
-import {
-  sqliteGraphConfig,
-  prepareDesktopGraph,
-} from '../common/database/sqlite-graph';
+import { sqliteGraphConfig } from '../common/database/sqlite-graph';
 import { CruxGraphService } from '../crux/crux-graph.service';
 import { CruxRepository } from '../crux/crux.repository';
 import { DimensionService } from '../dimension/dimension.service';
@@ -160,6 +159,7 @@ export class LocalGraphRuntime {
     filename: string,
     create = false,
   ): Promise<INestApplicationContext> {
+    if (!create) inspectDesktopFile(filename);
     const logger = new LoggerService();
     const database = new DbService(logger, sqliteGraphConfig(filename));
     let context: INestApplicationContext | undefined;
@@ -169,7 +169,7 @@ export class LocalGraphRuntime {
         { logger: false, abortOnError: false },
       );
       if (create) await bootstrapDesktopDatabase(database.query());
-      else await prepareDesktopGraph(database.query());
+      else await migrateDesktopDatabase(database.query());
       return context;
     } catch (error) {
       try {
