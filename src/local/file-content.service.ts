@@ -288,6 +288,13 @@ export class FileContentService {
     return true;
   }
 
+  async assertWorkspaceWritable(id: string): Promise<void> {
+    if (await this.repository.projection(id))
+      throw new ConflictException(
+        'Finish the pending content projection before saving workspace changes',
+      );
+  }
+
   async commit(
     input: FileContentCommit,
     store: DesktopContentStore,

@@ -148,6 +148,12 @@ describe('manifest-backed Growth commands', () => {
     });
     expect(state.meta.messages).toEqual([]);
     expect(state.meta.extension).toEqual({ keep: true });
+    await expect(owner.updateCrux(id, { meta: before.meta })).rejects.toThrow(
+      'projection',
+    );
+    expect((await owner.execute(({ crux }) => crux.findById(id))).meta).toEqual(
+      state.meta,
+    );
     await expect(
       owner.editFileContent(
         { cruxId: id, expected: restore.head, changes: [put('Too early')] },
@@ -350,15 +356,19 @@ describe('manifest-backed Growth commands', () => {
       },
       store,
     );
-    await owner.updateCrux(id, {
-      meta: { projectFolder: '/owned/replacement' },
-    });
+    await owner.run(
+      "UPDATE cruxes SET meta = json_set(meta, '$.projectFolder', ?) WHERE id = ?",
+      ['/owned/replacement', id],
+    );
     const apply = jest.fn(async () => {});
     await expect(
       owner.finishContentProjection(id, store, apply),
     ).rejects.toThrow('Folder');
     expect(apply).not.toHaveBeenCalled();
-    await owner.updateCrux(id, { meta: { projectFolder: '/owned/original' } });
+    await owner.run(
+      "UPDATE cruxes SET meta = json_set(meta, '$.projectFolder', ?) WHERE id = ?",
+      ['/owned/original', id],
+    );
     await owner.run(`CREATE TRIGGER refuse_projection_clear BEFORE DELETE ON settings
       WHEN OLD.key LIKE 'cruxgarden:content-projection:%' BEGIN SELECT RAISE(IGNORE); END`);
     await expect(

@@ -533,7 +533,9 @@ export class LocalGraphRuntime {
     if (typeof id !== 'string' || !id) throw new Error('Use a Crux identity');
     const captured = captureCruxUpdate(patch);
     await this.executeChanged(
-      async ({ crux }) => {
+      async ({ crux, fileContent }) => {
+        if (captured.meta !== undefined)
+          await fileContent.assertWorkspaceWritable(id);
         const current = await crux.findById(id);
         // Enum strings were checked at admission. The desktop-only remoteId is
         // retained by the repository; it is never added to the hosted HTTP DTO.
@@ -579,8 +581,10 @@ export class LocalGraphRuntime {
       throw new Error('Use a Working Copy identity and metadata object');
     const captured = captureCruxUpdate({ meta: patch, title });
     await this.executeChanged(
-      ({ workingCopy }) =>
-        workingCopy.updateMeta(id, captured.meta!, captured.title),
+      async ({ workingCopy, fileContent }) => {
+        await fileContent.assertWorkspaceWritable(id);
+        return workingCopy.updateMeta(id, captured.meta!, captured.title);
+      },
       (cruxId) => ({
         entity: 'working-copy',
         id,
