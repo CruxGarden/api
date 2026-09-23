@@ -1,3 +1,5 @@
+import { WorkingCopyRepository } from './working-copy.repository';
+import { WorkingCopyService } from './working-copy.service';
 import 'reflect-metadata';
 import { DynamicModule, INestApplicationContext, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -54,6 +56,8 @@ class LocalGraphModule {
         DimensionRepository,
         GardenMembershipRepository,
         GardenMembershipService,
+        WorkingCopyRepository,
+        WorkingCopyService,
       ],
     };
   }
@@ -63,6 +67,7 @@ export interface GraphOperations {
   crux: CruxGraphService;
   dimension: DimensionService;
   garden: GardenMembershipService;
+  workingCopy: WorkingCopyService;
 }
 
 /**
@@ -101,6 +106,7 @@ export class LocalGraphRuntime {
       crux: context.get(CruxGraphService),
       dimension: context.get(DimensionService),
       garden: context.get(GardenMembershipService),
+      workingCopy: context.get(WorkingCopyService),
     });
   }
 
@@ -250,6 +256,26 @@ export class LocalGraphRuntime {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch))
       throw new Error('Use a metadata object');
     return this.updateCrux(id, { meta: patch });
+  }
+
+  /** Merge Task descriptive state without giving metadata control of its identity or folder. */
+  async updateWorkingCopyMeta(
+    id: string,
+    patch: Record<string, unknown>,
+    title?: string,
+  ): Promise<void> {
+    if (
+      typeof id !== 'string' ||
+      !id ||
+      !patch ||
+      typeof patch !== 'object' ||
+      Array.isArray(patch)
+    )
+      throw new Error('Use a Working Copy identity and metadata object');
+    const captured = captureCruxUpdate({ meta: patch, title });
+    return this.execute(({ workingCopy }) =>
+      workingCopy.updateMeta(id, captured.meta!, captured.title),
+    );
   }
 
   addGardenMember(input: AddGardenMember) {
