@@ -47,7 +47,10 @@ import { randomUUID } from 'crypto';
 import { captureCruxUpdate, LocalCruxUpdate } from './crux-update';
 import type { UpdateCruxDto } from '../crux/dto/update-crux.dto';
 import type { DesktopContentStore } from './desktop-content';
-import { inspectDesktopRecovery } from './desktop-recovery';
+import {
+  inspectDesktopRecovery,
+  inspectDesktopManifestRecovery,
+} from './desktop-recovery';
 import { inspectDesktopFile } from './desktop-schema';
 import { checkpointDesktopMigration } from './startup-recovery';
 import { migrateDesktopDatabase } from './desktop-migration';
@@ -793,6 +796,49 @@ export class LocalGraphRuntime {
     );
   }
 
+  /** Current-format whole-installation restore, with verified incoming and rollback
+   * content. The host must retain blobs and quiesce its filesystem writers. */
+  replaceDatabaseWithContent(
+    data: ArrayBuffer,
+    store: Pick<DesktopContentStore, 'read'>,
+  ): Promise<ArrayBuffer> {
+    const refused = this.admissionError();
+    if (refused) return Promise.reject(refused);
+    let captured: ArrayBuffer;
+    let reader: Pick<DesktopContentStore, 'read'>;
+    try {
+      if (!(data instanceof ArrayBuffer))
+        throw new Error('Use a database image');
+      if (!store || typeof store.read !== 'function')
+        throw new Error('Use the host content store');
+      captured = Uint8Array.from(new Uint8Array(data)).buffer;
+      reader = { read: store.read.bind(store) };
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const inspect = async (image: ArrayBuffer) => {
+      const result = await inspectDesktopManifestRecovery(image, reader);
+      if (result.schemaVersion !== 5)
+        throw new Error('Use a current-format database image');
+      return result.database;
+    };
+    const replacement = this.enqueue(async () =>
+      this.replaceCapturedDatabase(await inspect(captured), inspect),
+    );
+    this.replacing = true;
+    return replacement.then(
+      (previous) => {
+        this.replacing = false;
+        this.notify({ entity: 'database' });
+        return previous;
+      },
+      (error) => {
+        this.replacing = false;
+        throw error;
+      },
+    );
+  }
+
   private reserveCurrentIdentity(): void {
     // No await between rename and reserving the new inode: hard-link aliases
     // cannot acquire ownership while a replacement context is opening.
@@ -806,6 +852,9 @@ export class LocalGraphRuntime {
 
   private async replaceCapturedDatabase(
     data: ArrayBuffer,
+    inspectRecovery: (image: ArrayBuffer) => Promise<ArrayBuffer> = async (
+      image,
+    ) => inspectDesktopRecovery(image).database,
   ): Promise<ArrayBuffer> {
     const prefix = join(
       dirname(this.filename),
@@ -839,7 +888,7 @@ export class LocalGraphRuntime {
       const previous = await this.withConnection(
         (connection) => Uint8Array.from(connection.serialize()).buffer,
       );
-      const recovery = inspectDesktopRecovery(previous).database;
+      const recovery = await inspectRecovery(previous);
       writeFileSync(recoveryPath, Buffer.from(recovery), {
         flag: 'wx',
         mode: 0o600,
