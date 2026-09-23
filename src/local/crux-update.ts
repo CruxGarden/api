@@ -1,14 +1,14 @@
 import { CruxKind, CruxStatus, CruxVisibility } from '../common/types/enums';
 
 /** Desktop detail edits. Ownership and relationships use separate commands.
- * remoteId remains a transitional desktop sync reference, not hosted identity. */
+ * snapshot preserves desktop Growth records; remoteId remains a transitional desktop sync reference, not hosted identity. */
 export interface LocalCruxUpdate {
   title?: string;
   slug?: string;
   description?: string;
   data?: string;
   type?: string;
-  kind?: `${CruxKind}` | null;
+  kind?: `${CruxKind}` | 'snapshot' | null;
   status?: `${CruxStatus}`;
   visibility?: `${CruxVisibility}`;
   discoverable?: boolean;
@@ -34,6 +34,7 @@ function validate(patch: LocalCruxUpdate): void {
         if (
           value !== undefined &&
           value !== null &&
+          value !== 'snapshot' &&
           !Object.values(CruxKind).includes(value)
         )
           throw new Error('Use a supported Crux kind');

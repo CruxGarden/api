@@ -40,6 +40,10 @@ describe('owned Crux details update', () => {
       }),
       owner.mergeCruxMeta(id, { compatibility: true }),
     ]);
+    await owner.updateCrux(id, { kind: 'snapshot' });
+    expect((await owner.execute(({ crux }) => crux.findById(id))).kind).toBe(
+      'snapshot',
+    );
     await owner.updateCrux(id, {
       data: '',
       type: 'custom',
