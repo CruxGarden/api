@@ -373,6 +373,26 @@ export class LocalGraphRuntime {
     );
   }
 
+  async setWorkingCopyArchived(
+    id: string,
+    archived: boolean,
+    revision: number,
+  ): Promise<void> {
+    if (
+      typeof id !== 'string' ||
+      !id ||
+      typeof archived !== 'boolean' ||
+      !Number.isSafeInteger(revision) ||
+      revision < 0 ||
+      revision >= Number.MAX_SAFE_INTEGER
+    )
+      throw new Error('Use a Task identity, archive state and valid revision');
+    await this.executeChanged(
+      ({ workingCopy }) => workingCopy.setArchived(id, archived, revision),
+      (cruxId) => ({ entity: 'working-copy', id, cruxId, fields: ['phase'] }),
+    );
+  }
+
   async createCrux(
     input: LocalCruxCreate,
     prepareFolder?: PrepareCruxFolder,
