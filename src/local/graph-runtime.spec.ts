@@ -220,6 +220,59 @@ describe('single-owner local API runtime', () => {
     expect(await read).toEqual([expect.objectContaining({ id: created.id })]);
   });
 
+  it('captures legacy targets and values when queued, before caller state changes', async () => {
+    const original = await runtime.execute(({ crux }) => crux.create(input()));
+    const other = await runtime.execute(({ crux }) => crux.create(input()));
+    const entered = signal();
+    const release = signal();
+    const blocking = runtime.execute(async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    await entered.promise;
+    const meta = { nested: { title: 'Captured' } };
+    const writeArgs: unknown[] = [meta, original.id];
+    const readArgs = [original.id];
+    const bytes = Buffer.from([1, 2, 3]);
+    const write = runtime.run(
+      'UPDATE cruxes SET meta = ? WHERE id = ?',
+      writeArgs,
+    );
+    const read = runtime.get(
+      'SELECT id, meta FROM cruxes WHERE id = ?',
+      readArgs,
+    );
+    const rows = runtime.all('SELECT id FROM cruxes WHERE id = ?', readArgs);
+    const binary = runtime.get('SELECT hex(?) AS value', [bytes]);
+    meta.nested.title = 'Changed';
+    writeArgs[1] = other.id;
+    readArgs[0] = other.id;
+    bytes.fill(9);
+    release.resolve();
+    await blocking;
+    await expect(write).resolves.toEqual({ changes: 1 });
+    await expect(read).resolves.toEqual({
+      id: original.id,
+      meta: JSON.stringify({ nested: { title: 'Captured' } }),
+    });
+    await expect(rows).resolves.toEqual([{ id: original.id }]);
+    await expect(binary).resolves.toEqual({ value: '010203' });
+    expect(
+      await runtime.execute(({ crux }) => crux.findById(other.id)),
+    ).toMatchObject({
+      meta: { displayName: 'Studio' },
+    });
+  });
+
+  it('rejects an unserializable binding as a promise without poisoning later work', async () => {
+    const cyclic: { self?: unknown } = {};
+    cyclic.self = cyclic;
+    await expect(runtime.run('SELECT ?', [cyclic])).rejects.toThrow();
+    await expect(runtime.get('SELECT ? AS value', [true])).resolves.toEqual({
+      value: 1,
+    });
+  });
+
   it('rejects reentrant commands and shutdown instead of deadlocking the owner', async () => {
     await runtime.execute(async () => {
       await expect(runtime.all('SELECT * FROM cruxes')).rejects.toThrow(

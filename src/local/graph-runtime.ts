@@ -167,7 +167,7 @@ export class LocalGraphRuntime {
   }
 
   /** Temporary internal bridge for legacy callers; preserve native row shapes. */
-  private legacy<T>(
+  private async legacy<T>(
     sql: string,
     params: unknown[],
     method: 'run' | 'get' | 'all',
@@ -187,22 +187,19 @@ export class LocalGraphRuntime {
         ),
       );
     }
+    // Capture at admission: callers may reuse arrays or change nested state
+    // while a previous command is still running. Keep native row conventions.
+    const bindings = params.map((value) => {
+      if (value === undefined) return null;
+      if (typeof value === 'boolean') return Number(value);
+      if (Buffer.isBuffer(value)) return Buffer.from(value);
+      if (value !== null && typeof value === 'object') {
+        return JSON.stringify(value);
+      }
+      return value;
+    });
     return this.enqueue(() =>
       this.withConnection((connection) => {
-        // Match the existing SqliteNative bridge, not the API row codecs. Legacy
-        // callers still JSON.parse(meta) and expect ISO strings and integer flags.
-        const bindings = params.map((value) => {
-          if (value === undefined) return null;
-          if (typeof value === 'boolean') return Number(value);
-          if (
-            value !== null &&
-            typeof value === 'object' &&
-            !Buffer.isBuffer(value)
-          ) {
-            return JSON.stringify(value);
-          }
-          return value;
-        });
         const result = connection.prepare(sql)[method](...bindings);
         return (method === 'run' ? { changes: result.changes } : result) as T;
       }),
