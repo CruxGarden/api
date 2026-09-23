@@ -379,6 +379,14 @@ export class LocalGraphRuntime {
     );
   }
 
+  async releaseTaskReview(id: string): Promise<void> {
+    if (typeof id !== 'string' || !id) throw new Error('Use a review identity');
+    await this.executeChanged(
+      ({ taskMerge }) => taskMerge.release(id),
+      (copy) => ({ entity: 'working-copy', ...copy, fields: ['phase'] }),
+    );
+  }
+
   async completeTaskMerge(id: string, resultHead: string): Promise<void> {
     if (
       typeof id !== 'string' ||

@@ -87,6 +87,86 @@ describe('owned Task merge finalization', () => {
     await owner.close();
     rmSync(dir, { recursive: true, force: true });
   });
+  async function makeReview() {
+    const current = await state();
+    const data = {
+      ...JSON.parse(current.merge.data),
+      phase: 'review',
+      previewUrl: 'http://localhost:12345',
+    };
+    await owner.run(
+      "UPDATE task_merges SET phase = 'review', data = ? WHERE id = ?",
+      [JSON.stringify(data), merge],
+    );
+  }
+  it('cancels a review atomically without changing the source Task and safely repeats after restart', async () => {
+    await makeReview();
+    const source = await owner.get(
+      'SELECT * FROM working_copies WHERE id = ?',
+      [copy],
+    );
+    await owner.releaseTaskReview(merge);
+    const saved = await state();
+    expect(
+      await owner.get('SELECT * FROM working_copies WHERE id = ?', [copy]),
+    ).toEqual(source);
+    expect(saved.copies).toContainEqual(
+      expect.objectContaining({
+        id: candidate,
+        phase: 'archived',
+        revision: 3,
+      }),
+    );
+    expect(saved.merge.phase).toBe('cancelled');
+    expect(JSON.parse(saved.merge.data)).not.toHaveProperty('previewUrl');
+    expect(JSON.parse(saved.merge.data)).toMatchObject({
+      verificationLog: 'Preserve this evidence',
+      resolutions: { 'one.txt': 'task' },
+    });
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    await owner.releaseTaskReview(merge);
+    expect(await state()).toEqual(saved);
+  });
+  it.each(['ABORT', 'IGNORE'])(
+    'rolls back candidate archival when cancellation is %s',
+    async (mode) => {
+      await makeReview();
+      const before = await state();
+      await owner.run(
+        `CREATE TRIGGER refuse_cancel BEFORE UPDATE ON task_merges BEGIN SELECT RAISE(${mode}${mode === 'ABORT' ? ", 'Cancel refused'" : ''}); END`,
+      );
+      await expect(owner.releaseTaskReview(merge)).rejects.toThrow();
+      expect(await state()).toEqual(before);
+      await owner.run('DROP TRIGGER refuse_cancel');
+      await owner.releaseTaskReview(merge);
+      expect((await state()).merge.phase).toBe('cancelled');
+    },
+  );
+  it('refuses to cancel an applying merge and preserves a completed result when closing again', async () => {
+    const before = await state();
+    await expect(owner.releaseTaskReview(merge)).rejects.toThrow('recover');
+    expect(await state()).toEqual(before);
+    await owner.completeTaskMerge(merge, result);
+    const completed = await state();
+    await owner.releaseTaskReview(merge);
+    expect(await state()).toEqual(completed);
+  });
+  it('finishes cancellation of an already archived candidate without touching its revision', async () => {
+    await makeReview();
+    await owner.run(
+      "UPDATE working_copies SET phase = 'archived', revision = 3 WHERE id = ?",
+      [candidate],
+    );
+    await owner.releaseTaskReview(merge);
+    expect((await state()).copies).toContainEqual(
+      expect.objectContaining({
+        id: candidate,
+        phase: 'archived',
+        revision: 3,
+      }),
+    );
+  });
   it('commits Task, candidate and journal together, preserves evidence and is retryable after restart', async () => {
     const notices: unknown[] = [];
     owner.onChange((change) => {

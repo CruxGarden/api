@@ -6,19 +6,19 @@ import {
 import { CruxGraphService } from '../crux/crux-graph.service';
 import { TaskMergeRepository } from './task-merge.repository';
 
-/** Final durable transition only. Host file projection and Growth capture remain recoverable earlier steps. */
+/** Durable review closure/finalization. Host file projection and Growth capture remain recoverable earlier steps. */
 @Injectable()
 export class TaskMergeService {
   constructor(
     private readonly repository: TaskMergeRepository,
     private readonly crux: CruxGraphService,
   ) {}
-  async complete(id: string, resultHead: string) {
+  private async ownedState(id: string, resultHead?: string) {
     const inspected = await this.repository.inspect(id, resultHead);
     if (inspected.error)
       throw new InternalServerErrorException(inspected.error.message);
     const state = inspected.data!;
-    const { merge, copy, candidate, result, linked } = state;
+    const { merge, copy, candidate } = state;
     if (!merge || !copy || !candidate)
       throw new ConflictException('The merge or its Task copies are missing');
     await this.crux.findById(merge.crux_id);
@@ -37,7 +37,6 @@ export class TaskMergeService {
       candidate.crux_id !== merge.crux_id ||
       copy.role !== 'task' ||
       candidate.role !== 'review' ||
-      !['ready', 'merged'].includes(copy.phase) ||
       !['ready', 'archived'].includes(candidate.phase)
     )
       throw new ConflictException(
@@ -50,6 +49,40 @@ export class TaskMergeService {
         row.revision >= Number.MAX_SAFE_INTEGER
       )
         throw new ConflictException('The Task revision is invalid');
+    return { state, merge, copy, candidate, data };
+  }
+
+  async release(id: string) {
+    const { state, merge, candidate, copy, data } = await this.ownedState(id);
+    if (merge.phase === 'applying')
+      throw new ConflictException(
+        'Finish recovering this merge before closing its review.',
+      );
+    if (
+      !['review', 'cancelled', 'merged'].includes(merge.phase) ||
+      (merge.phase === 'merged' && copy.phase !== 'merged')
+    )
+      throw new ConflictException('The review has inconsistent state');
+    const cancelled = { ...data, phase: 'cancelled' };
+    delete cancelled.previewUrl;
+    const saved = await this.repository.transition(
+      state,
+      merge.phase === 'merged' ? data : cancelled,
+      false,
+    );
+    if (saved.error)
+      throw new InternalServerErrorException(saved.error.message);
+    return { id: candidate.id, cruxId: merge.crux_id };
+  }
+
+  async complete(id: string, resultHead: string) {
+    const { state, merge, copy, candidate, data } = await this.ownedState(
+      id,
+      resultHead,
+    );
+    const { result, linked } = state;
+    if (!['ready', 'merged'].includes(copy.phase))
+      throw new ConflictException('The source Task is not awaiting a merge');
     if (
       !linked ||
       result?.kind !== 'snapshot' ||
@@ -76,11 +109,15 @@ export class TaskMergeService {
         (data.resultHead && data.resultHead !== resultHead)
       )
         throw new ConflictException('This merge is not awaiting completion');
-      const saved = await this.repository.finish(state, {
-        ...data,
-        phase: 'merged',
-        resultHead,
-      });
+      const saved = await this.repository.transition(
+        state,
+        {
+          ...data,
+          phase: 'merged',
+          resultHead,
+        },
+        true,
+      );
       if (saved.error)
         throw new InternalServerErrorException(saved.error.message);
     }
