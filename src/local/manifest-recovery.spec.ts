@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import * as recovery from './desktop-recovery';
 import { FileManifest, FileEntry } from './file-manifest';
-import { FILE_CONTENT_SCHEMA } from './file-content.repository';
+import { FILE_CONTENT_SCHEMA } from './file-content.schema';
 
 const Database = require('better-sqlite3');
 const schema = readFileSync(

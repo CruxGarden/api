@@ -64,7 +64,7 @@ export function openDesktopRecovery(
       versions.length > 1 ||
       !Number.isInteger(schemaVersion) ||
       schemaVersion < 0 ||
-      schemaVersion > 4
+      schemaVersion > 5
     )
       throw new Error('Unsupported recovery schema version');
     inspectDesktopSchema(db, allowInlineContent);

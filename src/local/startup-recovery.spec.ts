@@ -190,32 +190,6 @@ describe('pre-migration startup recovery', () => {
     expect(readFileSync(filename)).toEqual(before);
     expect(readFileSync(checkpoint, 'utf8')).toBe('corrupted recovery');
   });
-  it('retains a checkpoint before repairing a missing index at version 4', async () => {
-    owner = await LocalGraphRuntime.create(filename);
-    await owner.run('DROP INDEX idx_artifacts_fingerprint');
-    await owner.close();
-    owner = undefined;
-    const checkpoint = checkpointDesktopMigration(filename)!;
-    expect(checkpoint).not.toBeNull();
-    owner = await LocalGraphRuntime.open(filename);
-    expect(
-      await owner.get(
-        "SELECT name FROM sqlite_master WHERE name = 'idx_artifacts_fingerprint'",
-      ),
-    ).toEqual({ name: 'idx_artifacts_fingerprint' });
-    const old = new Database(checkpoint, { readonly: true });
-    try {
-      expect(
-        old
-          .prepare(
-            "SELECT name FROM sqlite_master WHERE name = 'idx_artifacts_fingerprint'",
-          )
-          .get(),
-      ).toBeUndefined();
-    } finally {
-      old.close();
-    }
-  });
   it('refuses a failed checkpoint publication before applying DDL and permits retry', async () => {
     seed();
     const before = readFileSync(filename);

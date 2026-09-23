@@ -13,8 +13,6 @@ import { LocalGraphRuntime } from './graph-runtime';
 import { DesktopContentStore } from './desktop-content';
 import { FileManifest } from './file-manifest';
 
-import { FILE_CONTENT_SCHEMA } from './file-content.repository';
-
 describe('API file content publication', () => {
   let dir: string;
   let owner: LocalGraphRuntime;
@@ -58,7 +56,6 @@ describe('API file content publication', () => {
     };
     tree = new FileManifest(store);
     owner = await LocalGraphRuntime.create(join(dir, 'garden.db'));
-    await owner.run(FILE_CONTENT_SCHEMA);
     id = await owner.createCrux({
       title: 'Content',
       slug: randomUUID(),

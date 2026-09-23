@@ -1,3 +1,4 @@
+import { FILE_CONTENT_SCHEMA } from './file-content.schema';
 import { DESKTOP_SCHEMA_SQL } from './desktop-ddl';
 const Database = require('better-sqlite3');
 
@@ -11,7 +12,7 @@ export function desktopSchemaVersion(db: any): number {
     versions.length > 1 ||
     !Number.isInteger(version) ||
     version < 0 ||
-    version > 4
+    version > 5
   )
     throw new Error('Unsupported desktop schema version');
   return version;
@@ -24,6 +25,7 @@ interface Column {
   pk: number;
 }
 let expected: Map<string, Column[]> | undefined;
+let contentColumns: Column[] = [];
 let namedIndexes: { name: string; sql: string }[] = [];
 let uniqueColumns: { table: string; columns: string }[] = [];
 function indexColumns(db: any, name: string): string {
@@ -66,6 +68,10 @@ function expectedColumns(): Map<string, Column[]> {
           columns: indexColumns(reference, name),
         })),
     );
+    reference.exec(FILE_CONTENT_SCHEMA);
+    contentColumns = reference
+      .prepare("SELECT * FROM pragma_table_info('file_content_heads')")
+      .all();
     return expected;
   } finally {
     reference.close();
@@ -94,12 +100,15 @@ export function inspectDesktopSchema(
     if (!tables.has(table))
       throw new Error(`Desktop schema is missing ${table}`);
   const version = desktopSchemaVersion(db);
-  for (const [table, columns] of expectedColumns()) {
+  const columnsByTable = new Map(expectedColumns());
+  if (version === 5) columnsByTable.set('file_content_heads', contentColumns);
+  for (const [table, columns] of columnsByTable) {
     if (!tables.has(table)) {
       if (
-        table === 'working_copies' ||
-        table === 'task_merges' ||
-        (table === 'store' && version < 3)
+        version < 5 &&
+        (table === 'working_copies' ||
+          table === 'task_merges' ||
+          (table === 'store' && version < 3))
       )
         continue;
       throw new Error(`Desktop schema is missing ${table}`);
@@ -111,6 +120,7 @@ export function inspectDesktopSchema(
       const found = actual.find((item) => item.name === column.name);
       if (!found) {
         if (
+          version < 5 &&
           column.name === 'deleted' &&
           (table === 'dimensions' || (table === 'cruxes' && version < 4))
         )
@@ -129,6 +139,8 @@ export function inspectDesktopSchema(
     const actual = db
       .prepare('SELECT sql FROM sqlite_master WHERE name = ?')
       .get(index.name);
+    if (version === 5 && !actual)
+      throw new Error(`Desktop schema is missing index ${index.name}`);
     if (
       actual &&
       (!actual.sql || normalizedSql(actual.sql) !== normalizedSql(index.sql))
@@ -154,6 +166,10 @@ export function inspectDesktopSchema(
       "SELECT 1 FROM pragma_table_info('artifacts') WHERE name = 'content'",
     )
     .get();
+  if (version === 5 && hasInlineContent)
+    throw new Error(
+      'Inline Artifact columns are not part of the current schema',
+    );
   if (
     !allowInlineContent &&
     hasInlineContent &&
@@ -185,6 +201,7 @@ export function needsDesktopMigration(
   allowInlineContent = false,
 ): boolean {
   const version = inspectDesktopSchema(db, allowInlineContent);
+  if (version === 5) return false;
   if (version !== 4 || (allowInlineContent && hasDesktopInlineContent(db)))
     return true;
   for (const [table, columns] of expectedColumns()) {

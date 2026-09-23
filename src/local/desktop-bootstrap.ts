@@ -1,11 +1,9 @@
+import { FILE_CONTENT_SCHEMA } from './file-content.schema';
 import type { Knex } from 'knex';
 import { DESKTOP_SCHEMA_SQL } from './desktop-ddl';
 import { prepareDesktopGraph } from '../common/database/sqlite-graph';
 
-/** Transitional desktop v4 schema owned by the API for NEW files only.
- * Legacy fixture stays frozen for migration/preservation tests. No account,
- * billing or credential tables enter portable desktop content in this step.
- */
+/** Fresh API schema, including native file content heads. No legacy conversion. */
 
 export async function bootstrapDesktopDatabase(db: Knex): Promise<void> {
   await db.transaction(async (trx) => {
@@ -13,7 +11,7 @@ export async function bootstrapDesktopDatabase(db: Knex): Promise<void> {
     try {
       // All DDL executes on this transaction's owned native connection.
       connection.exec(
-        `${DESKTOP_SCHEMA_SQL}\nINSERT INTO schema_version (version) VALUES (4);`,
+        `${DESKTOP_SCHEMA_SQL}\n${FILE_CONTENT_SCHEMA};\nINSERT INTO schema_version (version) VALUES (5);`,
       );
     } finally {
       await trx.client.releaseConnection(connection);

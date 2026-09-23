@@ -3,13 +3,6 @@ import { DbService } from '../common/services/db.service';
 import { RepositoryResponse } from '../common/types/interfaces';
 import { success, failure } from '../common/helpers/repository-helpers';
 
-/** Candidate schema; installed only by isolated fixtures until versioned migration lands. */
-export const FILE_CONTENT_SCHEMA = `CREATE TABLE file_content_heads (
-  crux_id TEXT PRIMARY KEY NOT NULL,
-  format_version INTEGER NOT NULL,
-  root TEXT NOT NULL,
-  revision INTEGER NOT NULL
-)`;
 export interface FileContentHead {
   cruxId: string;
   formatVersion: 1;
