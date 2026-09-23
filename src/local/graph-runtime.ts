@@ -223,6 +223,28 @@ export class LocalGraphRuntime {
     );
   }
 
+  /** Capture a shallow metadata patch, then read/merge/write under one owner transaction. */
+  async mergeCruxMeta(
+    id: string,
+    patch: Record<string, unknown>,
+  ): Promise<void> {
+    if (
+      typeof id !== 'string' ||
+      !id ||
+      !patch ||
+      typeof patch !== 'object' ||
+      Array.isArray(patch)
+    )
+      throw new Error('Use a Crux identity and metadata object');
+    const captured = JSON.parse(JSON.stringify(patch));
+    if (!captured || typeof captured !== 'object' || Array.isArray(captured))
+      throw new Error('Use a metadata object');
+    await this.execute(async ({ crux }) => {
+      const current = await crux.findById(id);
+      await crux.update(id, { meta: { ...current.meta, ...captured } });
+    });
+  }
+
   addGardenMember(input: AddGardenMember) {
     const captured = { ...input };
     return this.execute(({ garden }) => garden.add(captured));
