@@ -7,10 +7,13 @@ import { LocalWorkingCopyCreate } from './working-copy-create';
 interface WorkingCopyRow {
   id: string;
   crux_id: string;
+  task_id: string;
+  base_snapshot_id: string;
   meta: Record<string, unknown>;
   revision: number;
   role: string;
   phase: string;
+  project_folder: string | null;
 }
 
 /** Transitional desktop Task records, owned by the same API database. */
@@ -108,6 +111,42 @@ export class WorkingCopyRepository {
       );
     } catch (error) {
       return failure<WorkingCopyRow>(error);
+    }
+  }
+
+  async setSetup(
+    copy: WorkingCopyRow,
+    phase: 'preparing' | 'ready' | 'failed',
+    folder: string | null,
+  ) {
+    try {
+      const db = this.db.query();
+      const changed = await db('working_copies')
+        .where({ id: copy.id, phase: copy.phase, revision: copy.revision })
+        .update({
+          phase,
+          project_folder: folder,
+          revision: copy.revision + 1,
+          updated: new Date(),
+        });
+      const saved = await db('working_copies').where({ id: copy.id }).first();
+      if (
+        changed !== 1 ||
+        saved?.phase !== phase ||
+        saved?.revision !== copy.revision + 1 ||
+        saved?.project_folder !== folder ||
+        saved?.task_id !== copy.task_id ||
+        saved?.base_snapshot_id !== copy.base_snapshot_id ||
+        saved?.crux_id !== copy.crux_id ||
+        saved?.role !== copy.role ||
+        JSON.stringify(saved?.meta) !== JSON.stringify(copy.meta)
+      )
+        throw new Error(
+          'Task setup changed while saving. Reopen the Task before retrying.',
+        );
+      return success({ saved: true });
+    } catch (error) {
+      return failure<{ saved: boolean }>(error);
     }
   }
 

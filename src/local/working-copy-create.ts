@@ -48,3 +48,9 @@ export function captureWorkingCopyCreate(
   delete meta.workingCopy;
   return { ...input, title: input.title.trim(), meta };
 }
+
+/** Trusted native hook only; it must not call the queued owner. Retain files after DB refusal. */
+export type PrepareWorkingCopyFolder = (
+  id: string,
+  current: string | null,
+) => string | Promise<string>;

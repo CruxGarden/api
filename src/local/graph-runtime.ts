@@ -1,6 +1,7 @@
 import {
   captureWorkingCopyCreate,
   LocalWorkingCopyCreate,
+  PrepareWorkingCopyFolder,
 } from './working-copy-create';
 import { TaskMergeRepository } from './task-merge.repository';
 import { TaskMergeService } from './task-merge.service';
@@ -381,6 +382,49 @@ export class LocalGraphRuntime {
         metaKeys: Object.keys(captured.meta!),
       }),
     );
+  }
+
+  async prepareWorkingCopyFolder(
+    id: string,
+    revision: number,
+    prepare: PrepareWorkingCopyFolder,
+  ): Promise<string> {
+    this.validateSetupRevision(id, revision);
+    if (typeof prepare !== 'function')
+      throw new Error('Use the native Task folder preparer');
+    const result = await this.executeChanged(
+      ({ workingCopy }) => workingCopy.prepareFolder(id, revision, prepare),
+      (saved) => ({
+        entity: 'working-copy',
+        id,
+        cruxId: saved.cruxId,
+        fields: ['phase', 'projectFolder'],
+      }),
+    );
+    return result.folder;
+  }
+  async finishWorkingCopySetup(
+    id: string,
+    revision: number,
+    phase: 'ready' | 'failed',
+  ): Promise<void> {
+    this.validateSetupRevision(id, revision);
+    if (phase !== 'ready' && phase !== 'failed')
+      throw new Error('Use a supported Task setup result');
+    await this.executeChanged(
+      ({ workingCopy }) => workingCopy.finishSetup(id, revision, phase),
+      (cruxId) => ({ entity: 'working-copy', id, cruxId, fields: ['phase'] }),
+    );
+  }
+  private validateSetupRevision(id: string, revision: number) {
+    if (
+      typeof id !== 'string' ||
+      !id ||
+      !Number.isSafeInteger(revision) ||
+      revision < 0 ||
+      revision >= Number.MAX_SAFE_INTEGER
+    )
+      throw new Error('Use a Task identity and valid setup revision');
   }
 
   async createWorkingCopy(input: LocalWorkingCopyCreate): Promise<void> {

@@ -70,6 +70,141 @@ describe('owned Task preparation and preview data', () => {
     await owner.close();
     rmSync(dir, { recursive: true, force: true });
   });
+  it('registers a prepared folder then completes setup across restart without touching preview slots', async () => {
+    await owner.createWorkingCopy(input);
+    const preview = await owner.all('SELECT * FROM store ORDER BY id');
+    const prepare = jest.fn(async (id, current) => {
+      expect(id).toBe(input.id);
+      expect(current).toBeNull();
+      return '/prepared/task';
+    });
+    expect(await owner.prepareWorkingCopyFolder(input.id, 0, prepare)).toBe(
+      '/prepared/task',
+    );
+    expect(
+      await owner.get(
+        'SELECT phase, revision, project_folder FROM working_copies WHERE id = ?',
+        [input.id],
+      ),
+    ).toEqual({
+      phase: 'preparing',
+      revision: 1,
+      project_folder: '/prepared/task',
+    });
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    await owner.finishWorkingCopySetup(input.id, 1, 'ready');
+    expect(
+      await owner.get(
+        'SELECT phase, revision FROM working_copies WHERE id = ?',
+        [input.id],
+      ),
+    ).toEqual({ phase: 'ready', revision: 2 });
+    expect(await owner.all('SELECT * FROM store ORDER BY id')).toEqual(preview);
+    await expect(
+      owner.finishWorkingCopySetup(input.id, 1, 'failed'),
+    ).rejects.toThrow();
+    expect(
+      await owner.get('SELECT phase FROM working_copies WHERE id = ?', [
+        input.id,
+      ]),
+    ).toEqual({ phase: 'ready' });
+  });
+  it('rejects stale setup before invoking the folder hook and retains changes', async () => {
+    await owner.createWorkingCopy(input);
+    await owner.updateWorkingCopyMeta(input.id, { notes: 'Concurrent edit' });
+    const before = await owner.get(
+      'SELECT * FROM working_copies WHERE id = ?',
+      [input.id],
+    );
+    const hook = jest.fn(() => '/unexpected');
+    await expect(
+      owner.prepareWorkingCopyFolder(input.id, 0, hook),
+    ).rejects.toThrow();
+    expect(hook).not.toHaveBeenCalled();
+    await expect(
+      owner.finishWorkingCopySetup(input.id, 0, 'failed'),
+    ).rejects.toThrow();
+    expect(
+      await owner.get('SELECT * FROM working_copies WHERE id = ?', [input.id]),
+    ).toEqual(before);
+  });
+  it('retains a failed setup and its folder for guarded recovery', async () => {
+    await owner.createWorkingCopy(input);
+    await owner.prepareWorkingCopyFolder(input.id, 0, () => '/retained');
+    await owner.finishWorkingCopySetup(input.id, 1, 'failed');
+    expect(
+      await owner.prepareWorkingCopyFolder(input.id, 2, (_id, current) => {
+        expect(current).toBe('/retained');
+        return current!;
+      }),
+    ).toBe('/retained');
+    await owner.finishWorkingCopySetup(input.id, 3, 'ready');
+    expect(
+      await owner.get(
+        'SELECT phase, revision, project_folder FROM working_copies WHERE id = ?',
+        [input.id],
+      ),
+    ).toEqual({ phase: 'ready', revision: 4, project_folder: '/retained' });
+  });
+  it('refuses ready without a folder and keeps failed host preparation retryable', async () => {
+    await owner.createWorkingCopy(input);
+    const before = await owner.get(
+      'SELECT * FROM working_copies WHERE id = ?',
+      [input.id],
+    );
+    await expect(
+      owner.finishWorkingCopySetup(input.id, 0, 'ready'),
+    ).rejects.toThrow();
+    await expect(
+      owner.prepareWorkingCopyFolder(input.id, 0, () => {
+        throw new Error('Disk full');
+      }),
+    ).rejects.toThrow('Disk full');
+    expect(
+      await owner.get('SELECT * FROM working_copies WHERE id = ?', [input.id]),
+    ).toEqual(before);
+  });
+  it.each(['ABORT', 'IGNORE'])(
+    'rolls back setup %s without undoing host files',
+    async (action) => {
+      await owner.createWorkingCopy(input);
+      const before = await owner.get(
+        'SELECT * FROM working_copies WHERE id = ?',
+        [input.id],
+      );
+      await owner.run(
+        `CREATE TRIGGER refuse_setup BEFORE UPDATE ON working_copies BEGIN SELECT RAISE(${action}${action === 'ABORT' ? ", 'Setup refused'" : ''}); END`,
+      );
+      const hook = jest.fn(() => '/prepared-but-unregistered');
+      await expect(
+        owner.prepareWorkingCopyFolder(input.id, 0, hook),
+      ).rejects.toThrow();
+      expect(hook).toHaveBeenCalledTimes(1);
+      expect(
+        await owner.get('SELECT * FROM working_copies WHERE id = ?', [
+          input.id,
+        ]),
+      ).toEqual(before);
+      await owner.run('DROP TRIGGER refuse_setup');
+      await owner.prepareWorkingCopyFolder(input.id, 0, () => '/retry');
+      await owner.run(
+        `CREATE TRIGGER refuse_ready BEFORE UPDATE ON working_copies WHEN NEW.phase = 'ready' BEGIN SELECT RAISE(${action}${action === 'ABORT' ? ", 'Ready refused'" : ''}); END`,
+      );
+      const prepared = await owner.get(
+        'SELECT * FROM working_copies WHERE id = ?',
+        [input.id],
+      );
+      await expect(
+        owner.finishWorkingCopySetup(input.id, 1, 'ready'),
+      ).rejects.toThrow();
+      expect(
+        await owner.get('SELECT * FROM working_copies WHERE id = ?', [
+          input.id,
+        ]),
+      ).toEqual(prepared);
+    },
+  );
   it.each(['task', 'review'] as const)(
     'creates a preparing %s and all isolated preview slots in one durable command',
     async (role) => {

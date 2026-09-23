@@ -24,4 +24,7 @@ export type { LocalCruxUpdate } from './crux-update';
 
 export type { LocalCruxCreate, PrepareCruxFolder } from './crux-create';
 
-export type { LocalWorkingCopyCreate } from './working-copy-create';
+export type {
+  LocalWorkingCopyCreate,
+  PrepareWorkingCopyFolder,
+} from './working-copy-create';

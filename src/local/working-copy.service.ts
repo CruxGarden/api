@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { CruxGraphService } from '../crux/crux-graph.service';
 import { WorkingCopyRepository } from './working-copy.repository';
-import { LocalWorkingCopyCreate } from './working-copy-create';
+import {
+  LocalWorkingCopyCreate,
+  PrepareWorkingCopyFolder,
+} from './working-copy-create';
 
 /** Called inside the API owner's transaction with captured, validated input.
  * Content preparation, transient workspace admission and merge policy stay separate. */
@@ -16,6 +19,61 @@ export class WorkingCopyService {
     private readonly copies: WorkingCopyRepository,
     private readonly crux: CruxGraphService,
   ) {}
+
+  private async setupState(id: string, revision: number) {
+    const result = await this.copies.find(id);
+    if (result.error)
+      throw new InternalServerErrorException(result.error.message);
+    const copy = result.data;
+    if (!copy) throw new NotFoundException('Working Copy not found.');
+    await this.crux.findById(copy.crux_id);
+    if (
+      !['task', 'review'].includes(copy.role) ||
+      !['preparing', 'failed'].includes(copy.phase) ||
+      copy.revision !== revision
+    )
+      throw new ConflictException(
+        'This Task no longer has the setup state you started with. Reopen it before retrying.',
+      );
+    const pending = await this.copies.hasApplyingMerge(id);
+    if (pending.error)
+      throw new InternalServerErrorException(pending.error.message);
+    if (pending.data.pending)
+      throw new ConflictException(
+        'Recover the pending merge before changing Task setup.',
+      );
+    return copy;
+  }
+
+  async prepareFolder(
+    id: string,
+    revision: number,
+    prepare: PrepareWorkingCopyFolder,
+  ) {
+    const copy = await this.setupState(id, revision);
+    const folder = await prepare(id, copy.project_folder);
+    if (typeof folder !== 'string' || !folder.trim())
+      throw new Error('Task Project Folder preparation failed');
+    const saved = await this.copies.setSetup(copy, 'preparing', folder);
+    if (saved.error)
+      throw new InternalServerErrorException(saved.error.message);
+    return { folder, cruxId: copy.crux_id };
+  }
+
+  async finishSetup(id: string, revision: number, phase: 'ready' | 'failed') {
+    const copy = await this.setupState(id, revision);
+    if (
+      phase === 'ready' &&
+      (copy.phase !== 'preparing' || !copy.project_folder)
+    )
+      throw new ConflictException(
+        'Prepare the Task folder before completing setup.',
+      );
+    const saved = await this.copies.setSetup(copy, phase, copy.project_folder);
+    if (saved.error)
+      throw new InternalServerErrorException(saved.error.message);
+    return copy.crux_id;
+  }
 
   async create(input: LocalWorkingCopyCreate): Promise<void> {
     const parent = await this.crux.findById(input.cruxId);
