@@ -9,6 +9,8 @@ import {
   FileContentCommit,
   captureFileContent,
   FileContentRead,
+  FileContentSelection,
+  captureFileContentSelection,
   captureFileContentRead,
   FileContentEdit,
   captureFileContentEdit,
@@ -384,6 +386,25 @@ export class LocalGraphRuntime {
     return this.executeChanged(
       ({ fileContent }) => fileContent.edit(captured, capturedStore),
       () => ({ entity: 'crux', id: captured.cruxId, fields: ['fileContent'] }),
+    );
+  }
+
+  /** List the exact selected version's metadata without loading file payloads. */
+  async listFileContent(
+    input: FileContentSelection,
+    store: Pick<DesktopContentStore, 'read'>,
+  ) {
+    const captured = captureFileContentSelection(input);
+    if (!store || typeof store.read !== 'function')
+      throw new Error('Use the host content store');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: async () => {
+        throw new Error('File listing cannot write content');
+      },
+    };
+    return this.execute(({ fileContent }) =>
+      fileContent.list(captured, capturedStore),
     );
   }
 

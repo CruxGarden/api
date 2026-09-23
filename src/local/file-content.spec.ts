@@ -260,6 +260,164 @@ describe('API file content publication', () => {
     expect(read).not.toHaveBeenCalled();
   });
 
+  it('lists selected file metadata in path order without loading file bytes or creating Artifact rows', async () => {
+    const saved = await owner.editFileContent(
+      {
+        cruxId: id,
+        expected: null,
+        changes: [put('z.txt', 'Last'), put('a.txt', 'First')],
+      },
+      store,
+    );
+    const reads: string[] = [];
+    const files = await tree.entries(saved.root);
+    const listing = await owner.listFileContent(
+      { cruxId: id, expected: saved },
+      {
+        read: async (fp) => {
+          reads.push(fp);
+          if (files.some((file) => file.fingerprint === fp))
+            throw new Error('No payload reads');
+          return store.read(fp);
+        },
+      },
+    );
+    expect(listing).toEqual({ head: saved, entries: files });
+    expect(listing.entries.map((file) => file.path)).toEqual([
+      'a.txt',
+      'z.txt',
+    ]);
+    expect(reads).toEqual([saved.root]);
+    expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
+  });
+
+  it('lists retained Growth after restart and rejects a stale Main selection before storage', async () => {
+    const first = await owner.editFileContent(
+      { cruxId: id, expected: null, changes: [put('old.txt', 'Original')] },
+      store,
+    );
+    const snapshot = await owner.createGrowthSnapshot(
+      {
+        cruxId: id,
+        expected: first,
+        snapshotId: randomUUID(),
+        parentId: null,
+      },
+      store,
+    );
+    const latest = await owner.editFileContent(
+      {
+        cruxId: id,
+        expected: first,
+        changes: [{ remove: 'old.txt' }, put('new.txt', 'Updated')],
+      },
+      store,
+    );
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    const read = jest.spyOn(store, 'read');
+    await expect(
+      owner.listFileContent({ cruxId: id, expected: first }, store),
+    ).rejects.toThrow('changed');
+    expect(read).not.toHaveBeenCalled();
+    expect(
+      (
+        await owner.listFileContent(
+          { cruxId: snapshot.snapshot.id, expected: snapshot.head },
+          store,
+        )
+      ).entries.map((file) => file.path),
+    ).toEqual(['old.txt']);
+    expect(
+      (
+        await owner.listFileContent({ cruxId: id, expected: latest }, store)
+      ).entries.map((file) => file.path),
+    ).toEqual(['new.txt']);
+  });
+
+  it('captures a queued listing selection and reader without accepting caller mutations', async () => {
+    const head = await owner.editFileContent(
+      {
+        cruxId: id,
+        expected: null,
+        changes: [put('original.txt', 'Original')],
+      },
+      store,
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const prior = owner.execute(async () => {
+      await gate;
+    });
+    const input = { cruxId: id, expected: { ...head } };
+    const pending = owner.listFileContent(input, store);
+    input.cruxId = 'other';
+    input.expected.root = 'f'.repeat(64);
+    store.read = async () => {
+      throw new Error('Changed reader');
+    };
+    release();
+    await prior;
+    expect((await pending).entries.map((file) => file.path)).toEqual([
+      'original.txt',
+    ]);
+  });
+
+  it('refuses missing or corrupt listing nodes and permits a clean retry', async () => {
+    const head = await owner.editFileContent(
+      {
+        cruxId: id,
+        expected: null,
+        changes: Array.from({ length: 150 }, (_, i) =>
+          put(`folder/${i}.txt`, String(i)),
+        ),
+      },
+      store,
+    );
+    const expected = await tree.entries(head.root);
+    const read = jest.spyOn(store, 'read');
+    const original = read.getMockImplementation()!;
+    read.mockImplementation(async (fp) =>
+      fp === head.root ? null : original(fp),
+    );
+    const input = { cruxId: id, expected: head };
+    await expect(owner.listFileContent(input, store)).rejects.toThrow();
+    read.mockImplementation(async (fp) =>
+      fp === head.root ? Buffer.from('corrupt') : original(fp),
+    );
+    await expect(owner.listFileContent(input, store)).rejects.toThrow();
+    read.mockImplementation(original);
+    expect(await owner.listFileContent(input, store)).toEqual({
+      head,
+      entries: expected,
+    });
+  });
+
+  it('rejects malformed listing selections and missing owners without storage reads', async () => {
+    const head = await owner.editFileContent(
+      { cruxId: id, expected: null, changes: [] },
+      store,
+    );
+    const read = jest.spyOn(store, 'read');
+    for (const expected of [
+      null,
+      { root: 'invalid', revision: 1 },
+      { root: head.root, revision: 0 },
+    ])
+      await expect(
+        owner.listFileContent({ cruxId: id, expected } as any, store),
+      ).rejects.toThrow('version-bound');
+    await expect(
+      owner.listFileContent({ cruxId: 'absent', expected: head }, store),
+    ).rejects.toThrow('Crux not found');
+    expect(read).not.toHaveBeenCalled();
+    expect(
+      await owner.listFileContent({ cruxId: id, expected: head }, store),
+    ).toEqual({ head, entries: [] });
+  });
+
   it('reads exact verified file bytes through a version-bound API reference after restart', async () => {
     const head = await owner.commitFileContent(
       { cruxId: id, expected: null, root: await root('binary\0content') },

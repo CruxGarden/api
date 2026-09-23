@@ -52,38 +52,49 @@ export function captureFileContent(
   };
 }
 
-export interface FileContentRead {
+export interface FileContentSelection {
   cruxId: string;
   expected: { root: string; revision: number };
+}
+export interface FileContentRead extends FileContentSelection {
   path: string;
+}
+export interface FileContentListResult {
+  head: FileContentHead;
+  entries: FileEntry[];
 }
 export interface FileContentReadResult {
   head: FileContentHead;
   entry: FileEntry;
   bytes: Uint8Array;
 }
-export function captureFileContentRead(
-  input: FileContentRead,
-): FileContentRead {
+export function captureFileContentSelection(
+  input: FileContentSelection,
+): FileContentSelection {
   if (!input || typeof input !== 'object' || Array.isArray(input))
-    throw new Error('Use a version-bound file reference');
-  const { cruxId, expected, path } = input;
+    throw new Error('Use a version-bound content selection');
+  const { cruxId, expected } = input;
   if (
     typeof cruxId !== 'string' ||
     !cruxId ||
     !expected ||
     !fingerprint(expected.root) ||
     !Number.isSafeInteger(expected.revision) ||
-    expected.revision < 1 ||
-    typeof path !== 'string' ||
-    !path
+    expected.revision < 1
   )
-    throw new Error('Use a version-bound file reference');
+    throw new Error('Use a version-bound content selection');
   return {
     cruxId,
     expected: { root: expected.root, revision: expected.revision },
-    path,
   };
+}
+export function captureFileContentRead(
+  input: FileContentRead,
+): FileContentRead {
+  const selected = captureFileContentSelection(input);
+  if (typeof input.path !== 'string' || !input.path)
+    throw new Error('Use a version-bound file reference');
+  return { ...selected, path: input.path };
 }
 
 export type FileContentChange =
@@ -169,10 +180,9 @@ export class FileContentService {
     if (!context.crux) throw new ConflictException('Crux not found');
     return context.head;
   }
-  async read(
-    input: FileContentRead,
-    store: DesktopContentStore,
-  ): Promise<FileContentReadResult | null> {
+  private async selectedHead(
+    input: FileContentSelection,
+  ): Promise<FileContentHead> {
     const head = await this.head(input.cruxId);
     if (
       !head ||
@@ -183,6 +193,21 @@ export class FileContentService {
       throw new ConflictException(
         'File content changed; reload before reading',
       );
+    return head;
+  }
+  /** Initial file-tree projection, not an individual file lookup. Reads metadata only. */
+  async list(
+    input: FileContentSelection,
+    store: DesktopContentStore,
+  ): Promise<FileContentListResult> {
+    const head = await this.selectedHead(input);
+    return { head, entries: await new FileManifest(store).entries(head.root) };
+  }
+  async read(
+    input: FileContentRead,
+    store: DesktopContentStore,
+  ): Promise<FileContentReadResult | null> {
+    const head = await this.selectedHead(input);
     const file = await new FileManifest(store).readFile(head.root, input.path);
     return file ? { head, ...file } : null;
   }

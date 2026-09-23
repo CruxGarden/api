@@ -40,6 +40,8 @@ export type {
   FileContentEdit,
   FileContentChange,
   FileContentRead,
+  FileContentSelection,
+  FileContentListResult,
   FileContentReadResult,
 } from './file-content.service';
 export type { FileContentHead } from './file-content.repository';
