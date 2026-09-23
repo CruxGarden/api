@@ -10,10 +10,11 @@ export interface DesktopRecoveryInspection {
   fingerprints: string[];
 }
 
-/** Inspect detached recovery bytes; never opens or mutates the working database. */
-export function inspectDesktopRecovery(
+/** Internal detached reader; writable only for explicit verified content conversion. */
+export function openDesktopRecovery(
   data: ArrayBuffer,
-): DesktopRecoveryInspection {
+  allowInlineContent = false,
+): any {
   const bytes = Buffer.from(new Uint8Array(data));
   if (
     bytes.length < 100 ||
@@ -26,7 +27,7 @@ export function inspectDesktopRecovery(
   if (bytes[18] === 2 && bytes[19] === 2) bytes[18] = bytes[19] = 1;
   if (bytes[18] !== 1 || bytes[19] !== 1)
     throw new Error('Unsupported recovery SQLite file format');
-  const db = new Database(bytes, { readonly: true });
+  const db = new Database(bytes, { readonly: !allowInlineContent });
   try {
     db.pragma('trusted_schema = OFF');
     const integrity = db.pragma('integrity_check');
@@ -62,7 +63,21 @@ export function inspectDesktopRecovery(
       schemaVersion > 4
     )
       throw new Error('Unsupported recovery schema version');
-    inspectDesktopSchema(db);
+    inspectDesktopSchema(db, allowInlineContent);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+/** Inspect detached recovery bytes; never opens or mutates the working database. */
+export function inspectDesktopRecovery(
+  data: ArrayBuffer,
+): DesktopRecoveryInspection {
+  const db = openDesktopRecovery(data);
+  try {
+    const schemaVersion = inspectDesktopSchema(db);
     const references: { fingerprint: string }[] = db
       .prepare(
         `
@@ -82,7 +97,7 @@ export function inspectDesktopRecovery(
         throw new Error('Invalid recovery content fingerprint');
     }
     return {
-      database: Uint8Array.from(bytes).buffer,
+      database: Uint8Array.from(db.serialize()).buffer,
       schemaVersion,
       fingerprints: references.map((row) => row.fingerprint),
     };

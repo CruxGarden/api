@@ -73,7 +73,10 @@ function expectedColumns(): Map<string, Column[]> {
 }
 
 /** Validate known columns without rewriting opaque extension tables or columns. */
-export function inspectDesktopSchema(db: any): number {
+export function inspectDesktopSchema(
+  db: any,
+  allowInlineContent = false,
+): number {
   const tables = new Set(
     db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -152,6 +155,7 @@ export function inspectDesktopSchema(db: any): number {
     )
     .get();
   if (
+    !allowInlineContent &&
     hasInlineContent &&
     db
       .prepare('SELECT 1 FROM artifacts WHERE content IS NOT NULL LIMIT 1')

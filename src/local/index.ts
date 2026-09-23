@@ -1,3 +1,5 @@
+export { prepareDesktopContent } from './desktop-content';
+export type { DesktopContentStore } from './desktop-content';
 export { inspectDesktopRecovery } from './desktop-recovery';
 export type { DesktopRecoveryInspection } from './desktop-recovery';
 export { LocalGraphRuntime } from './graph-runtime';
