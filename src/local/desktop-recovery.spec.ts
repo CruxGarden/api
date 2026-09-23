@@ -1,4 +1,6 @@
-import { readFileSync } from 'fs';
+import { readFileSync, mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { resolve } from 'path';
 import { inspectDesktopRecovery } from './desktop-recovery';
 
@@ -27,6 +29,7 @@ describe('detached desktop recovery inspection', () => {
     });
     const original = Buffer.from(bytes).toString('hex');
     expect(inspectDesktopRecovery(bytes)).toEqual({
+      database: expect.any(ArrayBuffer),
       schemaVersion: 0,
       fingerprints: [],
     });
@@ -116,5 +119,37 @@ describe('detached desktop recovery inspection', () => {
         ? new Uint8Array([1, 2, 3]).buffer
         : image().slice(0, 128);
     expect(() => inspectDesktopRecovery(bytes)).toThrow();
+  });
+  it('inspects an actual WAL export without modifying the supplied recovery bytes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'crux-recovery-wal-'));
+    const db = new Database(join(dir, 'source.db'));
+    try {
+      db.pragma('journal_mode = WAL');
+      db.exec(schema);
+      db.prepare('INSERT INTO settings VALUES (?, ?)').run(
+        'committed-in-wal',
+        'preserved',
+      );
+      const bytes = Uint8Array.from(db.serialize()).buffer;
+      const original = Buffer.from(bytes).toString('hex');
+      expect(new Uint8Array(bytes)[18]).toBe(2);
+      const inspected = inspectDesktopRecovery(bytes);
+      expect(inspected.schemaVersion).toBe(0);
+      expect(new Uint8Array(inspected.database)[18]).toBe(1);
+      const detached = new Database(Buffer.from(inspected.database));
+      try {
+        expect(
+          detached
+            .prepare('SELECT value FROM settings WHERE key = ?')
+            .get('committed-in-wal').value,
+        ).toBe('preserved');
+      } finally {
+        detached.close();
+      }
+      expect(Buffer.from(bytes).toString('hex')).toBe(original);
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

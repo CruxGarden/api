@@ -1,6 +1,8 @@
 const Database = require('better-sqlite3');
 
 export interface DesktopRecoveryInspection {
+  /** Detached SQLite image normalized for in-memory preparation. */
+  database: ArrayBuffer;
   /** Zero denotes the unversioned native desktop schema. */
   schemaVersion: number;
   /** Required content, including retained history and author avatars. */
@@ -11,9 +13,19 @@ export interface DesktopRecoveryInspection {
 export function inspectDesktopRecovery(
   data: ArrayBuffer,
 ): DesktopRecoveryInspection {
-  const db = new Database(Buffer.from(new Uint8Array(data)), {
-    readonly: true,
-  });
+  const bytes = Buffer.from(new Uint8Array(data));
+  if (
+    bytes.length < 100 ||
+    bytes.subarray(0, 16).toString() !== 'SQLite format 3\0'
+  )
+    throw new Error('Invalid recovery SQLite header');
+  // sqlite3_deserialize cannot open WAL-mode images. The snapshot already
+  // includes committed WAL pages; normalize only our private copy's mode bytes.
+  // https://sqlite.org/c3ref/deserialize.html
+  if (bytes[18] === 2 && bytes[19] === 2) bytes[18] = bytes[19] = 1;
+  if (bytes[18] !== 1 || bytes[19] !== 1)
+    throw new Error('Unsupported recovery SQLite file format');
+  const db = new Database(bytes, { readonly: true });
   try {
     db.pragma('trusted_schema = OFF');
     const integrity = db.pragma('integrity_check');
@@ -68,6 +80,7 @@ export function inspectDesktopRecovery(
         throw new Error('Invalid recovery content fingerprint');
     }
     return {
+      database: Uint8Array.from(bytes).buffer,
       schemaVersion,
       fingerprints: references.map((row) => row.fingerprint),
     };
