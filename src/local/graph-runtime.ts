@@ -3,6 +3,17 @@ import { DynamicModule, INestApplicationContext, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { isAbsolute, dirname, basename, join } from 'path';
 import { realpath, stat, open as openFile } from 'fs/promises';
+import {
+  writeFileSync,
+  renameSync,
+  statSync,
+  rmSync,
+  openSync,
+  fsyncSync,
+  closeSync,
+} from 'fs';
+import { randomUUID } from 'crypto';
+import { inspectDesktopRecovery } from './desktop-recovery';
 import { bootstrapDesktopDatabase } from './desktop-bootstrap';
 import { AsyncLocalStorage } from 'async_hooks';
 import { DbService } from '../common/services/db.service';
@@ -21,6 +32,9 @@ import {
   GardenMembershipService,
   AddGardenMember,
 } from './garden-membership.service';
+
+// A failed close leaves connection ownership uncertain: never admit another owner.
+class DatabaseShutdownError extends AggregateError {}
 
 @Module({})
 class LocalGraphModule {
@@ -64,13 +78,21 @@ export class LocalGraphRuntime {
   private closing: Promise<void> | null = null;
   private recoveryClosing: Promise<ArrayBuffer> | null = null;
   private readonly commandScope = new AsyncLocalStorage<boolean>();
-  private readonly db: DbService;
-  private readonly operations: GraphOperations;
+  private replacing = false;
+  private failure: Error | null = null;
+  private db: DbService;
+  private operations: GraphOperations;
 
   private constructor(
-    private readonly context: INestApplicationContext,
+    private context: INestApplicationContext,
     private readonly ownershipKeys: string[],
+    private readonly filename: string,
   ) {
+    this.bind(context);
+  }
+
+  private bind(context: INestApplicationContext): void {
+    this.context = context;
     this.db = context.get(DbService);
     this.operations = Object.freeze({
       crux: context.get(CruxGraphService),
@@ -113,8 +135,6 @@ export class LocalGraphRuntime {
       throw new Error('Local API database is already owned in this process');
     }
     ownershipKeys.forEach((key) => this.ownedFiles.add(key));
-    let database: DbService | undefined;
-    let context: INestApplicationContext | undefined;
     try {
       if (create) {
         const file = await openFile(canonical, 'wx', 0o600);
@@ -127,30 +147,56 @@ export class LocalGraphRuntime {
           await file.close();
         }
       }
-      const logger = new LoggerService();
-      database = new DbService(logger, sqliteGraphConfig(canonical));
+      const context = await this.openContext(canonical, create);
+      return new LocalGraphRuntime(context, ownershipKeys, canonical);
+    } catch (error) {
+      if (!(error instanceof DatabaseShutdownError))
+        ownershipKeys.forEach((key) => this.ownedFiles.delete(key));
+      throw error;
+    }
+  }
+
+  private static async openContext(
+    filename: string,
+    create = false,
+  ): Promise<INestApplicationContext> {
+    const logger = new LoggerService();
+    const database = new DbService(logger, sqliteGraphConfig(filename));
+    let context: INestApplicationContext | undefined;
+    try {
       context = await NestFactory.createApplicationContext(
         LocalGraphModule.register(database, logger),
         { logger: false, abortOnError: false },
       );
       if (create) await bootstrapDesktopDatabase(database.query());
       else await prepareDesktopGraph(database.query());
-      return new LocalGraphRuntime(context, ownershipKeys);
+      return context;
     } catch (error) {
-      if (context) await context.close();
-      else await database?.onModuleDestroy();
-      ownershipKeys.forEach((key) => this.ownedFiles.delete(key));
+      try {
+        if (context) await context.close();
+        else await database.onModuleDestroy();
+      } catch (shutdown) {
+        throw new DatabaseShutdownError(
+          [error, shutdown],
+          'Local API failed to close after startup failure',
+        );
+      }
       throw error;
     }
   }
 
+  private admissionError(): Error | null {
+    if (this.commandScope.getStore())
+      return new Error('Nested local API commands are not allowed');
+    if (this.failure) return this.failure;
+    if (this.closing) return new Error('Local API is closing');
+    if (this.replacing) return new Error('Local API is replacing its database');
+    return null;
+  }
+
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.commandScope.getStore()) {
-      return Promise.reject(
-        new Error('Nested local API commands are not allowed'),
-      );
-    }
-    if (this.closing) return Promise.reject(new Error('Local API is closing'));
+    const refused = this.admissionError();
+    if (refused) return Promise.reject(refused);
     const result = this.pending.then(() =>
       this.commandScope.run(true, operation),
     );
@@ -270,6 +316,134 @@ export class LocalGraphRuntime {
   }
 
   /**
+   * Host-internal whole-installation replacement. The host must stage/verify
+   * content and quiesce its writers first. Returns the previous image, captured
+   * after every admitted command, for rollback of subsequent host-level work.
+   * Ownership stays reserved through preparation, close, rename and reopen.
+   */
+  replaceDatabase(data: ArrayBuffer): Promise<ArrayBuffer> {
+    const refused = this.admissionError();
+    if (refused) return Promise.reject(refused);
+    let captured: ArrayBuffer;
+    try {
+      captured = inspectDesktopRecovery(data).database;
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const replacement = this.enqueue(() =>
+      this.replaceCapturedDatabase(captured),
+    );
+    this.replacing = true;
+    return replacement.finally(() => {
+      this.replacing = false;
+    });
+  }
+
+  private reserveCurrentIdentity(): void {
+    // No await between rename and reserving the new inode: hard-link aliases
+    // cannot acquire ownership while a replacement context is opening.
+    const file = statSync(this.filename, { bigint: true });
+    const key = `file:${file.dev}:${file.ino}`;
+    if (!this.ownershipKeys.includes(key)) {
+      this.ownershipKeys.push(key);
+      LocalGraphRuntime.ownedFiles.add(key);
+    }
+  }
+
+  private async replaceCapturedDatabase(
+    data: ArrayBuffer,
+  ): Promise<ArrayBuffer> {
+    const prefix = join(
+      dirname(this.filename),
+      `.${basename(this.filename)}.${randomUUID()}`,
+    );
+    const candidatePath = `${prefix}.restore`;
+    const recoveryPath = `${prefix}.recovery`;
+    let candidate: INestApplicationContext | undefined;
+    let candidateClosed = false;
+    let closingStarted = false;
+    let closed = false;
+    let swapped = false;
+    let retainFiles = false;
+    try {
+      writeFileSync(candidatePath, Buffer.from(data), {
+        flag: 'wx',
+        mode: 0o600,
+        flush: true,
+      });
+      // Prepare the complete incoming file through the same API adapter before
+      // touching the working connection. Unknown tables/columns remain intact.
+      candidate = await LocalGraphRuntime.openContext(candidatePath);
+      await candidate.close();
+      candidateClosed = true;
+      const staged = openSync(candidatePath, 'r+');
+      try {
+        fsyncSync(staged);
+      } finally {
+        closeSync(staged);
+      }
+      const previous = await this.withConnection(
+        (connection) => Uint8Array.from(connection.serialize()).buffer,
+      );
+      const recovery = inspectDesktopRecovery(previous).database;
+      writeFileSync(recoveryPath, Buffer.from(recovery), {
+        flag: 'wx',
+        mode: 0o600,
+        flush: true,
+      });
+      closingStarted = true;
+      await this.context.close();
+      closed = true;
+      renameSync(candidatePath, this.filename);
+      swapped = true;
+      this.reserveCurrentIdentity();
+      this.bind(await LocalGraphRuntime.openContext(this.filename));
+      return previous;
+    } catch (error) {
+      // Never reopen across a connection whose shutdown is uncertain.
+      if (
+        (closingStarted && !closed) ||
+        error instanceof DatabaseShutdownError
+      ) {
+        retainFiles = true;
+        this.failure = new AggregateError(
+          [error],
+          `Local API recovery required; retained files at ${prefix}`,
+        );
+        throw this.failure;
+      }
+      if (closed) {
+        try {
+          if (swapped) {
+            renameSync(recoveryPath, this.filename);
+            this.reserveCurrentIdentity();
+          }
+          this.bind(await LocalGraphRuntime.openContext(this.filename));
+        } catch (rollback) {
+          retainFiles = true;
+          this.failure = new AggregateError(
+            [error, rollback],
+            `Local API recovery required; retained files at ${prefix}`,
+          );
+          throw this.failure;
+        }
+      }
+      throw error;
+    } finally {
+      if (candidate && !candidateClosed) retainFiles = true;
+      if (!retainFiles) {
+        for (const file of [candidatePath, recoveryPath]) {
+          try {
+            rmSync(file, { force: true });
+          } catch {
+            /* orphan cleanup is separate */
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Close this owner with a final recovery image containing every admitted write.
    * New commands are refused immediately. Even if serialization fails, shutdown
    * drains and closes before rejecting; the existing file can be reopened.
@@ -282,6 +456,8 @@ export class LocalGraphRuntime {
       );
     if (this.recoveryClosing) return this.recoveryClosing;
     if (this.closing) return Promise.reject(new Error('Local API is closing'));
+    const refused = this.admissionError();
+    if (refused) return Promise.reject(refused);
     const image = this.exportDatabase();
     const closed = this.close();
     this.recoveryClosing = Promise.allSettled([image, closed]).then(
@@ -307,6 +483,7 @@ export class LocalGraphRuntime {
       );
     }
     this.closing ??= this.pending.then(async () => {
+      if (this.failure) throw this.failure;
       await this.context.close();
       // Release only after SQLite is closed; failed shutdown must not admit
       // another owner over a potentially live connection.
