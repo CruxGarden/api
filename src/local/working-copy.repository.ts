@@ -72,6 +72,21 @@ export class WorkingCopyRepository {
         updated: now,
       };
       await db('working_copies').insert(record);
+      // A Task starts from the retained base root, without cloning file records.
+      // Its subsequent edits publish an independent head under its copy identity.
+      const baseHead = await db('file_content_heads')
+        .where({ crux_id: input.baseSnapshotId })
+        .first();
+      if (baseHead) {
+        const retained = { ...baseHead, crux_id: input.id, revision: 1 };
+        await db('file_content_heads').insert(retained);
+        const savedHead = await db('file_content_heads')
+          .where({ crux_id: input.id })
+          .first();
+        if (JSON.stringify(savedHead) !== JSON.stringify(retained))
+          throw new Error('Task content retention did not persist');
+      }
+
       // Preview data is a private independent copy, including every visitor slot
       // and unknown extension column. It never aliases the live Crux's Store.
       const original = await db('store')

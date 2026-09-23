@@ -5,6 +5,15 @@ import {
 } from '@nestjs/common';
 import { CruxGraphService } from '../crux/crux-graph.service';
 import { TaskMergeRepository, MergeRow } from './task-merge.repository';
+import {
+  FileContentService,
+  captureFileContentEdit,
+} from './file-content.service';
+import { FileContentRepository } from './file-content.repository';
+import { DesktopContentStore } from './desktop-content';
+import { isTaskContent, assertTaskContent } from './task-content';
+import { isDeepStrictEqual } from 'util';
+import type { GrowthSnapshotCreate } from './growth-content.service';
 
 /** Durable review closure/finalization. Host file projection and Growth capture remain recoverable earlier steps. */
 @Injectable()
@@ -12,6 +21,8 @@ export class TaskMergeService {
   constructor(
     private readonly repository: TaskMergeRepository,
     private readonly crux: CruxGraphService,
+    private readonly content: FileContentService,
+    private readonly contentRepository: FileContentRepository,
   ) {}
   private async ownedState(
     id: string,
@@ -153,7 +164,7 @@ export class TaskMergeService {
     return { id: copy.id, cruxId: merge.crux_id };
   }
 
-  async begin(id: string, expected: unknown) {
+  async begin(id: string, expected: unknown, store?: DesktopContentStore) {
     const { state, merge, copy, candidate, data, crux } =
       await this.ownedState(id);
     if (
@@ -207,7 +218,95 @@ export class TaskMergeService {
     });
     if (saved.error)
       throw new InternalServerErrorException(saved.error.message);
+    const mainHead = await this.content.head(merge.crux_id);
+    if (mainHead) {
+      if (!store)
+        throw new Error('Use the host content store to admit a file merge');
+      const mainFiles = (
+        await this.content.list(
+          { cruxId: merge.crux_id, expected: mainHead },
+          store,
+        )
+      ).entries;
+      assertTaskContent(mainFiles, data.main);
+      const candidateHead = await this.content.head(candidate.id);
+      if (!candidateHead)
+        throw new Error('The review candidate has no retained content');
+      const candidateFiles = (
+        await this.content.list(
+          { cruxId: candidate.id, expected: candidateHead },
+          store,
+        )
+      ).entries;
+      assertTaskContent(candidateFiles, data.manifest);
+      const taskHead = await this.content.head(copy.id);
+      if (!taskHead) throw new Error('The Task has no retained content');
+      assertTaskContent(
+        (
+          await this.content.list(
+            { cruxId: copy.id, expected: taskHead },
+            store,
+          )
+        ).entries,
+        data.task,
+      );
+      const desired = candidateFiles.filter((file) => isTaskContent(file.path));
+      const paths = new Set(desired.map((file) => file.path));
+      const changes = [
+        ...mainFiles
+          .filter((file) => isTaskContent(file.path) && !paths.has(file.path))
+          .map((file) => ({ remove: file.path })),
+        ...desired.map((file) => ({ put: file })),
+      ];
+      const head = await this.content.edit(
+        captureFileContentEdit({
+          cruxId: merge.crux_id,
+          expected: mainHead,
+          changes,
+        }),
+        store,
+        id,
+      );
+      await this.contentRepository.queueProjection(merge.crux_id, head);
+    }
     return { id: copy.id, cruxId: merge.crux_id };
+  }
+
+  /** The only snapshot admitted during application is the checked merge result. */
+  async admitSnapshot(
+    input: GrowthSnapshotCreate,
+    store: DesktopContentStore,
+  ): Promise<string> {
+    const evidence = input.meta?.merge as Record<string, unknown> | undefined;
+    if (typeof evidence?.id !== 'string')
+      throw new Error('Use the checked Task merge identity');
+    const { merge, data, copy, candidate } = await this.ownedState(evidence.id);
+    if (
+      merge.phase !== 'applying' ||
+      copy.phase !== 'ready' ||
+      candidate.phase !== 'ready' ||
+      input.cruxId !== merge.crux_id ||
+      input.parentId !== data.targetHead ||
+      evidence.copyId !== copy.id ||
+      evidence.sourceHead !== data.sourceHead ||
+      evidence.targetHead !== data.targetHead ||
+      evidence.verifiedKey !== data.verifiedKey ||
+      !isDeepStrictEqual(evidence.resolutions, data.resolutions)
+    )
+      throw new ConflictException(
+        'The snapshot must describe the checked Task merge',
+      );
+    this.assertVerified(data);
+    assertTaskContent(
+      (
+        await this.content.list(
+          { cruxId: input.cruxId, expected: input.expected },
+          store,
+        )
+      ).entries,
+      data.manifest,
+    );
+    return merge.id;
   }
 
   private assertVerified(data: Record<string, any>) {

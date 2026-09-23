@@ -175,6 +175,12 @@ export class FileContentService {
       throw new InternalServerErrorException(result.error.message);
     return result.data!;
   }
+  async owner(id: string) {
+    const context = this.unwrap(await this.repository.context(id));
+    if (!context.crux || context.crux.deleted)
+      throw new ConflictException('Content owner not found');
+    return context.crux;
+  }
   async head(id: string): Promise<FileContentHead | null> {
     const context = this.unwrap(await this.repository.context(id));
     if (!context.crux) throw new ConflictException('Crux not found');
@@ -214,15 +220,28 @@ export class FileContentService {
   /** Admission shared by file edits and snapshot capture inside the owner transaction. */
   async admit(
     input: Pick<FileContentCommit, 'cruxId' | 'expected'>,
+    mergeId?: string,
   ): Promise<FileContentHead | null> {
     const context = this.unwrap(await this.repository.context(input.cruxId));
     if (
       !context.crux ||
       context.crux.deleted !== null ||
-      context.crux.kind === 'snapshot'
+      context.crux.kind === 'snapshot' ||
+      context.closed
     )
       throw new ConflictException('File content requires a live editable Crux');
-    if (context.legacy || context.task || context.review || context.history)
+    if (context.projection)
+      throw new ConflictException(
+        'Finish the pending content projection before editing',
+      );
+    const merging =
+      mergeId && (await this.repository.applyingMerge(input.cruxId, mergeId));
+    if (
+      context.legacy ||
+      context.task ||
+      (context.review && !merging) ||
+      context.history
+    )
       throw new ConflictException(
         'This Crux is not supported by the new content writer yet',
       );
@@ -245,6 +264,24 @@ export class FileContentService {
       throw new ConflictException('File content changed; reload before saving');
     return before;
   }
+  async finishProjection(
+    id: string,
+    store: DesktopContentStore,
+    apply: (folder: string, entries: FileEntry[]) => void | Promise<void>,
+  ) {
+    const pending = await this.repository.projection(id);
+    if (!pending) return false;
+    const selected = await this.selectedHead({
+      cruxId: id,
+      expected: pending.head,
+    });
+    const tree = new FileManifest(store);
+    await tree.verify(selected.root);
+    await apply(pending.folder, await tree.entries(selected.root));
+    await this.repository.clearProjection(id);
+    return true;
+  }
+
   async commit(
     input: FileContentCommit,
     store: DesktopContentStore,
@@ -256,8 +293,11 @@ export class FileContentService {
   async edit(
     input: CapturedFileContentEdit,
     store: DesktopContentStore,
+    mergeId?: string,
   ): Promise<FileContentHead> {
-    const before = await this.admit(input);
+    // mergeId is supplied only by the checked Task merge command, never captured
+    // from a renderer file-edit request.
+    const before = await this.admit(input, mergeId);
     for (const file of input.files) {
       const existing = await store.read(file.fingerprint);
       if (existing === null) await store.write(file.fingerprint, file.bytes);

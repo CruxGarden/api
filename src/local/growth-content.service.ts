@@ -17,6 +17,7 @@ import {
 } from './file-content.service';
 import { FileContentRepository } from './file-content.repository';
 import { FileManifest } from './file-manifest';
+import { TaskMergeService } from './task-merge.service';
 
 export interface GrowthSnapshotCreate {
   cruxId: string;
@@ -31,6 +32,7 @@ export interface GrowthSnapshotCreate {
 export interface GrowthContentRestore {
   safety: GrowthSnapshotCreate;
   target: FileContentSelection;
+  workspace?: { expectedMeta: Record<string, unknown>; messages: unknown[] };
 }
 
 export function captureGrowthContentRestore(
@@ -40,12 +42,27 @@ export function captureGrowthContentRestore(
     !input ||
     typeof input !== 'object' ||
     Array.isArray(input) ||
-    Object.keys(input).some((key) => key !== 'safety' && key !== 'target')
+    Object.keys(input).some(
+      (key) => key !== 'safety' && key !== 'target' && key !== 'workspace',
+    )
   )
     throw new Error('Use a Growth content restore request');
   return {
     safety: captureGrowthSnapshot(input.safety),
     target: captureFileContentSelection(input.target),
+    ...(input.workspace
+      ? {
+          workspace: {
+            expectedMeta: captureMetadata(input.workspace.expectedMeta),
+            messages: (() => {
+              if (!Array.isArray(input.workspace.messages))
+                throw new Error('Use restored conversation messages');
+              return captureMetadata({ messages: input.workspace.messages })
+                .messages as unknown[];
+            })(),
+          },
+        }
+      : {}),
   };
 }
 
@@ -133,13 +150,14 @@ export class GrowthContentService {
     private readonly dimension: DimensionService,
     private readonly content: FileContentService,
     private readonly repository: FileContentRepository,
+    private readonly taskMerge: TaskMergeService,
   ) {}
 
   /** The caller runs this entire operation in the API owner transaction.
    * Folder projection and workspace presentation state are separate consumers. */
   async restore(input: GrowthContentRestore, store: DesktopContentStore) {
     await this.content.admit(input.safety);
-    const source = await this.crux.findById(input.safety.cruxId);
+    const source = await this.content.owner(input.safety.cruxId);
     const target = await this.crux.findById(input.target.cruxId);
     const targetHead = await this.content.head(target.id);
     const edges = await this.crux.getDimensionsQuery(
@@ -175,6 +193,15 @@ export class GrowthContentService {
       },
       store,
     );
+    if (input.workspace)
+      await this.repository.restoreWorkspace(
+        source.id,
+        input.workspace.expectedMeta,
+        input.workspace.messages,
+        target.id,
+        target.meta?.settings?.entryFile,
+        head,
+      );
     // Publication must not alter either retained snapshot via a late database write.
     if (
       !isDeepStrictEqual(
@@ -199,10 +226,13 @@ export class GrowthContentService {
   }
 
   async create(input: GrowthSnapshotCreate, store: DesktopContentStore) {
-    const sourceHead = await this.content.admit(input);
+    const mergeId = input.meta?.merge
+      ? await this.taskMerge.admitSnapshot(input, store)
+      : undefined;
+    const sourceHead = await this.content.admit(input, mergeId);
     if (!sourceHead)
       throw new ConflictException('Growth requires committed file content');
-    const source = await this.crux.findById(input.cruxId);
+    const source = await this.content.owner(input.cruxId);
     const edges = await this.crux.getDimensionsQuery(
       input.cruxId,
       DimensionType.GROWTH,
@@ -210,7 +240,20 @@ export class GrowthContentService {
       false,
     );
     if (input.parentId !== null) {
-      const parentEdge = edges.find(
+      const parentOwner = await this.repository.parentOwner(
+        source.id,
+        input.parentId,
+      );
+      const parentEdges =
+        parentOwner === source.id
+          ? edges
+          : await this.crux.getDimensionsQuery(
+              parentOwner,
+              DimensionType.GROWTH,
+              false,
+              false,
+            );
+      const parentEdge = parentEdges.find(
         (edge) => edge.target_id === input.parentId,
       );
       if (!parentEdge)
@@ -220,7 +263,9 @@ export class GrowthContentService {
       if (
         parent.kind !== 'snapshot' ||
         parent.deleted ||
-        parent.meta?.contentOwnerId !== source.id ||
+        parent.meta?.contentOwnerId !== parentOwner ||
+        parent.authorId !== source.authorId ||
+        parent.homeId !== source.homeId ||
         !parentHead ||
         parentHead.formatVersion !== 1 ||
         !/^[a-f0-9]{64}$/.test(parentHead.root) ||

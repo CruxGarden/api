@@ -429,6 +429,36 @@ export class LocalGraphRuntime {
     );
   }
 
+  /** Resume a durable restore intent with a trusted host materializer. A crash or
+   * refused projection leaves the committed intent for startup to retry. */
+  async finishContentProjection(
+    id: string,
+    store: Pick<DesktopContentStore, 'read'>,
+    apply: (
+      folder: string,
+      entries: import('./file-manifest').FileEntry[],
+    ) => void | Promise<void>,
+  ) {
+    if (
+      typeof id !== 'string' ||
+      !id ||
+      typeof apply !== 'function' ||
+      typeof store?.read !== 'function'
+    )
+      throw new Error('Use a content owner and trusted projection host');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: async () => {
+        throw new Error('Projection cannot write stored content');
+      },
+    };
+    return this.executeChanged(
+      ({ fileContent }) =>
+        fileContent.finishProjection(id, capturedStore, apply),
+      () => ({ entity: 'crux', id, fields: ['fileContent'] }),
+    );
+  }
+
   /** Retain one immutable content root and connect the snapshot through Growth. */
   async createGrowthSnapshot(
     input: GrowthSnapshotCreate,
@@ -616,13 +646,20 @@ export class LocalGraphRuntime {
     );
   }
 
-  async beginTaskMerge(id: string, reviewData: string): Promise<void> {
+  async beginTaskMerge(
+    id: string,
+    reviewData: string,
+    store?: DesktopContentStore,
+  ): Promise<void> {
     if (typeof id !== 'string' || !id || typeof reviewData !== 'string')
       throw new Error('Use a review identity and its checked journal');
     // Strings capture the exact reviewed input before waiting for API ownership.
     const captured = JSON.parse(reviewData);
+    const capturedStore = store
+      ? { read: store.read.bind(store), write: store.write.bind(store) }
+      : undefined;
     await this.executeChanged(
-      ({ taskMerge }) => taskMerge.begin(id, captured),
+      ({ taskMerge }) => taskMerge.begin(id, captured, capturedStore),
       (copy) => ({ entity: 'working-copy', ...copy, fields: ['phase'] }),
     );
   }

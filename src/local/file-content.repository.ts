@@ -1,4 +1,7 @@
+import { isDeepStrictEqual } from 'util';
 import { Injectable } from '@nestjs/common';
+import { toEntityFields } from '../common/helpers/case-helpers';
+import Crux from '../crux/entities/crux.entity';
 import { DbService } from '../common/services/db.service';
 import { RepositoryResponse } from '../common/types/interfaces';
 import { success, failure } from '../common/helpers/repository-helpers';
@@ -11,7 +14,9 @@ export interface FileContentHead {
 }
 
 interface FileContentContext {
-  crux: { id: string; deleted: string | null; kind: string | null } | undefined;
+  crux: Crux | undefined;
+  closed: boolean;
+  projection: boolean;
   head: FileContentHead | null;
   legacy: boolean;
   task: boolean;
@@ -28,18 +33,44 @@ export class FileContentRepository {
       const db = this.db.query();
       if (!(await db.schema.hasTable('file_content_heads')))
         throw new Error('File content schema has not been adopted');
-      const crux = await db('cruxes')
-        .where({ id })
-        .first('id', 'deleted', 'kind');
+      const record = await db('cruxes').where({ id }).first();
+      const copy = await db('working_copies').where({ id }).first();
+      if (record && copy) throw new Error('Ambiguous content owner identity');
+      const parent = copy
+        ? await db('cruxes').where({ id: copy.crux_id }).first()
+        : null;
+      const crux = record
+        ? (toEntityFields(record) as unknown as Crux)
+        : parent
+          ? ({
+              ...toEntityFields(parent),
+              id: copy.id,
+              kind: null,
+              title: copy.title,
+              meta: copy.meta,
+              type: 'working-copy',
+              created: copy.created,
+              updated: copy.updated,
+            } as unknown as Crux)
+          : undefined;
+      const closed =
+        !!copy &&
+        (!['preparing', 'ready'].includes(copy.phase) ||
+          !['task', 'review'].includes(copy.role));
       const row = await db('file_content_heads').where({ crux_id: id }).first();
       const legacy = !!(await db('artifacts')
         .where({ resource_id: id })
         .first('id'));
-      const task = !!(await db('working_copies')
-        .where({ crux_id: id })
-        .first('id'));
+      const task = !!(await db('working_copies as w')
+        .leftJoin('file_content_heads as h', 'h.crux_id', 'w.id')
+        .leftJoin('file_content_heads as b', 'b.crux_id', 'w.base_snapshot_id')
+        .where({ 'w.crux_id': id })
+        .andWhere((query) =>
+          query.whereNull('h.crux_id').orWhereNull('b.crux_id'),
+        )
+        .first('w.id'));
       const review = !!(await db('task_merges')
-        .where({ crux_id: id })
+        .where({ crux_id: copy?.crux_id ?? id, phase: 'applying' })
         .first('id'));
       // Only retained snapshot relationships admit further edits. Do not mix an
       // unrepresented historical file authority into the new writer.
@@ -87,10 +118,116 @@ export class FileContentRepository {
             revision: row.revision,
           }
         : null;
-      return success({ crux, head, legacy, task, review, history });
+      const projection = !!(await db('settings')
+        .where({ key: this.projectionKey(id) })
+        .first());
+      return success({
+        crux,
+        closed,
+        projection,
+        head,
+        legacy,
+        task,
+        review,
+        history,
+      });
     } catch (error) {
       return failure<FileContentContext>(error);
     }
+  }
+
+  private projectionKey(id: string) {
+    return `cruxgarden:content-projection:${id}`;
+  }
+
+  /** A Task's first-parent ancestry may enter its declared Main base only. */
+  async parentOwner(id: string, parentId: string): Promise<string> {
+    const copy = await this.db.query()('working_copies').where({ id }).first();
+    return copy?.base_snapshot_id === parentId ? copy.crux_id : id;
+  }
+
+  async applyingMerge(id: string, mergeId: string): Promise<boolean> {
+    return !!(await this.db
+      .query()('task_merges')
+      .where({ id: mergeId, crux_id: id, phase: 'applying' })
+      .first('id'));
+  }
+
+  async queueProjection(id: string, head: FileContentHead) {
+    const db = this.db.query();
+    const copy = await db('working_copies').where({ id }).first();
+    const source = copy ?? (await db('cruxes').where({ id }).first());
+    if (!source) throw new Error('Content owner not found');
+    const folder = copy?.project_folder ?? source.meta?.projectFolder;
+    if (!folder) return;
+    if (typeof folder !== 'string') throw new Error('Invalid Project Folder');
+    const pending = { head, folder };
+    await db('settings').insert({
+      key: this.projectionKey(id),
+      value: JSON.stringify(pending),
+    });
+    if (!isDeepStrictEqual(await this.projection(id), pending))
+      throw new Error('Content projection intent did not persist');
+  }
+
+  async projection(
+    id: string,
+  ): Promise<{ head: FileContentHead; folder: string } | null> {
+    const row = await this.db
+      .query()('settings')
+      .where({ key: this.projectionKey(id) })
+      .first();
+    return row
+      ? typeof row.value === 'string'
+        ? JSON.parse(row.value)
+        : row.value
+      : null;
+  }
+
+  async clearProjection(id: string) {
+    const db = this.db.query();
+    await db('settings')
+      .where({ key: this.projectionKey(id) })
+      .delete();
+    if (await this.projection(id))
+      throw new Error('Content projection completion did not persist');
+  }
+
+  async restoreWorkspace(
+    id: string,
+    expectedMeta: Record<string, unknown>,
+    messages: unknown[],
+    targetId: string,
+    entryFile: unknown,
+    head: FileContentHead,
+  ) {
+    const db = this.db.query();
+    const copy = await db('working_copies').where({ id }).first();
+    const table = copy ? 'working_copies' : 'cruxes';
+    const source = copy ?? (await db('cruxes').where({ id }).first());
+    if (!source || !isDeepStrictEqual(source.meta ?? {}, expectedMeta))
+      throw new Error('Workspace changed before restore; reload and try again');
+    const meta = {
+      ...source.meta,
+      messages,
+      growthCount: Number(source.meta?.growthCount ?? 0) + 1,
+      settings: {
+        ...source.meta?.settings,
+        activeBranch: targetId,
+        entryFile: entryFile ?? null,
+      },
+    };
+    await db(table)
+      .where({ id })
+      .update({
+        meta,
+        updated: new Date(),
+        ...(copy ? { revision: copy.revision + 1 } : {}),
+      });
+    const saved = await db(table).where({ id }).first();
+    if (!isDeepStrictEqual(saved?.meta, meta))
+      throw new Error('Restored workspace state did not persist');
+    await this.queueProjection(id, head);
   }
 
   async publish(head: FileContentHead, expected: FileContentHead | null) {

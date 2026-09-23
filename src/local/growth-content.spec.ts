@@ -69,6 +69,227 @@ describe('manifest-backed Growth commands', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('retains a Task base, edits and snapshots its independent content, and reopens both owners', async () => {
+    const base = await owner.createGrowthSnapshot(request(), store);
+    const taskId = randomUUID();
+    await owner.createWorkingCopy({
+      id: taskId,
+      cruxId: id,
+      taskId: randomUUID(),
+      title: 'Independent work',
+      baseSnapshotId: base.snapshot.id,
+      role: 'task',
+      meta: {},
+    });
+    const taskHead = await owner.fileContentHead(taskId);
+    expect(taskHead).toEqual({ ...head, cruxId: taskId, revision: 1 });
+    const edited = await owner.editFileContent(
+      { cruxId: taskId, expected: taskHead, changes: [put('Task edits')] },
+      store,
+    );
+    const taskSnapshot = await owner.createGrowthSnapshot(
+      {
+        cruxId: taskId,
+        expected: edited,
+        snapshotId: randomUUID(),
+        parentId: base.snapshot.id,
+        meta: { messages: [{ role: 'user', content: 'Task conversation' }] },
+      },
+      store,
+    );
+    expect(taskSnapshot.snapshot.meta?.contentOwnerId).toBe(taskId);
+    expect(taskSnapshot.snapshot.meta?.parentCruxId).toBe(base.snapshot.id);
+    expect(taskSnapshot.growth.sourceId).toBe(taskId);
+    expect(await owner.fileContentHead(id)).toEqual(head);
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    for (const [ownerId, expected, text] of [
+      [id, head, 'First\0version'],
+      [taskId, edited, 'Task edits'],
+      [taskSnapshot.snapshot.id, taskSnapshot.head, 'Task edits'],
+    ] as const) {
+      const file = await owner.readFileContent(
+        { cruxId: ownerId, expected, path: 'hello.txt' },
+        store,
+      );
+      expect(Buffer.from(file!.bytes).toString()).toBe(text);
+    }
+    expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
+  });
+
+  it('restores workspace state with a durable projection that survives refusal and restart', async () => {
+    const base = await owner.createGrowthSnapshot(request(), store);
+    head = await owner.editFileContent(
+      { cruxId: id, expected: head, changes: [put('Current work')] },
+      store,
+    );
+    await owner.updateCrux(id, {
+      meta: {
+        projectFolder: '/owned/project',
+        messages: [{ role: 'user', content: 'Current conversation' }],
+        settings: { entryFile: 'current.txt', keep: true },
+        extension: { keep: true },
+      },
+    });
+    const before = await owner.execute(({ crux }) => crux.findById(id));
+    const restore = await owner.restoreGrowthContent(
+      {
+        safety: request(),
+        target: { cruxId: base.snapshot.id, expected: base.head },
+        workspace: { expectedMeta: before.meta, messages: [] },
+      } as any,
+      store,
+    );
+    const state = await owner.execute(({ crux }) => crux.findById(id));
+    expect(state.meta.settings).toEqual({
+      entryFile: 'hello.txt',
+      keep: true,
+      activeBranch: base.snapshot.id,
+    });
+    expect(state.meta.messages).toEqual([]);
+    expect(state.meta.extension).toEqual({ keep: true });
+    await expect(
+      owner.editFileContent(
+        { cruxId: id, expected: restore.head, changes: [put('Too early')] },
+        store,
+      ),
+    ).rejects.toThrow('projection');
+    const apply = jest.fn(async () => {
+      throw new Error('Disk unavailable');
+    });
+    await expect(
+      (owner as any).finishContentProjection(id, store, apply),
+    ).rejects.toThrow('Disk unavailable');
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    const retry = jest.fn(async (folder, entries) => {
+      expect(folder).toBe('/owned/project');
+      expect(entries).toEqual([put('First\0version').put]);
+    });
+    await (owner as any).finishContentProjection(id, store, retry);
+    expect(retry).toHaveBeenCalledTimes(1);
+    await (owner as any).finishContentProjection(id, store, retry);
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        await owner.editFileContent(
+          { cruxId: id, expected: restore.head, changes: [put('Next edit')] },
+          store,
+        )
+      ).revision,
+    ).toBe(restore.head.revision + 1);
+  });
+
+  it('admits only the reviewed Task files and retains a recoverable merge through restart', async () => {
+    const base = await owner.createGrowthSnapshot(request(), store);
+    const copies: string[] = [];
+    const taskFile = put('Reviewed work');
+    for (const role of ['task', 'review'] as const) {
+      const copyId = randomUUID();
+      copies.push(copyId);
+      await owner.createWorkingCopy({
+        id: copyId,
+        cruxId: id,
+        taskId: randomUUID(),
+        title: role,
+        baseSnapshotId: base.snapshot.id,
+        role,
+        meta: {},
+      });
+      await owner.prepareWorkingCopyFolder(copyId, 0, () => `/owned/${copyId}`);
+      await owner.finishWorkingCopySetup(copyId, 1, 'ready');
+      await owner.editFileContent(
+        {
+          cruxId: copyId,
+          expected: await owner.fileContentHead(copyId),
+          changes: [taskFile],
+        },
+        store,
+      );
+    }
+    const [copyId, candidateId] = copies;
+    const task = await owner.createGrowthSnapshot(
+      {
+        ...request(),
+        cruxId: copyId,
+        expected: (await owner.fileContentHead(copyId))!,
+        parentId: base.snapshot.id,
+      },
+      store,
+    );
+    const asManifest = (text: string) => {
+      const { fingerprint, mode, encoding, mimeType, size } = put(text).put;
+      return { 'hello.txt': { fingerprint, mode, encoding, mimeType, size } };
+    };
+    const mergeId = randomUUID();
+    const review = {
+      id: mergeId,
+      cruxId: id,
+      copyId,
+      candidateId,
+      phase: 'review',
+      sourceHead: task.snapshot.id,
+      targetHead: base.snapshot.id,
+      base: asManifest('First\0version'),
+      main: asManifest('First\0version'),
+      task: asManifest('Reviewed work'),
+      manifest: asManifest('Reviewed work'),
+      conflicts: [],
+      resolutions: {},
+      verifiedKey: JSON.stringify([
+        ['hello.txt', taskFile.put.fingerprint, 0o644],
+      ]),
+    };
+    await owner.updateCrux(id, { meta: { projectFolder: '/owned/main' } });
+    await owner.saveTaskReview(JSON.stringify(review));
+    await (owner.beginTaskMerge as any)(mergeId, JSON.stringify(review), store);
+    const mergedHead = (await owner.fileContentHead(id))!;
+    expect(mergedHead.root).toBe(
+      (await owner.fileContentHead(candidateId))!.root,
+    );
+    await expect(
+      owner.editFileContent(
+        { cruxId: id, expected: mergedHead, changes: [put('Not reviewed')] },
+        store,
+      ),
+    ).rejects.toThrow();
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    const apply = jest.fn(async (folder, entries) => {
+      expect(folder).toBe('/owned/main');
+      expect(entries).toEqual([taskFile.put]);
+    });
+    await owner.finishContentProjection(id, store, apply);
+    expect(apply).toHaveBeenCalledTimes(1);
+    const merge = {
+      id: mergeId,
+      copyId,
+      sourceHead: task.snapshot.id,
+      targetHead: base.snapshot.id,
+      verifiedKey: review.verifiedKey,
+      resolutions: {},
+    };
+    const result = await owner.createGrowthSnapshot(
+      {
+        ...request(),
+        expected: mergedHead,
+        parentId: base.snapshot.id,
+        meta: { merge },
+      },
+      store,
+    );
+    await owner.completeTaskMerge(mergeId, result.snapshot.id);
+    expect(
+      (
+        await owner.get<any>('SELECT phase FROM working_copies WHERE id = ?', [
+          copyId,
+        ])
+      ).phase,
+    ).toBe('merged');
+    expect(await owner.fileContentHead(base.snapshot.id)).toEqual(base.head);
+    expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
+  });
+
   it('atomically connects a snapshot Crux and retains its root without copying content or file records', async () => {
     const input = request();
     const write = jest.spyOn(store, 'write');
