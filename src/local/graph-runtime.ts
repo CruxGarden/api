@@ -1,3 +1,5 @@
+import { CruxLifecycleRepository } from './crux-lifecycle.repository';
+import { CruxLifecycleService } from './crux-lifecycle.service';
 import { WorkingCopyRepository } from './working-copy.repository';
 import { WorkingCopyService } from './working-copy.service';
 import 'reflect-metadata';
@@ -58,6 +60,8 @@ class LocalGraphModule {
         GardenMembershipService,
         WorkingCopyRepository,
         WorkingCopyService,
+        CruxLifecycleRepository,
+        CruxLifecycleService,
       ],
     };
   }
@@ -68,6 +72,7 @@ export interface GraphOperations {
   dimension: DimensionService;
   garden: GardenMembershipService;
   workingCopy: WorkingCopyService;
+  lifecycle: CruxLifecycleService;
 }
 
 /** Ephemeral invalidation for named commands, never a content payload or durable log.
@@ -75,7 +80,13 @@ export interface GraphOperations {
 export interface LocalGraphChange {
   readonly streamId: string;
   readonly sequence: number;
-  readonly entity: 'crux' | 'working-copy' | 'garden-membership' | 'database';
+  readonly entity:
+    | 'crux'
+    | 'working-copy'
+    | 'garden-membership'
+    | 'database'
+    | 'crux-lifecycle';
+  readonly operation?: 'purge' | 'trash' | 'restore';
   readonly id?: string;
   readonly cruxId?: string;
   readonly fields?: readonly string[];
@@ -124,6 +135,7 @@ export class LocalGraphRuntime {
       dimension: context.get(DimensionService),
       garden: context.get(GardenMembershipService),
       workingCopy: context.get(WorkingCopyService),
+      lifecycle: context.get(CruxLifecycleService),
     });
   }
 
@@ -353,6 +365,27 @@ export class LocalGraphRuntime {
         fields: Object.keys(captured),
         metaKeys: Object.keys(captured.meta!),
       }),
+    );
+  }
+
+  async setCruxTrashed(id: string, trashed: boolean): Promise<void> {
+    if (typeof id !== 'string' || !id || typeof trashed !== 'boolean')
+      throw new Error('Use a Crux identity and trash state');
+    await this.executeChanged(
+      ({ lifecycle }) => lifecycle.setTrashed(id, trashed),
+      () => ({
+        entity: 'crux-lifecycle',
+        operation: trashed ? 'trash' : 'restore',
+        id,
+      }),
+    );
+  }
+
+  async deleteCrux(id: string): Promise<void> {
+    if (typeof id !== 'string' || !id) throw new Error('Use a Crux identity');
+    await this.executeChanged(
+      ({ lifecycle }) => lifecycle.purge(id),
+      () => ({ entity: 'crux-lifecycle', operation: 'purge', id }),
     );
   }
 
