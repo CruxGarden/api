@@ -70,11 +70,14 @@ export class CruxLifecycleRepository {
         `
     WITH RECURSIVE roots(id) AS (
       SELECT base_snapshot_id FROM working_copies
+      UNION SELECT candidate_id FROM task_merges
+      UNION SELECT json_extract(meta, '$.merge.baseId') FROM cruxes
       UNION SELECT json_extract(meta, '$.merge.sourceHead') FROM cruxes
       UNION SELECT json_extract(meta, '$.merge.targetHead') FROM cruxes
       UNION SELECT json_extract(data, '$.sourceHead') FROM task_merges
       UNION SELECT json_extract(data, '$.targetHead') FROM task_merges
       UNION SELECT json_extract(data, '$.resultHead') FROM task_merges
+      UNION SELECT json_extract(data, '$.baseId') FROM task_merges
     ), links(parent, child) AS (
       SELECT json_extract(meta, '$.parentCruxId'), id FROM cruxes
       UNION SELECT json_extract(meta, '$.merge.sourceHead'), id FROM cruxes

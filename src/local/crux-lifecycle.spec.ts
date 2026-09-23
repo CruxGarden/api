@@ -343,4 +343,29 @@ describe('owned Crux lifecycle', () => {
     expect(await owner.all('SELECT id FROM cruxes')).toEqual([]);
     expect(await owner.all('SELECT id FROM dimensions')).toEqual([]);
   });
+  it.each(['candidate_id', 'baseId'])(
+    'refuses deleting history pinned by a merge’s %s even when it has the same owner',
+    async (field) => {
+      const snapshot = await create({}, 'snapshot');
+      await link(id, snapshot.id, 'growth');
+      await owner.run(
+        'INSERT INTO task_merges (id, crux_id, copy_id, candidate_id, phase, data, created) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          randomUUID(),
+          id,
+          randomUUID(),
+          field === 'candidate_id' ? snapshot.id : randomUUID(),
+          'applying',
+          JSON.stringify(field === 'baseId' ? { baseId: snapshot.id } : {}),
+          new Date().toISOString(),
+        ],
+      );
+      await expect(owner.deleteCrux(snapshot.id)).rejects.toThrow(
+        'used by a task or merge',
+      );
+      expect(
+        await owner.get('SELECT id FROM cruxes WHERE id = ?', [snapshot.id]),
+      ).toEqual({ id: snapshot.id });
+    },
+  );
 });
