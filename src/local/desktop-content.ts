@@ -98,7 +98,14 @@ function inspectInlineContent(db: any): {
     .get();
   const updates: { id: string; fingerprint: string }[] = [];
   if (hasContent) {
+    for (const row of db
+      .prepare(
+        'SELECT id, fingerprint, content FROM artifacts WHERE content IS NOT NULL',
+      )
+      .iterate())
+      updates.push({ id: row.id, fingerprint: payload(row).fingerprint });
     if (
+      updates.length > 0 &&
       db
         .prepare(
           "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'artifacts' LIMIT 1",
@@ -106,12 +113,6 @@ function inspectInlineContent(db: any): {
         .get()
     )
       throw new Error('Inline conversion does not support artifact triggers');
-    for (const row of db
-      .prepare(
-        'SELECT id, fingerprint, content FROM artifacts WHERE content IS NOT NULL',
-      )
-      .iterate())
-      updates.push({ id: row.id, fingerprint: payload(row).fingerprint });
   }
   return { hasContent, updates };
 }

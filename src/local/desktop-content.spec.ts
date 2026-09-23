@@ -233,6 +233,19 @@ describe('inline-aware import preflight', () => {
       inspectDesktopContent(fixture([{ content: null, fingerprint: fp }])),
     ).toEqual({ inline: false, fingerprints: [fp] });
   });
+  it('preserves opaque triggers on an external-only image with an empty legacy content column', () => {
+    const fp = 'a'.repeat(64);
+    const data = fixture(
+      [{ content: null, fingerprint: fp }],
+      `CREATE TRIGGER side_effect AFTER UPDATE ON artifacts BEGIN DELETE FROM settings; END;`,
+    );
+    const before = Buffer.from(data).toString('hex');
+    expect(inspectDesktopContent(data)).toEqual({
+      inline: false,
+      fingerprints: [fp],
+    });
+    expect(Buffer.from(data).toString('hex')).toBe(before);
+  });
   it.each(['inline', 'external', 'avatar'])(
     'refuses invalid %s fingerprints during preflight',
     (kind) => {
