@@ -1,3 +1,5 @@
+export { inspectDesktopRecovery } from './desktop-recovery';
+export type { DesktopRecoveryInspection } from './desktop-recovery';
 export { LocalGraphRuntime } from './graph-runtime';
 export type { GraphOperations } from './graph-runtime';
 export type { AddGardenMember } from './garden-membership.service';
