@@ -64,6 +64,123 @@ describe('detached desktop recovery inspection', () => {
     expect(inspectDesktopRecovery(bytes).fingerprints).toEqual([file, avatar]);
   });
 
+  it('retains historical portraits and Task journal bytes without Artifact rows', () => {
+    const fingerprints = Array.from({ length: 9 }, (_, n) =>
+      (n + 1).toString(16).repeat(64),
+    );
+    const bytes = image((db) => {
+      db.prepare(
+        "INSERT INTO cruxes (id, author_id, home_id, meta, created, updated) VALUES ('crux', 'author', 'home', ?, 'now', 'now')",
+      ).run(
+        JSON.stringify({
+          authorSnapshots: { old: { avatarFingerprint: fingerprints[0] } },
+          personaSnapshots: {
+            old: {
+              thumbnailFingerprint: fingerprints[1],
+              thumbnailFingerprintLight: fingerprints[2],
+            },
+          },
+        }),
+      );
+      db.prepare(
+        "INSERT INTO working_copies (id, crux_id, task_id, title, base_snapshot_id, meta, created, updated) VALUES ('copy', 'crux', 'task', 'Task', 'base', ?, 'now', 'now')",
+      ).run(
+        JSON.stringify({
+          authorSnapshots: { old: { avatarFingerprint: fingerprints[3] } },
+        }),
+      );
+      db.prepare(
+        "INSERT INTO task_merges VALUES ('review', 'crux', 'copy', 'candidate', 'cancelled', ?, 'now')",
+      ).run(
+        JSON.stringify({
+          base: { 'base.txt': { fingerprint: fingerprints[4] } },
+          main: { 'main.txt': { fingerprint: fingerprints[5] } },
+          task: { 'task.txt': { fingerprint: fingerprints[6] } },
+          manifest: { 'result.txt': { fingerprint: fingerprints[7] } },
+          conflicts: [
+            { path: 'conflict.bin', task: { fingerprint: fingerprints[8] } },
+          ],
+        }),
+      );
+    });
+    expect(inspectDesktopRecovery(bytes).fingerprints).toEqual(fingerprints);
+  });
+
+  it('retains Mood assets, saved packages, theme tokens, portraits and audio from settings', () => {
+    const fingerprints = Array.from({ length: 12 }, (_, n) =>
+      (n + 1).toString(16).repeat(64),
+    );
+    const bytes = image((db) => {
+      const settings = {
+        'cruxgarden:backgroundImage': fingerprints[0],
+        'cruxgarden:moodCover': fingerprints[1],
+        'cruxgarden:persona': JSON.stringify({
+          thumbnailFingerprint: fingerprints[2],
+          thumbnailFingerprintLight: fingerprints[3],
+        }),
+        'cruxgarden:soundTrack': JSON.stringify({
+          fingerprint: fingerprints[4],
+        }),
+        'cruxgarden:moodAssets': JSON.stringify([
+          { fingerprint: fingerprints[5], name: 'Font', kind: 'font' },
+        ]),
+        'cruxgarden:moodThemeDark': JSON.stringify({
+          paneBg: 'asset:' + fingerprints[6],
+        }),
+        'cruxgarden:moodThemeLight': JSON.stringify({
+          paneBg: 'asset:' + fingerprints[7],
+        }),
+        'cruxgarden:moodUserPresets': JSON.stringify([
+          { overrides: { paneBg: 'asset:' + fingerprints[8] } },
+        ]),
+        'cruxgarden:moodPackages': JSON.stringify([
+          {
+            cover: fingerprints[9],
+            background: { image: fingerprints[10] },
+            persona: { thumbnailFingerprint: fingerprints[2] },
+            sound: { track: { fingerprint: fingerprints[4] } },
+            assets: [{ fingerprint: fingerprints[5] }],
+            theme: { overrides: { paneBg: 'asset:' + fingerprints[11] } },
+          },
+        ]),
+        unrelated: JSON.stringify({ fingerprint: 'd'.repeat(64) }),
+      };
+      for (const [key, value] of Object.entries(settings))
+        db.prepare('INSERT INTO settings VALUES (?, ?)').run(key, value);
+    });
+    expect(inspectDesktopRecovery(bytes).fingerprints).toEqual(fingerprints);
+  });
+
+  it('accepts earlier databases without optional Task tables and ignores ordinary URLs', () => {
+    const bytes = image((db) => {
+      db.exec('DROP TABLE working_copies; DROP TABLE task_merges');
+      db.prepare('INSERT INTO settings VALUES (?, ?)').run(
+        'cruxgarden:soundTrack',
+        JSON.stringify({ url: 'https://example.invalid/music.mp3' }),
+      );
+      db.prepare('INSERT INTO settings VALUES (?, ?)').run(
+        'cruxgarden:moodThemeDark',
+        JSON.stringify({ paneBg: '#ffffff' }),
+      );
+    });
+    expect(inspectDesktopRecovery(bytes).fingerprints).toEqual([]);
+  });
+
+  it('refuses invalid typed historical portrait fingerprints', () => {
+    const bytes = image((db) => {
+      db.prepare(
+        "INSERT INTO cruxes (id, author_id, home_id, meta, created, updated) VALUES ('crux', 'author', 'home', ?, 'now', 'now')",
+      ).run(
+        JSON.stringify({
+          authorSnapshots: { old: { avatarFingerprint: '../outside' } },
+        }),
+      );
+    });
+    expect(() => inspectDesktopRecovery(bytes)).toThrow(
+      'Invalid recovery content fingerprint',
+    );
+  });
+
   it.each(['cruxes', 'dimensions', 'settings'])(
     'refuses a recovery image missing %s',
     (table) => {

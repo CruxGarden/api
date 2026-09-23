@@ -1,3 +1,4 @@
+import { desktopReferenceSql } from './desktop-reference-sql';
 import { inspectDesktopSchema } from './desktop-schema';
 const Database = require('better-sqlite3');
 
@@ -90,16 +91,14 @@ export function inspectDesktopRecovery(
 
 /** Internal reference scan shared by strict recovery and inline-aware preflight. */
 export function desktopRecoveryFingerprints(db: any): string[] {
+  const tables = new Set<string>(
+    db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all()
+      .map((row: { name: string }) => row.name),
+  );
   const references: { fingerprint: string }[] = db
-    .prepare(
-      `
-      SELECT fingerprint FROM artifacts WHERE fingerprint IS NOT NULL
-      UNION
-      SELECT json_extract(meta, '$.avatarFingerprint') AS fingerprint FROM authors
-      WHERE json_extract(meta, '$.avatarFingerprint') IS NOT NULL
-      ORDER BY fingerprint
-    `,
-    )
+    .prepare(desktopReferenceSql(tables))
     .all();
   for (const { fingerprint } of references) {
     if (typeof fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(fingerprint))
