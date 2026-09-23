@@ -30,8 +30,6 @@ describe('committed local graph notifications', () => {
     const reads: Promise<any>[] = [];
     owner.onChange((change) => {
       changes.push(change);
-      expect(Object.isFrozen(change)).toBe(true);
-      expect(Object.isFrozen(change.fields)).toBe(true);
       reads.push(owner.get('SELECT title FROM cruxes WHERE id = ?', [id]));
     });
     await owner.updateCrux(id, {
@@ -52,6 +50,9 @@ describe('committed local graph notifications', () => {
       },
       { sequence: 2, entity: 'crux', id, fields: ['meta'], metaKeys: ['next'] },
     ]);
+    expect(Object.isFrozen(changes[0])).toBe(true);
+    expect(Object.isFrozen(changes[0].fields)).toBe(true);
+    expect(Object.isFrozen(changes[0].metaKeys)).toBe(true);
     expect(changes[0].streamId).toBe(changes[1].streamId);
     expect(JSON.stringify(changes)).not.toContain('private payload');
   });
