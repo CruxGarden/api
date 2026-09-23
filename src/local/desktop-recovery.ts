@@ -78,30 +78,33 @@ export function inspectDesktopRecovery(
   const db = openDesktopRecovery(data);
   try {
     const schemaVersion = inspectDesktopSchema(db);
-    const references: { fingerprint: string }[] = db
-      .prepare(
-        `
+    return {
+      database: Uint8Array.from(db.serialize()).buffer,
+      schemaVersion,
+      fingerprints: desktopRecoveryFingerprints(db),
+    };
+  } finally {
+    db.close();
+  }
+}
+
+/** Internal reference scan shared by strict recovery and inline-aware preflight. */
+export function desktopRecoveryFingerprints(db: any): string[] {
+  const references: { fingerprint: string }[] = db
+    .prepare(
+      `
       SELECT fingerprint FROM artifacts WHERE fingerprint IS NOT NULL
       UNION
       SELECT json_extract(meta, '$.avatarFingerprint') AS fingerprint FROM authors
       WHERE json_extract(meta, '$.avatarFingerprint') IS NOT NULL
       ORDER BY fingerprint
     `,
-      )
-      .all();
-    for (const { fingerprint } of references) {
-      if (
-        typeof fingerprint !== 'string' ||
-        !/^[a-f0-9]{64}$/.test(fingerprint)
-      )
-        throw new Error('Invalid recovery content fingerprint');
-    }
-    return {
-      database: Uint8Array.from(db.serialize()).buffer,
-      schemaVersion,
-      fingerprints: references.map((row) => row.fingerprint),
-    };
-  } finally {
-    db.close();
+    )
+    .all();
+  for (const { fingerprint } of references) {
+    if (typeof fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(fingerprint))
+      throw new Error('Invalid recovery content fingerprint');
   }
+
+  return references.map((row) => row.fingerprint);
 }

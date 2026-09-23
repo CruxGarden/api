@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import {
   inspectDesktopRecovery,
+  desktopRecoveryFingerprints,
   openDesktopRecovery,
   DesktopRecoveryInspection,
 } from './desktop-recovery';
@@ -50,30 +51,11 @@ export async function prepareDesktopContent(
   // Copy and validate synchronously, before any host callbacks can yield.
   const db = openDesktopRecovery(data, true);
   try {
-    const hasContent = db
-      .prepare(
-        "SELECT 1 FROM pragma_table_info('artifacts') WHERE name = 'content'",
-      )
-      .get();
+    const { hasContent, updates } = inspectInlineContent(db);
     if (hasContent) {
-      // A legacy conversion must not execute opaque side effects while fixing
-      // fingerprints; unknown extensions require an explicit compatibility reader.
-      if (
-        db
-          .prepare(
-            "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'artifacts' LIMIT 1",
-          )
-          .get()
-      )
-        throw new Error('Inline conversion does not support artifact triggers');
       const rows = db.prepare(
         'SELECT id, fingerprint, content FROM artifacts WHERE content IS NOT NULL',
       );
-      // Check every source before writing anything; iterate to avoid retaining a
-      // second complete collection of file payloads in memory.
-      const updates: { id: string; fingerprint: string }[] = [];
-      for (const row of rows.iterate())
-        updates.push({ id: row.id, fingerprint: payload(row).fingerprint });
       for (const row of rows.iterate()) {
         const { bytes, fingerprint } = payload(row);
         const existing = await store.read(fingerprint);
@@ -99,6 +81,60 @@ export async function prepareDesktopContent(
     for (const fingerprint of prepared.fingerprints)
       verify(fingerprint, await store.read(fingerprint));
     return prepared;
+  } finally {
+    db.close();
+  }
+}
+
+/** Validate payloads without retaining a second full payload collection. */
+function inspectInlineContent(db: any): {
+  hasContent: boolean;
+  updates: { id: string; fingerprint: string }[];
+} {
+  const hasContent = !!db
+    .prepare(
+      "SELECT 1 FROM pragma_table_info('artifacts') WHERE name = 'content'",
+    )
+    .get();
+  const updates: { id: string; fingerprint: string }[] = [];
+  if (hasContent) {
+    if (
+      db
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'artifacts' LIMIT 1",
+        )
+        .get()
+    )
+      throw new Error('Inline conversion does not support artifact triggers');
+    for (const row of db
+      .prepare(
+        'SELECT id, fingerprint, content FROM artifacts WHERE content IS NOT NULL',
+      )
+      .iterate())
+      updates.push({ id: row.id, fingerprint: payload(row).fingerprint });
+  }
+  return { hasContent, updates };
+}
+
+/**
+ * Preflight for incoming archives: inline bytes already supply their fingerprint,
+ * even if shared by another record. Returned fingerprints require external blobs.
+ * This never authorizes opening an inline image as the working database.
+ */
+export function inspectDesktopContent(data: ArrayBuffer): {
+  inline: boolean;
+  fingerprints: string[];
+} {
+  const db = openDesktopRecovery(data, true);
+  try {
+    const { updates } = inspectInlineContent(db);
+    const supplied = new Set(updates.map((row) => row.fingerprint));
+    return {
+      inline: updates.length > 0,
+      fingerprints: desktopRecoveryFingerprints(db).filter(
+        (fp) => !supplied.has(fp),
+      ),
+    };
   } finally {
     db.close();
   }

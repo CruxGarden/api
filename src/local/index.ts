@@ -1,4 +1,7 @@
-export { prepareDesktopContent } from './desktop-content';
+export {
+  prepareDesktopContent,
+  inspectDesktopContent,
+} from './desktop-content';
 export type { DesktopContentStore } from './desktop-content';
 export { inspectDesktopRecovery } from './desktop-recovery';
 export type { DesktopRecoveryInspection } from './desktop-recovery';

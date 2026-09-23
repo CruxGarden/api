@@ -1,7 +1,10 @@
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { prepareDesktopContent } from './desktop-content';
+import {
+  prepareDesktopContent,
+  inspectDesktopContent,
+} from './desktop-content';
 import { inspectDesktopRecovery } from './desktop-recovery';
 
 const Database = require('better-sqlite3');
@@ -200,4 +203,51 @@ describe('verified detached inline content conversion', () => {
       hash(Buffer.from('captured')),
     ]);
   });
+});
+
+describe('inline-aware import preflight', () => {
+  it('requires only fingerprints not already supplied by validated inline content', () => {
+    const inline = Buffer.from('shared content');
+    const external = 'b'.repeat(64);
+    const avatar = 'c'.repeat(64);
+    const data = fixture(
+      [
+        { content: inline, fingerprint: hash(inline) },
+        { content: null, fingerprint: hash(inline) },
+        { content: null, fingerprint: external },
+        { content: '' },
+      ],
+      `INSERT INTO authors (id, meta, created, updated) VALUES ('author', '{"avatarFingerprint":"${avatar}"}', 'now', 'now');`,
+    );
+    const before = Buffer.from(data).toString('hex');
+    expect(inspectDesktopContent(data)).toEqual({
+      inline: true,
+      fingerprints: [external, avatar],
+    });
+    expect(Buffer.from(data).toString('hex')).toBe(before);
+    expect(() => inspectDesktopRecovery(data)).toThrow('Inline artifact');
+  });
+  it('retains the external reference contract when no inline payload exists', () => {
+    const fp = 'a'.repeat(64);
+    expect(
+      inspectDesktopContent(fixture([{ content: null, fingerprint: fp }])),
+    ).toEqual({ inline: false, fingerprints: [fp] });
+  });
+  it.each(['inline', 'external', 'avatar'])(
+    'refuses invalid %s fingerprints during preflight',
+    (kind) => {
+      const data = fixture(
+        [
+          {
+            content: kind === 'inline' ? 'bytes' : null,
+            fingerprint: kind === 'avatar' ? null : 'invalid',
+          },
+        ],
+        kind === 'avatar'
+          ? `INSERT INTO authors (id, meta, created, updated) VALUES ('author', '{"avatarFingerprint":"invalid"}', 'now', 'now');`
+          : '',
+      );
+      expect(() => inspectDesktopContent(data)).toThrow(/fingerprint/);
+    },
+  );
 });
