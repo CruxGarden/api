@@ -99,6 +99,38 @@ describe('owned Task merge finalization', () => {
       [JSON.stringify(data), merge],
     );
   }
+  it('closes the legacy imported cancelled-column/review-data state without losing evidence', async () => {
+    await makeReview();
+    await owner.run("UPDATE task_merges SET phase = 'cancelled' WHERE id = ?", [
+      merge,
+    ]);
+    await owner.releaseTaskReview(merge);
+    const saved = await state();
+    expect(saved.merge.phase).toBe('cancelled');
+    expect(JSON.parse(saved.merge.data)).toMatchObject({
+      phase: 'cancelled',
+      verificationLog: 'Preserve this evidence',
+      resolutions: { 'one.txt': 'task' },
+    });
+    expect(JSON.parse(saved.merge.data)).not.toHaveProperty('previewUrl');
+    expect(saved.copies).toContainEqual(
+      expect.objectContaining({
+        id: candidate,
+        phase: 'archived',
+        revision: 3,
+      }),
+    );
+    await owner.releaseTaskReview(merge);
+    expect(await state()).toEqual(saved);
+  });
+  it('does not treat an applying-data/cancelled-column mismatch as a cancellable imported review', async () => {
+    await owner.run("UPDATE task_merges SET phase = 'cancelled' WHERE id = ?", [
+      merge,
+    ]);
+    const before = await state();
+    await expect(owner.releaseTaskReview(merge)).rejects.toThrow();
+    expect(await state()).toEqual(before);
+  });
   it('cancels a review atomically without changing the source Task and safely repeats after restart', async () => {
     await makeReview();
     const source = await owner.get(

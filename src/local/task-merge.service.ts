@@ -13,7 +13,7 @@ export class TaskMergeService {
     private readonly repository: TaskMergeRepository,
     private readonly crux: CruxGraphService,
   ) {}
-  private async ownedState(id: string, resultHead?: string) {
+  private async ownedState(id: string, resultHead?: string, closing = false) {
     const inspected = await this.repository.inspect(id, resultHead);
     if (inspected.error)
       throw new InternalServerErrorException(inspected.error.message);
@@ -31,7 +31,10 @@ export class TaskMergeService {
       data.cruxId !== merge.crux_id ||
       data.copyId !== copy.id ||
       data.candidateId !== candidate.id ||
-      data.phase !== merge.phase ||
+      // Old Garden restore cancelled only the indexed phase. Only closure may
+      // repair that exact shape; applying journals still require recovery.
+      (data.phase !== merge.phase &&
+        !(closing && merge.phase === 'cancelled' && data.phase === 'review')) ||
       copy.id === candidate.id ||
       copy.crux_id !== merge.crux_id ||
       candidate.crux_id !== merge.crux_id ||
@@ -53,7 +56,11 @@ export class TaskMergeService {
   }
 
   async release(id: string) {
-    const { state, merge, candidate, copy, data } = await this.ownedState(id);
+    const { state, merge, candidate, copy, data } = await this.ownedState(
+      id,
+      undefined,
+      true,
+    );
     if (merge.phase === 'applying')
       throw new ConflictException(
         'Finish recovering this merge before closing its review.',
