@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { LocalGraphRuntime } from './graph-runtime';
+import { inspectDesktopRecovery } from './desktop-recovery';
 import { CruxKind } from '../common/types/enums';
 
 const Database = require('better-sqlite3');
@@ -169,6 +170,89 @@ describe('single-owner local API runtime', () => {
     expect(
       await runtime.execute(({ crux }) => crux.findById(created.id)),
     ).toMatchObject({ id: created.id });
+  });
+
+  it('captures a recovery image after admitted writes drain and refuses later work', async () => {
+    const entered = signal();
+    const release = signal();
+    const write = runtime.execute(async ({ crux }) => {
+      entered.resolve();
+      await release.promise;
+      return crux.create(input());
+    });
+    await entered.promise;
+    const recovery = runtime.closeWithRecoveryImage();
+    expect(runtime.closeWithRecoveryImage()).toBe(recovery);
+    try {
+      await expect(
+        runtime.run(
+          "INSERT INTO settings VALUES ('too-late', 'wrong database')",
+        ),
+      ).rejects.toThrow('closing');
+      await expect(LocalGraphRuntime.open(filename)).rejects.toThrow(
+        'already owned',
+      );
+    } finally {
+      release.resolve();
+    }
+    const created = await write;
+    const bytes = await recovery;
+    const snapshot = new Database(
+      Buffer.from(inspectDesktopRecovery(bytes).database),
+    );
+    try {
+      expect(
+        snapshot.prepare('SELECT id FROM cruxes WHERE id = ?').get(created.id),
+      ).toEqual({ id: created.id });
+      expect(
+        snapshot.prepare("SELECT * FROM settings WHERE key = 'too-late'").get(),
+      ).toBeUndefined();
+    } finally {
+      snapshot.close();
+    }
+    runtime = await LocalGraphRuntime.open(filename);
+    expect(
+      await runtime.execute(({ crux }) => crux.findById(created.id)),
+    ).toMatchObject({ id: created.id });
+  });
+
+  it('finishes closing before reporting a failed recovery export, leaving records reopenable', async () => {
+    const created = await runtime.execute(({ crux }) => crux.create(input()));
+    const serialize = jest
+      .spyOn(Database.prototype, 'serialize')
+      .mockImplementation(() => {
+        throw new Error('Recovery image unavailable');
+      });
+    try {
+      await expect(runtime.closeWithRecoveryImage()).rejects.toThrow(
+        'Recovery image unavailable',
+      );
+    } finally {
+      serialize.mockRestore();
+    }
+    runtime = await LocalGraphRuntime.open(filename);
+    expect(
+      await runtime.execute(({ crux }) => crux.findById(created.id)),
+    ).toMatchObject({ id: created.id });
+  });
+
+  it('refuses recovery close within a transaction without poisoning the owner', async () => {
+    await expect(
+      runtime.execute(() => runtime.closeWithRecoveryImage()),
+    ).rejects.toThrow('within a command');
+    const created = await runtime.execute(({ crux }) => crux.create(input()));
+    const image = await runtime.closeWithRecoveryImage();
+    expect(inspectDesktopRecovery(image).schemaVersion).toBe(0);
+    runtime = await LocalGraphRuntime.open(filename);
+    expect(
+      await runtime.execute(({ crux }) => crux.findById(created.id)),
+    ).toMatchObject({ id: created.id });
+  });
+
+  it('refuses a recovery request after ordinary shutdown starts', async () => {
+    const closing = runtime.close();
+    await expect(runtime.closeWithRecoveryImage()).rejects.toThrow('closing');
+    await closing;
   });
 
   it('rolls back a whole graph command across real repositories, then accepts the next command', async () => {

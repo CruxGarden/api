@@ -61,6 +61,7 @@ export class LocalGraphRuntime {
   private static readonly ownedFiles = new Set<string>();
   private pending: Promise<void> = Promise.resolve();
   private closing: Promise<void> | null = null;
+  private recoveryClosing: Promise<ArrayBuffer> | null = null;
   private readonly commandScope = new AsyncLocalStorage<boolean>();
   private readonly db: DbService;
   private readonly operations: GraphOperations;
@@ -235,6 +236,36 @@ export class LocalGraphRuntime {
         ) as ArrayBuffer;
       }),
     );
+  }
+
+  /**
+   * Close this owner with a final recovery image containing every admitted write.
+   * New commands are refused immediately. Even if serialization fails, shutdown
+   * drains and closes before rejecting; the existing file can be reopened.
+   * Host-internal full-installation recovery, never a selected Garden export.
+   */
+  closeWithRecoveryImage(): Promise<ArrayBuffer> {
+    if (this.commandScope.getStore())
+      return Promise.reject(
+        new Error('Cannot close the local API within a command'),
+      );
+    if (this.recoveryClosing) return this.recoveryClosing;
+    if (this.closing) return Promise.reject(new Error('Local API is closing'));
+    const image = this.exportDatabase();
+    const closed = this.close();
+    this.recoveryClosing = Promise.allSettled([image, closed]).then(
+      ([snapshot, shutdown]) => {
+        if (snapshot.status === 'rejected' && shutdown.status === 'rejected')
+          throw new AggregateError(
+            [snapshot.reason, shutdown.reason],
+            'Recovery export and local API shutdown failed',
+          );
+        if (snapshot.status === 'rejected') throw snapshot.reason;
+        if (shutdown.status === 'rejected') throw shutdown.reason;
+        return snapshot.value;
+      },
+    );
+    return this.recoveryClosing;
   }
 
   /** Stop admission immediately, drain admitted operations, then close SQLite. */
