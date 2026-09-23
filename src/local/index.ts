@@ -19,3 +19,5 @@ export type { CreateCruxDto } from '../crux/dto/create-crux.dto';
 export type { UpdateCruxDto } from '../crux/dto/update-crux.dto';
 export type { CreateDimensionDto } from '../dimension/dto/create-dimension.dto';
 export type { UpdateDimensionDto } from '../dimension/dto/update-dimension.dto';
+
+export type { LocalCruxUpdate } from './crux-update';

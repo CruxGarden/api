@@ -13,6 +13,8 @@ import {
   closeSync,
 } from 'fs';
 import { randomUUID } from 'crypto';
+import { captureCruxUpdate, LocalCruxUpdate } from './crux-update';
+import type { UpdateCruxDto } from '../crux/dto/update-crux.dto';
 import type { DesktopContentStore } from './desktop-content';
 import { inspectDesktopRecovery } from './desktop-recovery';
 import { inspectDesktopFile } from './desktop-schema';
@@ -223,26 +225,31 @@ export class LocalGraphRuntime {
     );
   }
 
-  /** Capture a shallow metadata patch, then read/merge/write under one owner transaction. */
+  /** Capture a complete detail patch, then read/merge/write in one transaction. */
+  async updateCrux(id: string, patch: LocalCruxUpdate): Promise<void> {
+    if (typeof id !== 'string' || !id) throw new Error('Use a Crux identity');
+    const captured = captureCruxUpdate(patch);
+    await this.execute(async ({ crux }) => {
+      const current = await crux.findById(id);
+      // Enum strings were checked at admission. The desktop-only remoteId is
+      // retained by the repository; it is never added to the hosted HTTP DTO.
+      await crux.update(id, {
+        ...captured,
+        ...(captured.meta === undefined
+          ? {}
+          : { meta: { ...current.meta, ...captured.meta } }),
+      } as UpdateCruxDto);
+    });
+  }
+
+  /** Compatibility for hosts that adopted metadata commands first. */
   async mergeCruxMeta(
     id: string,
     patch: Record<string, unknown>,
   ): Promise<void> {
-    if (
-      typeof id !== 'string' ||
-      !id ||
-      !patch ||
-      typeof patch !== 'object' ||
-      Array.isArray(patch)
-    )
-      throw new Error('Use a Crux identity and metadata object');
-    const captured = JSON.parse(JSON.stringify(patch));
-    if (!captured || typeof captured !== 'object' || Array.isArray(captured))
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch))
       throw new Error('Use a metadata object');
-    await this.execute(async ({ crux }) => {
-      const current = await crux.findById(id);
-      await crux.update(id, { meta: { ...current.meta, ...captured } });
-    });
+    return this.updateCrux(id, { meta: patch });
   }
 
   addGardenMember(input: AddGardenMember) {
