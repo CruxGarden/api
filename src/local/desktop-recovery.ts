@@ -1,3 +1,6 @@
+import { createHash } from 'crypto';
+import { FileManifest } from './file-manifest';
+import type { DesktopContentStore } from './desktop-content';
 import { desktopReferenceSql } from './desktop-reference-sql';
 import { inspectDesktopSchema } from './desktop-schema';
 const Database = require('better-sqlite3');
@@ -104,6 +107,10 @@ export function desktopRecoveryFingerprints(db: any): string[] {
     db.prepare('SELECT 1 FROM file_content_heads LIMIT 1').get()
   )
     throw new Error('File content requires manifest-aware recovery');
+  return legacyRecoveryFingerprints(db, tables);
+}
+
+function legacyRecoveryFingerprints(db: any, tables: Set<string>): string[] {
   const references: { fingerprint: string }[] = db
     .prepare(desktopReferenceSql(tables))
     .all();
@@ -113,4 +120,88 @@ export function desktopRecoveryFingerprints(db: any): string[] {
   }
 
   return references.map((row) => row.fingerprint);
+}
+
+/**
+ * Explicit host-side inspection of candidate manifest images. This does not adopt
+ * a schema or replace a database. The host must retain immutable content through
+ * archive capture/replacement; this inventory is not a garbage-collection lease.
+ */
+export async function inspectDesktopManifestRecovery(
+  data: ArrayBuffer,
+  store: Pick<DesktopContentStore, 'read'>,
+): Promise<DesktopRecoveryInspection> {
+  // Both the image and host reader are captured before the first await.
+  const read = store.read.bind(store);
+  const db = openDesktopRecovery(data);
+  let database: ArrayBuffer;
+  let schemaVersion: number;
+  let legacy: string[];
+  let roots: string[];
+  try {
+    schemaVersion = inspectDesktopSchema(db);
+    const tables = new Set<string>(
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all()
+        .map((row: { name: string }) => row.name),
+    );
+    const heads = tables.has('file_content_heads')
+      ? db
+          .prepare(
+            'SELECT crux_id, format_version, root, revision FROM file_content_heads',
+          )
+          .all()
+      : [];
+    const identities = new Set<string>();
+    for (const head of heads) {
+      if (
+        typeof head.crux_id !== 'string' ||
+        !head.crux_id ||
+        identities.has(head.crux_id) ||
+        head.format_version !== 1 ||
+        typeof head.root !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(head.root) ||
+        !Number.isSafeInteger(head.revision) ||
+        head.revision < 1
+      )
+        throw new Error('Invalid recovery file content head');
+      identities.add(head.crux_id);
+    }
+    // Include all retained rows, even if their owner is deleted or absent.
+    // Recovery must not infer permission to discard content from graph lifecycle.
+    roots = [
+      ...new Set<string>(heads.map((head: { root: string }) => head.root)),
+    ];
+    legacy = legacyRecoveryFingerprints(db, tables);
+    database = Uint8Array.from(db.serialize()).buffer;
+  } finally {
+    db.close();
+  }
+  const fingerprints = new Set<string>();
+  const tree = new FileManifest({
+    read,
+    write: async () => {
+      throw new Error('Recovery inspection cannot write content');
+    },
+  });
+  for (const root of roots)
+    for (const fingerprint of await tree.verify(root))
+      fingerprints.add(fingerprint);
+  for (const fingerprint of legacy) {
+    if (!fingerprints.has(fingerprint)) {
+      const bytes = await read(fingerprint);
+      if (bytes === null)
+        throw new Error(`Missing recovery content: ${fingerprint}`);
+      if (
+        !(bytes instanceof Uint8Array) ||
+        createHash('sha256').update(bytes).digest('hex') !== fingerprint
+      )
+        throw new Error(
+          `Recovery content failed integrity check: ${fingerprint}`,
+        );
+      fingerprints.add(fingerprint);
+    }
+  }
+  return { database, schemaVersion, fingerprints: [...fingerprints].sort() };
 }
