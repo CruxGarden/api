@@ -1,5 +1,6 @@
 export { LocalGraphRuntime } from './graph-runtime';
 export type { GraphOperations } from './graph-runtime';
+export type { AddGardenMember } from './garden-membership.service';
 export {
   CruxKind,
   CruxType,

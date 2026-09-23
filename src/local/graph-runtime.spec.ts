@@ -310,7 +310,11 @@ describe('single-owner local API runtime', () => {
     writeFileSync(broken, 'not a sqlite database');
     const close = jest.spyOn(Database.prototype, 'close');
     try {
-      await expect(LocalGraphRuntime.open(broken)).rejects.toThrow();
+      // The native addon can retain an Error constructor from another Jest
+      // realm when suites share a worker. Assert SQLite's actual failure code.
+      await expect(LocalGraphRuntime.open(broken)).rejects.toMatchObject({
+        code: 'SQLITE_NOTADB',
+      });
       expect(close).toHaveBeenCalledTimes(1);
     } finally {
       close.mockRestore();

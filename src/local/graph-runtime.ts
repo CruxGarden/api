@@ -15,6 +15,11 @@ import { CruxGraphService } from '../crux/crux-graph.service';
 import { CruxRepository } from '../crux/crux.repository';
 import { DimensionService } from '../dimension/dimension.service';
 import { DimensionRepository } from '../dimension/dimension.repository';
+import { GardenMembershipRepository } from './garden-membership.repository';
+import {
+  GardenMembershipService,
+  AddGardenMember,
+} from './garden-membership.service';
 
 @Module({})
 class LocalGraphModule {
@@ -29,6 +34,8 @@ class LocalGraphModule {
         CruxRepository,
         DimensionService,
         DimensionRepository,
+        GardenMembershipRepository,
+        GardenMembershipService,
       ],
     };
   }
@@ -37,6 +44,7 @@ class LocalGraphModule {
 export interface GraphOperations {
   crux: CruxGraphService;
   dimension: DimensionService;
+  garden: GardenMembershipService;
 }
 
 /**
@@ -65,6 +73,7 @@ export class LocalGraphRuntime {
     this.operations = Object.freeze({
       crux: context.get(CruxGraphService),
       dimension: context.get(DimensionService),
+      garden: context.get(GardenMembershipService),
     });
   }
 
@@ -126,6 +135,23 @@ export class LocalGraphRuntime {
     return this.enqueue(() =>
       this.db.transaction(() => operation(this.operations)),
     );
+  }
+
+  addGardenMember(input: AddGardenMember) {
+    const captured = { ...input };
+    return this.execute(({ garden }) => garden.add(captured));
+  }
+
+  removeGardenMember(gardenId: string, memberId: string) {
+    return this.execute(({ garden }) => garden.remove(gardenId, memberId));
+  }
+
+  listGardenMembers(
+    gardenId: string,
+    options?: { limit?: number; after?: string },
+  ) {
+    const captured = { ...options };
+    return this.execute(({ garden }) => garden.list(gardenId, captured));
   }
 
   private async withConnection<T>(
