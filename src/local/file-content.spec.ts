@@ -92,6 +92,156 @@ describe('API file content publication', () => {
     );
     expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
   });
+  it('reads exact verified file bytes through a version-bound API reference after restart', async () => {
+    const head = await owner.commitFileContent(
+      { cruxId: id, expected: null, root: await root('binary\0content') },
+      store,
+    );
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    const read = jest.spyOn(store, 'read');
+    const result = await owner.readFileContent(
+      { cruxId: id, expected: head, path: 'hello.txt' },
+      store,
+    );
+    expect(result!.head).toEqual(head);
+    expect(result!.entry.path).toBe('hello.txt');
+    expect(Buffer.from(result!.bytes).toString()).toBe('binary\0content');
+    expect(read).toHaveBeenCalledTimes(2); // one leaf and one file, not full inventory
+    expect(
+      await owner.readFileContent(
+        { cruxId: id, expected: head, path: 'absent' },
+        store,
+      ),
+    ).toBeNull();
+    expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
+  });
+  it('reads one path in a large manifest without loading unrelated files', async () => {
+    const first = await root('Selected');
+    const selected = (await tree.get(first, 'hello.txt'))!;
+    const additions = Array.from({ length: 180 }, (_, n) => ({
+      put: { ...selected, id: `other-${n}`, path: `others/${n}.txt` },
+    }));
+    const candidate = await tree.apply(first, additions);
+    const head = await owner.commitFileContent(
+      { cruxId: id, expected: null, root: candidate },
+      store,
+    );
+    const read = jest.spyOn(store, 'read');
+    const result = await owner.readFileContent(
+      { cruxId: id, expected: head, path: 'hello.txt' },
+      store,
+    );
+    expect(Buffer.from(result!.bytes).toString()).toBe('Selected');
+    expect(read.mock.calls.length).toBeLessThanOrEqual(4);
+    expect(read.mock.calls.length).toBeGreaterThan(2);
+  });
+  it('rejects malformed references and missing owners without reading content', async () => {
+    const head = await owner.commitFileContent(
+      { cruxId: id, expected: null, root: await root('Selected') },
+      store,
+    );
+    const read = jest.spyOn(store, 'read');
+    for (const expected of [
+      null,
+      { root: 'bad', revision: 1 },
+      { root: head.root, revision: 0 },
+      { root: head.root, revision: 1.5 },
+    ])
+      await expect(
+        owner.readFileContent(
+          { cruxId: id, expected, path: 'hello.txt' } as any,
+          store,
+        ),
+      ).rejects.toThrow('version-bound');
+    await expect(
+      owner.readFileContent(
+        { cruxId: 'absent', expected: head, path: 'hello.txt' },
+        store,
+      ),
+    ).rejects.toThrow('Crux not found');
+    await expect(
+      owner.readFileContent(
+        { cruxId: id, expected: head, path: '../escape' },
+        store,
+      ),
+    ).rejects.toThrow();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('refuses stale file reads before touching content instead of returning another version', async () => {
+    const head = await owner.commitFileContent(
+      { cruxId: id, expected: null, root: await root('Before') },
+      store,
+    );
+    const after = await owner.commitFileContent(
+      { cruxId: id, expected: head, root: await root('After') },
+      store,
+    );
+    const read = jest.spyOn(store, 'read');
+    await expect(
+      owner.readFileContent(
+        { cruxId: id, expected: head, path: 'hello.txt' },
+        store,
+      ),
+    ).rejects.toThrow('File content changed');
+    expect(read).not.toHaveBeenCalled();
+    expect(
+      Buffer.from(
+        (await owner.readFileContent(
+          { cruxId: id, expected: after, path: 'hello.txt' },
+          store,
+        ))!.bytes,
+      ).toString(),
+    ).toBe('After');
+  });
+  it('refuses corrupt or missing file bytes and keeps the published reference for retry', async () => {
+    const head = await owner.commitFileContent(
+      { cruxId: id, expected: null, root: await root('Retained') },
+      store,
+    );
+    const file = (await tree.get(head.root, 'hello.txt'))!;
+    const bytes = (await store.read(file.fingerprint))!;
+    const request = { cruxId: id, expected: head, path: 'hello.txt' };
+    await store.write(file.fingerprint, Buffer.from('corrupt'));
+    await expect(owner.readFileContent(request, store)).rejects.toThrow(
+      'integrity',
+    );
+    rmSync(join(dir, 'objects', file.fingerprint));
+    await expect(owner.readFileContent(request, store)).rejects.toThrow(
+      'Missing',
+    );
+    expect(await owner.fileContentHead(id)).toEqual(head);
+    await store.write(file.fingerprint, bytes);
+    expect(
+      Buffer.from((await owner.readFileContent(request, store))!.bytes),
+    ).toEqual(Buffer.from(bytes));
+  });
+  it('captures a queued file request and reader before the caller changes them', async () => {
+    const head = await owner.commitFileContent(
+      { cruxId: id, expected: null, root: await root('Captured') },
+      store,
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const prior = owner.execute(async () => {
+      await gate;
+    });
+    const request = { cruxId: id, expected: { ...head }, path: 'hello.txt' };
+    const pending = owner.readFileContent(request, store);
+    request.cruxId = 'other';
+    request.path = 'absent';
+    request.expected.root = 'f'.repeat(64);
+    store.read = async () => {
+      throw new Error('mutated reader');
+    };
+    release();
+    await prior;
+    expect(Buffer.from((await pending)!.bytes).toString()).toBe('Captured');
+  });
+
   it('refuses incomplete legacy recovery enumeration once a manifest root is committed', async () => {
     const imageBefore = await owner.exportDatabase();
     expect(inspectDesktopRecovery(imageBefore).fingerprints).toEqual([]);

@@ -3,6 +3,8 @@ import {
   FileContentService,
   FileContentCommit,
   captureFileContent,
+  FileContentRead,
+  captureFileContentRead,
 } from './file-content.service';
 import {
   captureWorkingCopyCreate,
@@ -350,6 +352,25 @@ export class LocalGraphRuntime {
     return this.executeChanged(
       ({ fileContent }) => fileContent.commit(captured, capturedStore),
       () => ({ entity: 'crux', id: captured.cruxId, fields: ['fileContent'] }),
+    );
+  }
+
+  /** Host-only read of the exact selected version; never silently switches roots. */
+  async readFileContent(
+    input: FileContentRead,
+    store: Pick<DesktopContentStore, 'read'>,
+  ) {
+    const captured = captureFileContentRead(input);
+    if (!store || typeof store.read !== 'function')
+      throw new Error('Use the host content store');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: async () => {
+        throw new Error('File reads cannot write content');
+      },
+    };
+    return this.execute(({ fileContent }) =>
+      fileContent.read(captured, capturedStore),
     );
   }
 

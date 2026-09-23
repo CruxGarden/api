@@ -35,5 +35,9 @@ export type {
 // Host-side file-content primitives; no renderer transport or normal-profile adoption.
 export { FileManifest } from './file-manifest';
 export type { FileEntry, FileEdit } from './file-manifest';
-export type { FileContentCommit } from './file-content.service';
+export type {
+  FileContentCommit,
+  FileContentRead,
+  FileContentReadResult,
+} from './file-content.service';
 export type { FileContentHead } from './file-content.repository';

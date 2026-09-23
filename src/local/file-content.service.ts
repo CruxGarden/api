@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { RepositoryResponse } from '../common/types/interfaces';
 import { DesktopContentStore } from './desktop-content';
-import { FileManifest } from './file-manifest';
+import { FileManifest, FileEntry } from './file-manifest';
 import {
   FileContentHead,
   FileContentRepository,
@@ -46,6 +46,40 @@ export function captureFileContent(
   };
 }
 
+export interface FileContentRead {
+  cruxId: string;
+  expected: { root: string; revision: number };
+  path: string;
+}
+export interface FileContentReadResult {
+  head: FileContentHead;
+  entry: FileEntry;
+  bytes: Uint8Array;
+}
+export function captureFileContentRead(
+  input: FileContentRead,
+): FileContentRead {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    throw new Error('Use a version-bound file reference');
+  const { cruxId, expected, path } = input;
+  if (
+    typeof cruxId !== 'string' ||
+    !cruxId ||
+    !expected ||
+    !fingerprint(expected.root) ||
+    !Number.isSafeInteger(expected.revision) ||
+    expected.revision < 1 ||
+    typeof path !== 'string' ||
+    !path
+  )
+    throw new Error('Use a version-bound file reference');
+  return {
+    cruxId,
+    expected: { root: expected.root, revision: expected.revision },
+    path,
+  };
+}
+
 /** Called only inside the local API owner's transaction. No renderer/remote transport yet. */
 @Injectable()
 export class FileContentService {
@@ -59,6 +93,23 @@ export class FileContentService {
     const context = this.unwrap(await this.repository.context(id));
     if (!context.crux) throw new ConflictException('Crux not found');
     return context.head;
+  }
+  async read(
+    input: FileContentRead,
+    store: DesktopContentStore,
+  ): Promise<FileContentReadResult | null> {
+    const head = await this.head(input.cruxId);
+    if (
+      !head ||
+      head.formatVersion !== 1 ||
+      head.root !== input.expected.root ||
+      head.revision !== input.expected.revision
+    )
+      throw new ConflictException(
+        'File content changed; reload before reading',
+      );
+    const file = await new FileManifest(store).readFile(head.root, input.path);
+    return file ? { head, ...file } : null;
   }
   async commit(
     input: FileContentCommit,

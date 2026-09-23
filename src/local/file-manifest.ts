@@ -327,6 +327,18 @@ export class FileManifest {
     }
   }
 
+  /** Bounded path lookup plus verified file bytes; no full-tree projection. */
+  async readFile(
+    root: string,
+    path: string,
+  ): Promise<{ entry: FileEntry; bytes: Uint8Array } | null> {
+    const entry = await this.get(root, path);
+    if (!entry) return null;
+    const bytes = await this.bytes(entry.fingerprint);
+    if (bytes.byteLength !== entry.size) return fail('File size mismatch');
+    return { entry, bytes: Uint8Array.from(bytes) };
+  }
+
   /** Full projection for isolated validation/export; callers must not use this for every UI lookup. */
   async entries(root: string): Promise<FileEntry[]> {
     return (await this.collect(root, '')).sort((a, b) =>
