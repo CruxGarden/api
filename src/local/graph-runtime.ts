@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { DynamicModule, INestApplicationContext, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { isAbsolute } from 'path';
-import { stat } from 'fs/promises';
+import { realpath, stat } from 'fs/promises';
 import { AsyncLocalStorage } from 'async_hooks';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
@@ -48,13 +48,19 @@ export interface GraphOperations {
  * to these operations. Callbacks must await all work and not retain providers.
  */
 export class LocalGraphRuntime {
+  // Host-process admission, not an OS lock. Every app writer must still use
+  // this runtime; an unrelated process/SQLite client is outside this guard.
+  private static readonly ownedFiles = new Set<string>();
   private pending: Promise<void> = Promise.resolve();
   private closing: Promise<void> | null = null;
   private readonly commandScope = new AsyncLocalStorage<boolean>();
   private readonly db: DbService;
   private readonly operations: GraphOperations;
 
-  private constructor(private readonly context: INestApplicationContext) {
+  private constructor(
+    private readonly context: INestApplicationContext,
+    private readonly ownershipKeys: string[],
+  ) {
     this.db = context.get(DbService);
     this.operations = Object.freeze({
       crux: context.get(CruxGraphService),
@@ -63,22 +69,36 @@ export class LocalGraphRuntime {
   }
 
   static async open(filename: string): Promise<LocalGraphRuntime> {
-    if (!isAbsolute(filename) || !(await stat(filename)).isFile()) {
+    if (!isAbsolute(filename)) {
       throw new Error('Local API requires an existing absolute database file');
     }
-    const logger = new LoggerService();
-    const database = new DbService(logger, sqliteGraphConfig(filename));
+    const canonical = await realpath(filename);
+    const file = await stat(canonical, { bigint: true });
+    if (!file.isFile()) {
+      throw new Error('Local API requires an existing absolute database file');
+    }
+    // Canonical path catches symlinks and reopens while draining; file identity
+    // also catches hard links. Reserve synchronously before any startup await.
+    const ownershipKeys = [`path:${canonical}`, `file:${file.dev}:${file.ino}`];
+    if (ownershipKeys.some((key) => this.ownedFiles.has(key))) {
+      throw new Error('Local API database is already owned in this process');
+    }
+    ownershipKeys.forEach((key) => this.ownedFiles.add(key));
+    let database: DbService | undefined;
     let context: INestApplicationContext | undefined;
     try {
+      const logger = new LoggerService();
+      database = new DbService(logger, sqliteGraphConfig(canonical));
       context = await NestFactory.createApplicationContext(
         LocalGraphModule.register(database, logger),
         { logger: false, abortOnError: false },
       );
       await prepareDesktopGraph(database.query());
-      return new LocalGraphRuntime(context);
+      return new LocalGraphRuntime(context, ownershipKeys);
     } catch (error) {
       if (context) await context.close();
-      else await database.onModuleDestroy();
+      else await database?.onModuleDestroy();
+      ownershipKeys.forEach((key) => this.ownedFiles.delete(key));
       throw error;
     }
   }
@@ -201,7 +221,14 @@ export class LocalGraphRuntime {
         new Error('Cannot close the local API within a command'),
       );
     }
-    this.closing ??= this.pending.then(() => this.context.close());
+    this.closing ??= this.pending.then(async () => {
+      await this.context.close();
+      // Release only after SQLite is closed; failed shutdown must not admit
+      // another owner over a potentially live connection.
+      this.ownershipKeys.forEach((key) =>
+        LocalGraphRuntime.ownedFiles.delete(key),
+      );
+    });
     return this.closing;
   }
 }

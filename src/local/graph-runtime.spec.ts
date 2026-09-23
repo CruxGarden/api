@@ -1,5 +1,12 @@
 import { randomUUID } from 'crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import {
+  linkSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { LocalGraphRuntime } from './graph-runtime';
@@ -68,6 +75,100 @@ describe('single-owner local API runtime', () => {
     const databases = await runtime.all('PRAGMA database_list');
     expect(databases).toHaveLength(1);
     expect(databases[0].name).toBe('main');
+  });
+
+  it.each(['same path', 'symlink', 'hard link'])(
+    'refuses a second runtime for the same database through %s',
+    async (alias) => {
+      const target =
+        alias === 'same path' ? filename : join(scratch, 'alias.db');
+      if (alias === 'symlink') symlinkSync(filename, target);
+      if (alias === 'hard link') linkSync(filename, target);
+      let duplicate: LocalGraphRuntime | undefined;
+      try {
+        await expect(
+          LocalGraphRuntime.open(target).then((opened) => {
+            duplicate = opened;
+          }),
+        ).rejects.toThrow('already owned');
+        const created = await runtime.execute(({ crux }) =>
+          crux.create(input()),
+        );
+        expect(
+          await runtime.get('SELECT id FROM cruxes WHERE id = ?', [created.id]),
+        ).toEqual({ id: created.id });
+      } finally {
+        await duplicate?.close();
+      }
+    },
+  );
+
+  it('admits exactly one of two simultaneous opens and releases ownership after close', async () => {
+    await runtime.close();
+    const results = await Promise.allSettled([
+      LocalGraphRuntime.open(filename),
+      LocalGraphRuntime.open(filename),
+    ]);
+    const opened = results.flatMap((result) =>
+      result.status === 'fulfilled' ? [result.value] : [],
+    );
+    try {
+      expect(opened).toHaveLength(1);
+      const refused = results.find(
+        (result) => result.status === 'rejected',
+      ) as PromiseRejectedResult;
+      expect(refused.reason.message).toContain('already owned');
+    } finally {
+      await Promise.all(opened.map((owner) => owner.close()));
+    }
+    runtime = await LocalGraphRuntime.open(filename);
+    expect(await runtime.all('SELECT * FROM cruxes')).toEqual([]);
+  });
+
+  it('allows independent database owners without sharing their queues or data', async () => {
+    const otherFile = join(scratch, 'independent.db');
+    const seed = new Database(otherFile);
+    seed.exec(schema);
+    seed.close();
+    const other = await LocalGraphRuntime.open(otherFile);
+    try {
+      const created = await other.execute(({ crux }) => crux.create(input()));
+      expect(await other.get('SELECT id FROM cruxes')).toEqual({
+        id: created.id,
+      });
+      expect(await runtime.all('SELECT * FROM cruxes')).toEqual([]);
+    } finally {
+      await other.close();
+    }
+  });
+
+  it('keeps ownership while shutdown drains a command', async () => {
+    const entered = signal();
+    const release = signal();
+    const work = runtime.execute(async ({ crux }) => {
+      entered.resolve();
+      await release.promise;
+      return crux.create(input());
+    });
+    await entered.promise;
+    const closing = runtime.close();
+    let duplicate: LocalGraphRuntime | undefined;
+    try {
+      await expect(
+        LocalGraphRuntime.open(filename).then((opened) => {
+          duplicate = opened;
+        }),
+      ).rejects.toThrow('already owned');
+    } finally {
+      release.resolve();
+      await duplicate?.close();
+      await closing;
+    }
+    const created = await work;
+    runtime = await LocalGraphRuntime.open(filename);
+    expect(
+      await runtime.execute(({ crux }) => crux.findById(created.id)),
+    ).toMatchObject({ id: created.id });
   });
 
   it('rolls back a whole graph command across real repositories, then accepts the next command', async () => {
