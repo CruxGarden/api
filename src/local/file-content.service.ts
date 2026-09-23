@@ -186,7 +186,8 @@ export class FileContentService {
     const file = await new FileManifest(store).readFile(head.root, input.path);
     return file ? { head, ...file } : null;
   }
-  private async admit(
+  /** Admission shared by file edits and snapshot capture inside the owner transaction. */
+  async admit(
     input: Pick<FileContentCommit, 'cruxId' | 'expected'>,
   ): Promise<FileContentHead | null> {
     const context = this.unwrap(await this.repository.context(input.cruxId));

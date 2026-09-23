@@ -41,13 +41,44 @@ export class FileContentRepository {
       const review = !!(await db('task_merges')
         .where({ crux_id: id })
         .first('id'));
-      const history = !!(await db('dimensions')
-        .where({ type: 'growth' })
-        .whereNull('deleted')
+      // Only retained snapshot relationships admit further edits. Do not mix an
+      // unrepresented historical file authority into the new writer.
+      const history = !!(await db('dimensions as d')
+        .leftJoin('cruxes as c', 'c.id', 'd.target_id')
+        .leftJoin('file_content_heads as h', 'h.crux_id', 'c.id')
+        .where({ 'd.type': 'growth' })
+        .whereNull('d.deleted')
         .andWhere((query) =>
-          query.where({ source_id: id }).orWhere({ target_id: id }),
+          query
+            .where({ 'd.target_id': id })
+            .orWhere((outgoing) =>
+              outgoing
+                .where({ 'd.source_id': id })
+                .andWhere((invalid) =>
+                  invalid
+                    .whereNull('c.id')
+                    .orWhereNot('c.kind', 'snapshot')
+                    .orWhereNull('c.kind')
+                    .orWhereNotNull('c.deleted')
+                    .orWhereNull('h.crux_id')
+                    .orWhereNot('h.format_version', 1)
+                    .orWhereNot('h.revision', 1)
+                    .orWhereRaw(
+                      "length(h.root) <> 64 OR h.root GLOB '*[^a-f0-9]*'",
+                    )
+                    .orWhereRaw(
+                      "CASE WHEN json_valid(c.meta) THEN json_extract(c.meta, '$.contentOwnerId') ELSE NULL END IS NOT ?",
+                      [id],
+                    )
+                    .orWhereExists(
+                      db('artifacts as a')
+                        .select('a.id')
+                        .whereRaw('a.resource_id = c.id'),
+                    ),
+                ),
+            ),
         )
-        .first('id'));
+        .first('d.id'));
       const head: FileContentHead | null = row
         ? {
             cruxId: row.crux_id,

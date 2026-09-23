@@ -1,3 +1,8 @@
+import {
+  GrowthContentService,
+  GrowthSnapshotCreate,
+  captureGrowthSnapshot,
+} from './growth-content.service';
 import { FileContentRepository } from './file-content.repository';
 import {
   FileContentService,
@@ -88,6 +93,7 @@ class LocalGraphModule {
         TaskMergeService,
         FileContentRepository,
         FileContentService,
+        GrowthContentService,
       ],
     };
   }
@@ -101,6 +107,7 @@ export interface GraphOperations {
   lifecycle: CruxLifecycleService;
   taskMerge: TaskMergeService;
   fileContent: FileContentService;
+  growthContent: GrowthContentService;
 }
 
 /** Ephemeral invalidation for named commands, never a content payload or durable log.
@@ -166,6 +173,7 @@ export class LocalGraphRuntime {
       lifecycle: context.get(CruxLifecycleService),
       taskMerge: context.get(TaskMergeService),
       fileContent: context.get(FileContentService),
+      growthContent: context.get(GrowthContentService),
     });
   }
 
@@ -392,6 +400,26 @@ export class LocalGraphRuntime {
     };
     return this.execute(({ fileContent }) =>
       fileContent.read(captured, capturedStore),
+    );
+  }
+
+  /** Retain one immutable content root and connect the snapshot through Growth. */
+  async createGrowthSnapshot(
+    input: GrowthSnapshotCreate,
+    store: Pick<DesktopContentStore, 'read'>,
+  ) {
+    const captured = captureGrowthSnapshot(input);
+    if (!store || typeof store.read !== 'function')
+      throw new Error('Use the host content store');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: async () => {
+        throw new Error('Snapshots cannot rewrite content');
+      },
+    };
+    return this.executeChanged(
+      ({ growthContent }) => growthContent.create(captured, capturedStore),
+      () => ({ entity: 'crux', id: captured.cruxId, fields: ['growth'] }),
     );
   }
 
