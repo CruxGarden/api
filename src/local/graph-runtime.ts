@@ -2,6 +2,8 @@ import {
   GrowthContentService,
   GrowthSnapshotCreate,
   captureGrowthSnapshot,
+  GrowthContentRestore,
+  captureGrowthContentRestore,
 } from './growth-content.service';
 import { FileContentRepository } from './file-content.repository';
 import {
@@ -444,6 +446,30 @@ export class LocalGraphRuntime {
     return this.executeChanged(
       ({ growthContent }) => growthContent.create(captured, capturedStore),
       () => ({ entity: 'crux', id: captured.cruxId, fields: ['growth'] }),
+    );
+  }
+
+  /** Preserve current content and restore a retained snapshot in one commit. */
+  async restoreGrowthContent(
+    input: GrowthContentRestore,
+    store: Pick<DesktopContentStore, 'read'>,
+  ) {
+    const captured = captureGrowthContentRestore(input);
+    if (!store || typeof store.read !== 'function')
+      throw new Error('Use the host content store');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: async () => {
+        throw new Error('Restoration cannot rewrite content');
+      },
+    };
+    return this.executeChanged(
+      ({ growthContent }) => growthContent.restore(captured, capturedStore),
+      () => ({
+        entity: 'crux',
+        id: captured.safety.cruxId,
+        fields: ['growth', 'fileContent'],
+      }),
     );
   }
 

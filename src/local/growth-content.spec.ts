@@ -135,6 +135,245 @@ describe('manifest-backed Growth commands', () => {
     ).rejects.toThrow();
   });
 
+  it('restores retained content and captures the previous root in the same transaction, without copying bytes', async () => {
+    const target = await owner.createGrowthSnapshot(request(), store);
+    head = await owner.editFileContent(
+      { cruxId: id, expected: head, changes: [put('Current work')] },
+      store,
+    );
+    const currentHead = head;
+    const safety = {
+      ...request(),
+      parentId: target.snapshot.id,
+      title: 'Before revert',
+    };
+    const notices: LocalGraphChange[] = [];
+    owner.onChange((change) => {
+      notices.push(change);
+    });
+    const write = jest.spyOn(store, 'write');
+    const result = await owner.restoreGrowthContent(
+      {
+        safety,
+        target: { cruxId: target.snapshot.id, expected: target.head },
+      },
+      store,
+    );
+    expect(result.head).toEqual({
+      ...head,
+      root: target.head.root,
+      revision: head.revision + 1,
+    });
+    expect(result.safety.head).toEqual({
+      ...currentHead,
+      cruxId: safety.snapshotId,
+      revision: 1,
+    });
+    expect(result.safety.snapshot.meta.messages).toEqual(safety.meta.messages);
+    expect(result.safety.growth).toMatchObject({
+      sourceId: id,
+      targetId: safety.snapshotId,
+      type: 'growth',
+    });
+    expect(write).not.toHaveBeenCalled();
+    expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ id, fields: ['growth', 'fileContent'] });
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    const read = async (cruxId: string, expected: FileContentHead) =>
+      Buffer.from(
+        (await owner.readFileContent(
+          { cruxId, expected, path: 'hello.txt' },
+          store,
+        ))!.bytes,
+      ).toString();
+    expect(await read(id, result.head)).toBe('First\0version');
+    expect(await read(safety.snapshotId, result.safety.head)).toBe(
+      'Current work',
+    );
+    expect(await read(target.snapshot.id, target.head)).toBe('First\0version');
+  });
+
+  it.each([
+    [
+      'safety node',
+      "BEFORE INSERT ON cruxes WHEN NEW.kind = 'snapshot' BEGIN SELECT RAISE(ABORT, 'Safety refused'); END",
+    ],
+    [
+      'safety edge',
+      'BEFORE INSERT ON dimensions BEGIN SELECT RAISE(IGNORE); END',
+    ],
+    [
+      'live root',
+      'BEFORE UPDATE ON file_content_heads BEGIN SELECT RAISE(IGNORE); END',
+    ],
+    [
+      'late safety alteration',
+      "AFTER UPDATE ON file_content_heads BEGIN UPDATE cruxes SET meta = '{}' WHERE kind = 'snapshot'; END",
+    ],
+    [
+      'late retained head alteration',
+      'AFTER UPDATE ON file_content_heads BEGIN UPDATE file_content_heads SET revision = 9 WHERE crux_id <> NEW.crux_id; END',
+    ],
+  ])(
+    'rolls back restoration when %s fails, including its safety snapshot, and can retry after restart',
+    async (_name, trigger) => {
+      const target = await owner.createGrowthSnapshot(request(), store);
+      head = await owner.editFileContent(
+        { cruxId: id, expected: head, changes: [put('Current work')] },
+        store,
+      );
+      const input = {
+        safety: request(),
+        target: { cruxId: target.snapshot.id, expected: target.head },
+      };
+      const notices = jest.fn();
+      owner.onChange(notices);
+      await owner.run(`CREATE TRIGGER refuse_restore ${trigger}`);
+      await expect(owner.restoreGrowthContent(input, store)).rejects.toThrow();
+      expect(await owner.fileContentHead(id)).toEqual(head);
+      expect(await owner.fileContentHead(target.snapshot.id)).toEqual(
+        target.head,
+      );
+      expect(
+        await owner.get('SELECT id FROM cruxes WHERE id = ?', [
+          input.safety.snapshotId,
+        ]),
+      ).toBeUndefined();
+      expect(await owner.all('SELECT * FROM dimensions')).toHaveLength(1);
+      expect(notices).not.toHaveBeenCalled();
+      await owner.close();
+      owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+      expect(await owner.fileContentHead(id)).toEqual(head);
+      await owner.run('DROP TRIGGER refuse_restore');
+      const result = await owner.restoreGrowthContent(input, store);
+      expect(result.head.root).toBe(target.head.root);
+      expect(result.safety.head.root).toBe(head.root);
+    },
+  );
+
+  it('refuses stale or foreign selections before content reads and missing bytes before any graph changes', async () => {
+    const target = await owner.createGrowthSnapshot(request(), store);
+    head = await owner.editFileContent(
+      { cruxId: id, expected: head, changes: [put('Current work')] },
+      store,
+    );
+    const input = {
+      safety: request(),
+      target: { cruxId: target.snapshot.id, expected: target.head },
+    };
+    const read = jest.spyOn(store, 'read');
+    await expect(
+      owner.restoreGrowthContent(
+        {
+          ...input,
+          safety: {
+            ...input.safety,
+            expected: { ...head, revision: head.revision + 1 },
+          },
+        },
+        store,
+      ),
+    ).rejects.toThrow('changed');
+    await expect(
+      owner.restoreGrowthContent(
+        {
+          ...input,
+          target: {
+            ...input.target,
+            expected: { ...target.head, root: '0'.repeat(64) },
+          },
+        },
+        store,
+      ),
+    ).rejects.toThrow('selected retained snapshot');
+    await expect(
+      owner.restoreGrowthContent(
+        {
+          ...input,
+          target: { cruxId: id, expected: head },
+        },
+        store,
+      ),
+    ).rejects.toThrow('selected retained snapshot');
+    const other = await owner.createCrux({
+      slug: randomUUID(),
+      authorId: randomUUID(),
+      homeId: randomUUID(),
+    });
+    const otherHead = await owner.editFileContent(
+      { cruxId: other, expected: null, changes: [] },
+      store,
+    );
+    const foreign = await owner.createGrowthSnapshot(
+      { ...request(), cruxId: other, expected: otherHead },
+      store,
+    );
+    read.mockClear();
+    await expect(
+      owner.restoreGrowthContent(
+        {
+          ...input,
+          target: { cruxId: foreign.snapshot.id, expected: foreign.head },
+        },
+        store,
+      ),
+    ).rejects.toThrow('selected retained snapshot');
+    expect(read).not.toHaveBeenCalled();
+    for (const text of ['First\0version', 'Current work']) {
+      const fp = put(text).put.fingerprint;
+      const bytes = objects.get(fp)!;
+      objects.delete(fp);
+      await expect(owner.restoreGrowthContent(input, store)).rejects.toThrow();
+      expect(await owner.fileContentHead(id)).toEqual(head);
+      expect(
+        await owner.get('SELECT id FROM cruxes WHERE id = ?', [
+          input.safety.snapshotId,
+        ]),
+      ).toBeUndefined();
+      objects.set(fp, bytes);
+    }
+    await expect(
+      owner.restoreGrowthContent(input, store),
+    ).resolves.toMatchObject({ head: { root: target.head.root } });
+  });
+
+  it('captures the queued restore selections, safety metadata and storage reader', async () => {
+    const target = await owner.createGrowthSnapshot(request(), store);
+    head = await owner.editFileContent(
+      { cruxId: id, expected: head, changes: [put('Current work')] },
+      store,
+    );
+    let release!: () => void;
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const blocker = owner.execute(async () => {
+      await wait;
+    });
+    const input = {
+      safety: request(),
+      target: { cruxId: target.snapshot.id, expected: { ...target.head } },
+    };
+    const original = structuredClone(input);
+    const pending = owner.restoreGrowthContent(input, store);
+    input.target.cruxId = id;
+    input.target.expected.root = '0'.repeat(64);
+    input.safety.expected.revision = 100;
+    input.safety.meta.messages[0].content = 'Changed after submission';
+    store.read = async () => {
+      throw new Error('Reader replaced');
+    };
+    release();
+    await blocker;
+    const result = await pending;
+    expect(result.head.root).toBe(target.head.root);
+    expect(result.safety.snapshot.meta.messages).toEqual(
+      original.safety.meta.messages,
+    );
+  });
+
   it('keeps explicit branches under the same owner and rejects a foreign parent', async () => {
     const a = await owner.createGrowthSnapshot(request(), store);
     const b = await owner.createGrowthSnapshot(

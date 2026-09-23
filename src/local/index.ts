@@ -46,4 +46,7 @@ export type {
 } from './file-content.service';
 export type { FileContentHead } from './file-content.repository';
 
-export type { GrowthSnapshotCreate } from './growth-content.service';
+export type {
+  GrowthSnapshotCreate,
+  GrowthContentRestore,
+} from './growth-content.service';

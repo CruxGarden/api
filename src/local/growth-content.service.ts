@@ -12,6 +12,8 @@ import { DesktopContentStore } from './desktop-content';
 import {
   FileContentService,
   captureFileContentRead,
+  FileContentSelection,
+  captureFileContentSelection,
 } from './file-content.service';
 import { FileContentRepository } from './file-content.repository';
 import { FileManifest } from './file-manifest';
@@ -24,6 +26,27 @@ export interface GrowthSnapshotCreate {
   title?: string;
   meta?: Record<string, unknown>;
   dimensionMeta?: Record<string, unknown>;
+}
+
+export interface GrowthContentRestore {
+  safety: GrowthSnapshotCreate;
+  target: FileContentSelection;
+}
+
+export function captureGrowthContentRestore(
+  input: GrowthContentRestore,
+): GrowthContentRestore {
+  if (
+    !input ||
+    typeof input !== 'object' ||
+    Array.isArray(input) ||
+    Object.keys(input).some((key) => key !== 'safety' && key !== 'target')
+  )
+    throw new Error('Use a Growth content restore request');
+  return {
+    safety: captureGrowthSnapshot(input.safety),
+    target: captureFileContentSelection(input.target),
+  };
 }
 
 function captureMetadata(value: unknown): Record<string, unknown> {
@@ -111,6 +134,69 @@ export class GrowthContentService {
     private readonly content: FileContentService,
     private readonly repository: FileContentRepository,
   ) {}
+
+  /** The caller runs this entire operation in the API owner transaction.
+   * Folder projection and workspace presentation state are separate consumers. */
+  async restore(input: GrowthContentRestore, store: DesktopContentStore) {
+    await this.content.admit(input.safety);
+    const source = await this.crux.findById(input.safety.cruxId);
+    const target = await this.crux.findById(input.target.cruxId);
+    const targetHead = await this.content.head(target.id);
+    const edges = await this.crux.getDimensionsQuery(
+      source.id,
+      DimensionType.GROWTH,
+      false,
+      false,
+    );
+    if (
+      target.kind !== 'snapshot' ||
+      target.deleted ||
+      target.meta?.contentOwnerId !== source.id ||
+      target.authorId !== source.authorId ||
+      target.homeId !== source.homeId ||
+      !edges.some((edge) => edge.target_id === target.id) ||
+      !targetHead ||
+      targetHead.formatVersion !== 1 ||
+      targetHead.revision !== 1 ||
+      targetHead.root !== input.target.expected.root ||
+      targetHead.revision !== input.target.expected.revision
+    )
+      throw new ConflictException(
+        'Restore requires the selected retained snapshot of this Crux',
+      );
+    // Validate the destination before creating even the temporary safety node.
+    await new FileManifest(store).verify(targetHead.root);
+    const safety = await this.create(input.safety, store);
+    const head = await this.content.commit(
+      {
+        cruxId: source.id,
+        expected: input.safety.expected,
+        root: targetHead.root,
+      },
+      store,
+    );
+    // Publication must not alter either retained snapshot via a late database write.
+    if (
+      !isDeepStrictEqual(
+        await this.content.head(safety.snapshot.id),
+        safety.head,
+      ) ||
+      !isDeepStrictEqual(
+        await this.crux.findById(safety.snapshot.id),
+        safety.snapshot,
+      ) ||
+      !isDeepStrictEqual(
+        await this.dimension.findById(safety.growth.id),
+        safety.growth,
+      ) ||
+      !isDeepStrictEqual(await this.content.head(target.id), targetHead) ||
+      !isDeepStrictEqual(await this.crux.findById(target.id), target)
+    )
+      throw new InternalServerErrorException(
+        'Restored snapshot retention did not persist',
+      );
+    return { safety, head };
+  }
 
   async create(input: GrowthSnapshotCreate, store: DesktopContentStore) {
     const sourceHead = await this.content.admit(input);
