@@ -104,6 +104,7 @@ export class BillingRepository {
   async setPendingSession(
     accountId: string,
     sessionId: string | null,
+    provider = 'stripe',
   ): Promise<RepositoryResponse<void>> {
     try {
       await this.dbService
@@ -112,6 +113,7 @@ export class BillingRepository {
         .insert({
           account_id: accountId,
           pending_session_id: sessionId,
+          provider,
           plan_id: 'free',
           status: 'none',
           updated: new Date(),

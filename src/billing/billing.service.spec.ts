@@ -362,6 +362,7 @@ describe('BillingService', () => {
     const svc = new BillingService(repo as never, logger, email as never);
     const provider = new MockBillingProvider();
     svc.useProvider(provider, PRICES);
+    Object.defineProperty(provider, 'instantCheckout', { value: false });
     // checkout opened; the mock completes it at the provider, but pretend the
     // webhook never reached us and nothing else remembers the customer
     await svc.checkout('acct-1', 'gardener', 'month');

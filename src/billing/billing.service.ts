@@ -3,6 +3,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { LoggerService } from '../common/services/logger.service';
@@ -17,6 +18,11 @@ import {
   type PriceInfo,
   type SubscriptionSnapshot,
 } from './provider';
+import { BillingSimulationRepository } from './simulation.repository';
+import {
+  SimulationBillingProvider,
+  type SimulationAction,
+} from './simulation.provider';
 import { stripeProviderFromEnv } from './stripe.provider';
 import {
   PLANS,
@@ -75,8 +81,35 @@ export class BillingService {
     private readonly repo: BillingRepository,
     loggerService: LoggerService,
     private readonly email: EmailService,
+    @Optional() private readonly simulationRepo?: BillingSimulationRepository,
   ) {
     this.logger = loggerService.createChildLogger('BillingService');
+    if (process.env.BILLING_PROVIDER === 'simulation') {
+      if (!simulationRepo) throw new Error('Simulation repository is required');
+      if (
+        process.env.NODE_ENV === 'production' &&
+        process.env.BILLING_ALLOW_MOCK !== '1'
+      )
+        throw new Error(
+          'Simulation in production requires BILLING_ALLOW_MOCK=1',
+        );
+      this.provider = new SimulationBillingProvider(simulationRepo);
+      this.priceMap = new Map(
+        (['gardener', 'gardener_plus'] as const).flatMap((planId) =>
+          (['month', 'year'] as const).map(
+            (interval) =>
+              [
+                `price_mock_${planId}_${interval}`,
+                { planId, interval },
+              ] as const,
+          ),
+        ),
+      );
+      this.logger.warn(
+        'Billing SIMULATION enabled — no payments or billing emails',
+      );
+      return;
+    }
     const stripe = stripeProviderFromEnv();
     this.provider = stripe ?? new MockBillingProvider();
     if (!stripe) {
@@ -122,7 +155,7 @@ export class BillingService {
       throw new ServiceUnavailableException(
         'Subscription status is unavailable.',
       );
-    return effectivePlanId(r.data, now);
+    return effectivePlanId(this.matchingProvider(r.data), now);
   }
 
   async me(accountId: string, now = new Date()): Promise<BillingMe> {
@@ -131,7 +164,7 @@ export class BillingService {
       throw new ServiceUnavailableException(
         'Subscription status is unavailable.',
       );
-    const row = result.data;
+    const row = this.matchingProvider(result.data);
     const planId = effectivePlanId(row, now);
     return {
       plan: planById(planId),
@@ -144,7 +177,7 @@ export class BillingService {
       trialEndsAt: row?.trial_end
         ? new Date(row.trial_end).toISOString()
         : null,
-      canManage: !!row?.customer_id,
+      canManage: !!row?.customer_id && this.provider.name !== 'simulation',
       provider: this.provider.name,
     };
   }
@@ -183,12 +216,22 @@ export class BillingService {
       plans,
       trialDays: trialDays(),
       provider: this.provider.name,
-      instant: this.provider.name === 'mock',
+      instant: !!this.provider.instantCheckout,
     };
   }
 
   // ── Checkout / portal ───────────────────────────────────────────────────
   async checkout(
+    accountId: string,
+    planId: string,
+    interval: BillingInterval,
+  ): Promise<{ url: string }> {
+    return this.withSimulationAccount(accountId, () =>
+      this.startCheckout(accountId, planId, interval),
+    );
+  }
+
+  private async startCheckout(
     accountId: string,
     planId: string,
     interval: BillingInterval,
@@ -211,7 +254,7 @@ export class BillingService {
       );
     const email = (await this.repo.accountEmail(accountId)).data;
     if (!email) throw new NotFoundException('Account not found');
-    const existing = (await this.repo.byAccount(accountId)).data;
+    const existing = await this.subscriptionFor(accountId);
     if (existing && isLive(existing.status) && existing.plan_id !== 'free')
       throw new BadRequestException(
         'You already have a plan — use “Manage billing” to change it',
@@ -227,15 +270,20 @@ export class BillingService {
       trialDays: trialDays(),
     });
     this.logger.info('Checkout started', { accountId, planId, interval });
-    // Mock provider: the "payment" already happened — reflect it now.
-    if (this.provider.name === 'mock') await this.sync(accountId);
-    // Sync can finish the job from this if the webhook never reaches us
-    await this.repo.setPendingSession(accountId, sessionId);
+    // Persist recovery before synchronizing either instant provider.
+    const pending = await this.repo.setPendingSession(
+      accountId,
+      sessionId,
+      this.provider.name,
+    );
+    if (pending.error)
+      throw new InternalServerErrorException('Could not save checkout');
+    if (this.provider.instantCheckout) await this.syncAccount(accountId);
     return { url };
   }
 
   async portal(accountId: string): Promise<{ url: string }> {
-    const row = (await this.repo.byAccount(accountId)).data;
+    const row = await this.subscriptionFor(accountId);
     if (!row?.customer_id)
       throw new BadRequestException('No billing account yet');
     const url = await this.provider.portalUrl(
@@ -247,7 +295,13 @@ export class BillingService {
 
   /** Re-pull from the provider (after a checkout return, or when a webhook was missed). */
   async sync(accountId: string): Promise<BillingMe> {
-    const row = (await this.repo.byAccount(accountId)).data;
+    return this.withSimulationAccount(accountId, () =>
+      this.syncAccount(accountId),
+    );
+  }
+
+  private async syncAccount(accountId: string): Promise<BillingMe> {
+    const row = await this.subscriptionFor(accountId);
     let snap: SubscriptionSnapshot | null = null;
     if (row?.subscription_id)
       snap = await this.provider.fetchSubscription(row.subscription_id);
@@ -276,6 +330,10 @@ export class BillingService {
       if (cus) snap = await this.provider.fetchCustomerSubscription(cus);
     }
     if (snap) {
+      if (snap.accountId && snap.accountId !== accountId)
+        throw new BadRequestException(
+          'Subscription belongs to another account',
+        );
       await this.applySnapshot({
         ...snap,
         accountId: snap.accountId ?? accountId,
@@ -397,7 +455,7 @@ export class BillingService {
     const mapped = snap.priceId ? this.priceMap.get(snap.priceId) : undefined;
     const planId =
       snap.status === 'canceled' ? 'free' : (mapped?.planId ?? 'free');
-    const before = (await this.repo.byAccount(accountId)).data;
+    const before = await this.subscriptionFor(accountId);
     const r = await this.repo.upsert({
       account_id: accountId,
       provider: this.provider.name,
@@ -441,12 +499,73 @@ export class BillingService {
     accountId: string,
     msg: { subject: string; body: string },
   ): Promise<void> {
+    if (this.provider.name === 'simulation') return;
     try {
       const email = (await this.repo.accountEmail(accountId)).data;
       if (email) await this.email.send({ email, ...msg });
     } catch (err) {
       this.logger.error(`billing email failed: ${(err as Error).message}`);
     }
+  }
+
+  private async subscriptionFor(
+    accountId: string,
+  ): Promise<SubscriptionRow | null> {
+    const result = await this.repo.byAccount(accountId);
+    if (result.error)
+      throw new ServiceUnavailableException(
+        'Subscription status is unavailable.',
+      );
+    return this.matchingProvider(result.data);
+  }
+
+  /** Never reinterpret simulated entitlements as real billing (or overwrite real records). */
+  private matchingProvider(
+    row: SubscriptionRow | null,
+  ): SubscriptionRow | null {
+    if (
+      row &&
+      row.provider !== this.provider.name &&
+      (row.provider === 'simulation' || this.provider.name === 'simulation')
+    )
+      throw new ServiceUnavailableException(
+        'Billing provider differs from stored subscription; use a separate simulation database',
+      );
+    return row;
+  }
+
+  private withSimulationAccount<T>(
+    accountId: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    return this.provider.name === 'simulation'
+      ? this.simulationRepo.forAccount(accountId, work)
+      : work();
+  }
+
+  async simulate(
+    accountId: string,
+    action: SimulationAction,
+    planId?: string,
+    interval?: BillingInterval,
+  ): Promise<BillingMe> {
+    if (!(this.provider instanceof SimulationBillingProvider))
+      throw new BadRequestException('Billing simulation is not enabled');
+    const provider = this.provider;
+    return this.withSimulationAccount(accountId, async () => {
+      await this.subscriptionFor(accountId);
+      const priceId =
+        action === 'change_plan'
+          ? [...this.priceMap].find(
+              ([, p]) => p.planId === planId && p.interval === interval,
+            )?.[0]
+          : undefined;
+      if (action === 'change_plan' && !priceId)
+        throw new BadRequestException('Choose an available plan and interval');
+      const next = await provider.change(accountId, action, priceId);
+      await this.applySnapshot(next);
+      return this.me(accountId);
+    });
   }
 
   async listAll(): Promise<Record<string, unknown>[]> {

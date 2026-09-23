@@ -67,6 +67,7 @@ export interface PriceInfo {
 
 export interface BillingProvider {
   readonly name: string;
+  readonly instantCheckout?: boolean;
   createCheckout(
     req: CheckoutRequest,
   ): Promise<{ url: string; sessionId: string }>;
@@ -107,6 +108,7 @@ export interface CheckoutSessionInfo {
 
 export class MockBillingProvider implements BillingProvider {
   readonly name = 'mock';
+  readonly instantCheckout = true;
   subscriptions = new Map<string, SubscriptionSnapshot>();
   customersByAccount = new Map<string, string>();
   /** sessionId → what it produced (the mock completes checkout instantly) */

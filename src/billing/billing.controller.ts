@@ -18,12 +18,16 @@ import {
   ApiTags,
   ApiProperty,
 } from '@nestjs/swagger';
-import { IsIn, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 import { SkipThrottle } from '@nestjs/throttler';
 import { isAdmin } from '../common/helpers/role-helpers';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
 import { BillingService } from './billing.service';
+import {
+  SIMULATION_ACTIONS,
+  type SimulationAction,
+} from './simulation.provider';
 import { PLAN_ORDER } from '../usage/plans';
 
 export class CheckoutDto {
@@ -41,6 +45,22 @@ export class CheckoutDto {
   interval!: 'month' | 'year';
 }
 
+export class SimulationDto {
+  @ApiProperty({ enum: SIMULATION_ACTIONS })
+  @IsIn(SIMULATION_ACTIONS)
+  action!: SimulationAction;
+
+  @ApiProperty({ required: false, enum: ['gardener', 'gardener_plus'] })
+  @IsOptional()
+  @IsIn(['gardener', 'gardener_plus'])
+  planId?: string;
+
+  @ApiProperty({ required: false, enum: ['month', 'year'] })
+  @IsOptional()
+  @IsIn(['month', 'year'])
+  interval?: 'month' | 'year';
+}
+
 @ApiTags('billing')
 @Controller('billing')
 export class BillingController {
@@ -56,8 +76,8 @@ export class BillingController {
   @ApiBearerAuth()
   @UseGuards(AuthGuard)
   @ApiOperation({ summary: 'This account’s plan and subscription state' })
-  me(@Req() req: AuthRequest) {
-    return this.billing.me(req.account.id);
+  async me(@Req() req: AuthRequest) {
+    return this.withCapabilities(await this.billing.me(req.account.id), req);
   }
 
   @Post('checkout')
@@ -87,8 +107,37 @@ export class BillingController {
   @ApiOperation({
     summary: 'Re-pull the subscription from the provider (after checkout)',
   })
-  sync(@Req() req: AuthRequest) {
-    return this.billing.sync(req.account.id);
+  async sync(@Req() req: AuthRequest) {
+    return this.withCapabilities(await this.billing.sync(req.account.id), req);
+  }
+
+  @Post('simulation')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Operator: simulate billing for your own account (simulation provider only)',
+  })
+  async simulate(@Body() dto: SimulationDto, @Req() req: AuthRequest) {
+    if (!isAdmin(req.account.role)) throw new ForbiddenException('Admins only');
+    return this.withCapabilities(
+      await this.billing.simulate(
+        req.account.id,
+        dto.action,
+        dto.planId,
+        dto.interval,
+      ),
+      req,
+    );
+  }
+
+  private withCapabilities<T>(state: T, req: AuthRequest) {
+    return {
+      ...state,
+      canSimulate:
+        this.billing.providerName === 'simulation' && isAdmin(req.account.role),
+    };
   }
 
   @Post('webhook/stripe')
