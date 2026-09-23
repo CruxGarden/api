@@ -26,6 +26,21 @@ export class WorkingCopyRepository {
     }
   }
 
+  async hasApplyingMerge(id: string) {
+    try {
+      const row = await this.db
+        .query()('task_merges')
+        .where({ phase: 'applying' })
+        .andWhere((query) =>
+          query.where({ copy_id: id }).orWhere({ candidate_id: id }),
+        )
+        .first('id');
+      return success({ pending: !!row });
+    } catch (error) {
+      return failure<{ pending: boolean }>(error);
+    }
+  }
+
   async setArchived(id: string, revision: number, phase: 'ready' | 'archived') {
     try {
       const changes = await this.db

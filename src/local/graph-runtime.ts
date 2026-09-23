@@ -1,3 +1,5 @@
+import { TaskMergeRepository } from './task-merge.repository';
+import { TaskMergeService } from './task-merge.service';
 import {
   captureCruxCreate,
   LocalCruxCreate,
@@ -67,6 +69,8 @@ class LocalGraphModule {
         WorkingCopyService,
         CruxLifecycleRepository,
         CruxLifecycleService,
+        TaskMergeRepository,
+        TaskMergeService,
       ],
     };
   }
@@ -78,6 +82,7 @@ export interface GraphOperations {
   garden: GardenMembershipService;
   workingCopy: WorkingCopyService;
   lifecycle: CruxLifecycleService;
+  taskMerge: TaskMergeService;
 }
 
 /** Ephemeral invalidation for named commands, never a content payload or durable log.
@@ -141,6 +146,7 @@ export class LocalGraphRuntime {
       garden: context.get(GardenMembershipService),
       workingCopy: context.get(WorkingCopyService),
       lifecycle: context.get(CruxLifecycleService),
+      taskMerge: context.get(TaskMergeService),
     });
   }
 
@@ -370,6 +376,20 @@ export class LocalGraphRuntime {
         fields: Object.keys(captured),
         metaKeys: Object.keys(captured.meta!),
       }),
+    );
+  }
+
+  async completeTaskMerge(id: string, resultHead: string): Promise<void> {
+    if (
+      typeof id !== 'string' ||
+      !id ||
+      typeof resultHead !== 'string' ||
+      !resultHead
+    )
+      throw new Error('Use a merge identity and result snapshot');
+    await this.executeChanged(
+      ({ taskMerge }) => taskMerge.complete(id, resultHead),
+      (copy) => ({ entity: 'working-copy', ...copy, fields: ['phase'] }),
     );
   }
 

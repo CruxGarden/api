@@ -35,6 +35,13 @@ export class WorkingCopyService {
       throw new ConflictException(
         'This task changed while saving. Reload it before retrying.',
       );
+    const pending = await this.copies.hasApplyingMerge(id);
+    if (pending.error)
+      throw new InternalServerErrorException(pending.error.message);
+    if (pending.data.pending)
+      throw new ConflictException(
+        'Finish recovering the pending merge before archiving or reopening this Task.',
+      );
     const saved = await this.copies.setArchived(
       id,
       revision,
