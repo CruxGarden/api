@@ -1,15 +1,29 @@
 import type { Knex } from 'knex';
+import {
+  DesktopContentStore,
+  externalizeDesktopContent,
+} from './desktop-content';
 import { DESKTOP_SCHEMA_SQL } from './desktop-ddl';
-import { inspectDesktopSchema, needsDesktopMigration } from './desktop-schema';
+import {
+  inspectDesktopSchema,
+  needsDesktopMigration,
+  hasDesktopInlineContent,
+} from './desktop-schema';
 import { prepareDesktopGraph } from '../common/database/sqlite-graph';
 
-/** Additive legacy normalization; never extracts/drops opaque payload content. */
-export async function migrateDesktopDatabase(db: Knex): Promise<void> {
+/** Transactional legacy normalization; inline extraction requires verified host storage. */
+export async function migrateDesktopDatabase(
+  db: Knex,
+  contentStore?: DesktopContentStore,
+): Promise<void> {
   await db.transaction(async (trx) => {
     const connection = await trx.client.acquireConnection();
     try {
       // Recheck inside the transaction before DDL; startup also checks read-only
       // before opening the writable pool and changing the journal mode.
+      if (!needsDesktopMigration(connection, !!contentStore)) return;
+      if (contentStore && hasDesktopInlineContent(connection))
+        await externalizeDesktopContent(connection, contentStore);
       if (!needsDesktopMigration(connection)) return;
       const version = inspectDesktopSchema(connection);
       connection.exec(DESKTOP_SCHEMA_SQL);

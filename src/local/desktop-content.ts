@@ -51,39 +51,48 @@ export async function prepareDesktopContent(
   // Copy and validate synchronously, before any host callbacks can yield.
   const db = openDesktopRecovery(data, true);
   try {
-    const { hasContent, updates } = inspectInlineContent(db);
-    if (hasContent) {
-      const rows = db.prepare(
-        'SELECT id, fingerprint, content FROM artifacts WHERE content IS NOT NULL',
-      );
-      for (const row of rows.iterate()) {
-        const { bytes, fingerprint } = payload(row);
-        const existing = await store.read(fingerprint);
-        if (existing === null) {
-          await store.write(fingerprint, bytes);
-          verify(fingerprint, await store.read(fingerprint));
-        } else verify(fingerprint, existing);
-      }
-      // All inline bytes have survived a read-back. Only the private image changes.
-      db.transaction(() => {
-        const update = db.prepare(
-          'UPDATE artifacts SET fingerprint = ? WHERE id = ?',
-        );
-        for (const row of updates) update.run(row.fingerprint, row.id);
-        db.exec('ALTER TABLE artifacts DROP COLUMN content');
-      })();
-    }
-    const prepared = inspectDesktopRecovery(
-      Uint8Array.from(db.serialize()).buffer,
-    );
-    // Include already-external history and avatars, and catch content disappearing
-    // during staging. No usable converted image escapes without complete content.
-    for (const fingerprint of prepared.fingerprints)
-      verify(fingerprint, await store.read(fingerprint));
-    return prepared;
+    return await externalizeDesktopContent(db, store);
   } finally {
     db.close();
   }
+}
+
+/** Internal: caller owns the database and must roll back its transaction on failure. */
+export async function externalizeDesktopContent(
+  db: any,
+  store: DesktopContentStore,
+): Promise<DesktopRecoveryInspection> {
+  const { hasContent, updates } = inspectInlineContent(db);
+  if (hasContent) {
+    const rows = db.prepare(
+      'SELECT id, fingerprint, content FROM artifacts WHERE content IS NOT NULL',
+    );
+    for (const row of rows.iterate()) {
+      const { bytes, fingerprint } = payload(row);
+      const existing = await store.read(fingerprint);
+      if (existing === null) {
+        await store.write(fingerprint, bytes);
+        verify(fingerprint, await store.read(fingerprint));
+      } else verify(fingerprint, existing);
+    }
+    // All inline bytes have survived a read-back. The caller owns the outer
+    // transaction at startup; detached preparation modifies only its private image.
+    db.transaction(() => {
+      const update = db.prepare(
+        'UPDATE artifacts SET fingerprint = ? WHERE id = ?',
+      );
+      for (const row of updates) update.run(row.fingerprint, row.id);
+      db.exec('ALTER TABLE artifacts DROP COLUMN content');
+    })();
+  }
+  const prepared = inspectDesktopRecovery(
+    Uint8Array.from(db.serialize()).buffer,
+  );
+  // Include already-external history and avatars, and catch content disappearing
+  // during staging. No usable converted image escapes without complete content.
+  for (const fingerprint of prepared.fingerprints)
+    verify(fingerprint, await store.read(fingerprint));
+  return prepared;
 }
 
 /** Validate payloads without retaining a second full payload collection. */

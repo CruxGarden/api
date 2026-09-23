@@ -13,6 +13,7 @@ import {
   closeSync,
 } from 'fs';
 import { randomUUID } from 'crypto';
+import type { DesktopContentStore } from './desktop-content';
 import { inspectDesktopRecovery } from './desktop-recovery';
 import { inspectDesktopFile } from './desktop-schema';
 import { checkpointDesktopMigration } from './startup-recovery';
@@ -101,8 +102,11 @@ export class LocalGraphRuntime {
     });
   }
 
-  static open(filename: string): Promise<LocalGraphRuntime> {
-    return this.start(filename, false);
+  static open(
+    filename: string,
+    options?: { contentStore: DesktopContentStore },
+  ): Promise<LocalGraphRuntime> {
+    return this.start(filename, false, options?.contentStore);
   }
 
   /** Explicit fresh-file creation; never overwrites or bootstraps an existing file. */
@@ -113,6 +117,7 @@ export class LocalGraphRuntime {
   private static async start(
     filename: string,
     create: boolean,
+    contentStore?: DesktopContentStore,
   ): Promise<LocalGraphRuntime> {
     if (!isAbsolute(filename)) {
       throw new Error('Local API requires an absolute database file');
@@ -147,8 +152,8 @@ export class LocalGraphRuntime {
           await file.close();
         }
       }
-      if (!create) checkpointDesktopMigration(canonical);
-      const context = await this.openContext(canonical, create);
+      if (!create) checkpointDesktopMigration(canonical, !!contentStore);
+      const context = await this.openContext(canonical, create, contentStore);
       return new LocalGraphRuntime(context, ownershipKeys, canonical);
     } catch (error) {
       if (!(error instanceof DatabaseShutdownError))
@@ -160,8 +165,9 @@ export class LocalGraphRuntime {
   private static async openContext(
     filename: string,
     create = false,
+    contentStore?: DesktopContentStore,
   ): Promise<INestApplicationContext> {
-    if (!create) inspectDesktopFile(filename);
+    if (!create) inspectDesktopFile(filename, !!contentStore);
     const logger = new LoggerService();
     const database = new DbService(logger, sqliteGraphConfig(filename));
     let context: INestApplicationContext | undefined;
@@ -171,7 +177,7 @@ export class LocalGraphRuntime {
         { logger: false, abortOnError: false },
       );
       if (create) await bootstrapDesktopDatabase(database.query());
-      else await migrateDesktopDatabase(database.query());
+      else await migrateDesktopDatabase(database.query(), contentStore);
       return context;
     } catch (error) {
       try {

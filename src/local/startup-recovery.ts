@@ -10,7 +10,10 @@ const Database = require('better-sqlite3');
  * Retain a standalone, committed pre-upgrade image. This is metadata recovery;
  * content must remain retained separately. Never overwrite an existing checkpoint.
  */
-export function checkpointDesktopMigration(filename: string): string | null {
+export function checkpointDesktopMigration(
+  filename: string,
+  allowInlineContent = false,
+): string | null {
   const source = new Database(filename, {
     readonly: true,
     fileMustExist: true,
@@ -19,10 +22,11 @@ export function checkpointDesktopMigration(filename: string): string | null {
   try {
     source.pragma('trusted_schema = OFF');
     source.exec('BEGIN');
-    if (!needsDesktopMigration(source)) return null;
+    if (!needsDesktopMigration(source, allowInlineContent)) return null;
     // Capture WAL pages too. A raw filesystem copy could miss committed work.
     const detached = openDesktopRecovery(
       Uint8Array.from(source.serialize()).buffer,
+      allowInlineContent,
     );
     try {
       image = Buffer.from(detached.serialize());

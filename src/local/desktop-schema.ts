@@ -166,19 +166,27 @@ export function inspectDesktopSchema(
 }
 
 /** Refuse incompatible files before the writable pool can enable WAL or run DDL. */
-export function inspectDesktopFile(filename: string): void {
+export function inspectDesktopFile(
+  filename: string,
+  allowInlineContent = false,
+): void {
   const db = new Database(filename, { readonly: true, fileMustExist: true });
   try {
     db.pragma('trusted_schema = OFF');
-    inspectDesktopSchema(db);
+    inspectDesktopSchema(db, allowInlineContent);
   } finally {
     db.close();
   }
 }
 
 /** Whether normalization will add known schema or advance the legacy marker. */
-export function needsDesktopMigration(db: any): boolean {
-  if (inspectDesktopSchema(db) !== 4) return true;
+export function needsDesktopMigration(
+  db: any,
+  allowInlineContent = false,
+): boolean {
+  const version = inspectDesktopSchema(db, allowInlineContent);
+  if (version !== 4 || (allowInlineContent && hasDesktopInlineContent(db)))
+    return true;
   for (const [table, columns] of expectedColumns()) {
     const actual = new Set(
       db
@@ -195,5 +203,19 @@ export function needsDesktopMigration(db: any): boolean {
           "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
         )
         .get(name),
+  );
+}
+
+/** Requires schema validation before use. Empty legacy columns need no conversion. */
+export function hasDesktopInlineContent(db: any): boolean {
+  return (
+    !!db
+      .prepare(
+        "SELECT 1 FROM pragma_table_info('artifacts') WHERE name = 'content'",
+      )
+      .get() &&
+    !!db
+      .prepare('SELECT 1 FROM artifacts WHERE content IS NOT NULL LIMIT 1')
+      .get()
   );
 }
