@@ -217,6 +217,11 @@ export class FileContentService {
     const file = await new FileManifest(store).readFile(head.root, input.path);
     return file ? { head, ...file } : null;
   }
+  async lookup(input: FileContentRead, store: DesktopContentStore) {
+    const head = await this.selectedHead(input);
+    const entry = await new FileManifest(store).get(head.root, input.path);
+    return entry ? { head, entry } : null;
+  }
   /** Admission shared by file edits and snapshot capture inside the owner transaction. */
   async admit(
     input: Pick<FileContentCommit, 'cruxId' | 'expected'>,
@@ -271,6 +276,7 @@ export class FileContentService {
   ) {
     const pending = await this.repository.projection(id);
     if (!pending) return false;
+    await this.repository.assertProjectionOwner(id, pending);
     const selected = await this.selectedHead({
       cruxId: id,
       expected: pending.head,

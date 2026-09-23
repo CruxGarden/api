@@ -290,6 +290,89 @@ describe('manifest-backed Growth commands', () => {
     expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
   });
 
+  it.each(['stale metadata', 'refused projection intent'])(
+    'keeps both content and conversation when restore meets %s',
+    async (failure) => {
+      const base = await owner.createGrowthSnapshot(request(), store);
+      head = await owner.editFileContent(
+        { cruxId: id, expected: head, changes: [put('Current')] },
+        store,
+      );
+      await owner.updateCrux(id, {
+        meta: { projectFolder: '/owned/current', messages: ['Current'] },
+      });
+      const before = await owner.execute(({ crux }) => crux.findById(id));
+      if (failure === 'refused projection intent')
+        await owner.run(`CREATE TRIGGER refuse_projection
+        BEFORE INSERT ON settings WHEN NEW.key LIKE 'cruxgarden:content-projection:%'
+        BEGIN SELECT RAISE(IGNORE); END`);
+      await expect(
+        owner.restoreGrowthContent(
+          {
+            safety: request(),
+            target: { cruxId: base.snapshot.id, expected: base.head },
+            workspace: {
+              expectedMeta: failure === 'stale metadata' ? {} : before.meta,
+              messages: [],
+            },
+          },
+          store,
+        ),
+      ).rejects.toThrow();
+      expect(await owner.fileContentHead(id)).toEqual(head);
+      expect(await owner.execute(({ crux }) => crux.findById(id))).toEqual(
+        before,
+      );
+      expect(
+        await owner.all("SELECT id FROM cruxes WHERE kind = 'snapshot'"),
+      ).toHaveLength(1);
+      expect(
+        await owner.all(
+          "SELECT key FROM settings WHERE key LIKE 'cruxgarden:content-projection:%'",
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it('refuses to project into a replaced folder and keeps an unacknowledged projection retryable', async () => {
+    const base = await owner.createGrowthSnapshot(request(), store);
+    head = await owner.editFileContent(
+      { cruxId: id, expected: head, changes: [put('Current')] },
+      store,
+    );
+    await owner.updateCrux(id, { meta: { projectFolder: '/owned/original' } });
+    const before = await owner.execute(({ crux }) => crux.findById(id));
+    await owner.restoreGrowthContent(
+      {
+        safety: request(),
+        target: { cruxId: base.snapshot.id, expected: base.head },
+        workspace: { expectedMeta: before.meta, messages: [] },
+      },
+      store,
+    );
+    await owner.updateCrux(id, {
+      meta: { projectFolder: '/owned/replacement' },
+    });
+    const apply = jest.fn(async () => {});
+    await expect(
+      owner.finishContentProjection(id, store, apply),
+    ).rejects.toThrow('Folder');
+    expect(apply).not.toHaveBeenCalled();
+    await owner.updateCrux(id, { meta: { projectFolder: '/owned/original' } });
+    await owner.run(`CREATE TRIGGER refuse_projection_clear BEFORE DELETE ON settings
+      WHEN OLD.key LIKE 'cruxgarden:content-projection:%' BEGIN SELECT RAISE(IGNORE); END`);
+    await expect(
+      owner.finishContentProjection(id, store, apply),
+    ).rejects.toThrow('persist');
+    expect(apply).toHaveBeenCalledTimes(1);
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    await owner.run('DROP TRIGGER refuse_projection_clear');
+    expect(await owner.finishContentProjection(id, store, apply)).toBe(true);
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(await owner.finishContentProjection(id, store, apply)).toBe(false);
+  });
+
   it('atomically connects a snapshot Crux and retains its root without copying content or file records', async () => {
     const input = request();
     const write = jest.spyOn(store, 'write');

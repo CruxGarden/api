@@ -71,6 +71,59 @@ describe('API file content publication', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('looks up selected file metadata without loading its payload and refuses stale selections', async () => {
+    const hash = await root('Large payload represented by a small descriptor');
+    const head = await owner.commitFileContent(
+      { cruxId: id, expected: null, root: hash },
+      store,
+    );
+    const read = jest.spyOn(store, 'read');
+    const result = await (owner as any).lookupFileContent(
+      { cruxId: id, expected: head, path: 'hello.txt' },
+      store,
+    );
+    expect(result.head).toEqual(head);
+    expect(result.entry.path).toBe('hello.txt');
+    expect(read.mock.calls.map(([fp]) => fp)).not.toContain(
+      result.entry.fingerprint,
+    );
+    expect(
+      await (owner as any).lookupFileContent(
+        { cruxId: id, expected: head, path: 'absent' },
+        store,
+      ),
+    ).toBeNull();
+    await expect(
+      (owner as any).lookupFileContent(
+        { cruxId: id, expected: { ...head, revision: 0 }, path: 'hello.txt' },
+        store,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it('marks the Crux changed when its file root changes and leaves it alone for an identical save', async () => {
+    await owner.run('UPDATE cruxes SET updated = ? WHERE id = ?', [
+      '2000-01-01T00:00:00.000Z',
+      id,
+    ]);
+    const hash = await root('Saved work');
+    const head = await owner.commitFileContent(
+      { cruxId: id, expected: null, root: hash },
+      store,
+    );
+    const first = await owner.execute(({ crux }) => crux.findById(id));
+    expect(new Date(first.updated).getTime()).toBeGreaterThan(
+      Date.parse('2000-01-01'),
+    );
+    await owner.commitFileContent(
+      { cruxId: id, expected: head, root: hash },
+      store,
+    );
+    expect(
+      (await owner.execute(({ crux }) => crux.findById(id))).updated,
+    ).toEqual(first.updated);
+  });
+
   it('publishes a verified root in the graph database and reopens the exact bytes after restart', async () => {
     const candidate = await root('Original bytes');
     const saved = await owner.commitFileContent(

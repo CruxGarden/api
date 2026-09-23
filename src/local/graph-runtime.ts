@@ -411,6 +411,25 @@ export class LocalGraphRuntime {
   }
 
   /** Host-only read of the exact selected version; never silently switches roots. */
+  async lookupFileContent(
+    input: FileContentRead,
+    store: Pick<DesktopContentStore, 'read'>,
+  ) {
+    const captured = captureFileContentRead(input);
+    if (!store || typeof store.read !== 'function')
+      throw new Error('Use the host content store');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: async () => {
+        throw new Error('File lookup cannot write content');
+      },
+    };
+    return this.execute(({ fileContent }) =>
+      fileContent.lookup(captured, capturedStore),
+    );
+  }
+
+  /** Host-only read of the exact selected version; never silently switches roots. */
   async readFileContent(
     input: FileContentRead,
     store: Pick<DesktopContentStore, 'read'>,

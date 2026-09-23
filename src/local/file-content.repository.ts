@@ -184,6 +184,26 @@ export class FileContentRepository {
       : null;
   }
 
+  async assertProjectionOwner(
+    id: string,
+    pending: { head: FileContentHead; folder: string },
+  ) {
+    const db = this.db.query();
+    const copy = await db('working_copies').where({ id }).first();
+    const source = copy ?? (await db('cruxes').where({ id }).first());
+    const folder = copy?.project_folder ?? source?.meta?.projectFolder;
+    if (
+      !source ||
+      pending.head.cruxId !== id ||
+      typeof pending.folder !== 'string' ||
+      !pending.folder ||
+      pending.folder !== folder
+    )
+      throw new Error(
+        'Project Folder changed before projection; restore its ownership before retrying',
+      );
+  }
+
   async clearProjection(id: string) {
     const db = this.db.query();
     await db('settings')
@@ -251,6 +271,24 @@ export class FileContentRepository {
         if (changed !== 1)
           throw new Error('File content publication was refused');
       } else await db('file_content_heads').insert(record);
+      // Recent-work ordering and overwrite warnings belong to the owner, not
+      // one database row per file. Retained snapshots keep their capture time.
+      const crux = await db('cruxes').where({ id: head.cruxId }).first('kind');
+      if (!crux || crux.kind !== 'snapshot') {
+        const table = crux ? 'cruxes' : 'working_copies';
+        const updated = new Date();
+        const count = await db(table)
+          .where({ id: head.cruxId })
+          .update({ updated });
+        const owner = await db(table)
+          .where({ id: head.cruxId })
+          .first('updated');
+        if (
+          count !== 1 ||
+          new Date(owner?.updated).getTime() !== updated.getTime()
+        )
+          throw new Error('Content owner update did not persist');
+      }
       const saved = await db('file_content_heads')
         .where({ crux_id: head.cruxId })
         .first();
