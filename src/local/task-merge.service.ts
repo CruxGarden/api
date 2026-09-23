@@ -21,7 +21,7 @@ export class TaskMergeService {
     const { merge, copy, candidate } = state;
     if (!merge || !copy || !candidate)
       throw new ConflictException('The merge or its Task copies are missing');
-    await this.crux.findById(merge.crux_id);
+    const crux = await this.crux.findById(merge.crux_id);
     const data = JSON.parse(merge.data);
     if (
       !data ||
@@ -52,7 +52,94 @@ export class TaskMergeService {
         row.revision >= Number.MAX_SAFE_INTEGER
       )
         throw new ConflictException('The Task revision is invalid');
-    return { state, merge, copy, candidate, data };
+    return { state, merge, copy, candidate, data, crux };
+  }
+
+  async begin(id: string, expected: unknown) {
+    const { state, merge, copy, candidate, data, crux } =
+      await this.ownedState(id);
+    if (
+      merge.phase !== 'review' ||
+      copy.phase !== 'ready' ||
+      candidate.phase !== 'ready' ||
+      JSON.stringify(data) !== JSON.stringify(expected)
+    )
+      throw new ConflictException(
+        'This review changed. Prepare or check it again before merging.',
+      );
+    if (
+      !Array.isArray(data.conflicts) ||
+      data.conflicts.length ||
+      !data.manifest ||
+      typeof data.manifest !== 'object' ||
+      Array.isArray(data.manifest)
+    )
+      throw new ConflictException(
+        'Check the resolved candidate before merging.',
+      );
+    const paths = Object.keys(data.manifest).sort();
+    if (
+      paths.some(
+        (path) =>
+          !data.manifest[path] ||
+          typeof data.manifest[path].fingerprint !== 'string' ||
+          !data.manifest[path].fingerprint ||
+          !Number.isSafeInteger(data.manifest[path].mode),
+      ) ||
+      data.verifiedKey !==
+        JSON.stringify(
+          paths.map((path) => [
+            path,
+            data.manifest[path].fingerprint,
+            data.manifest[path].mode,
+          ]),
+        )
+    )
+      throw new ConflictException(
+        'Check the resolved candidate before merging.',
+      );
+    const inspected = await this.repository.admissionContext(
+      merge.crux_id,
+      copy.id,
+    );
+    if (inspected.error)
+      throw new InternalServerErrorException(inspected.error.message);
+    const { pending, growths } = inspected.data!;
+    if (pending)
+      throw new ConflictException(
+        'Finish recovering the existing merge before starting another.',
+      );
+    for (const [ownerId, expectedHead, meta] of [
+      [merge.crux_id, data.targetHead, crux.meta],
+      [copy.id, data.sourceHead, copy.meta],
+    ] as const) {
+      const owned = growths.filter((row) => row.source_id === ownerId);
+      const active = meta?.settings?.activeBranch;
+      const latestWeight = Math.max(...owned.map((row) => row.weight ?? 0));
+      const tips = active
+        ? owned.filter((row) => row.target_id === active)
+        : owned.filter((row) => (row.weight ?? 0) === latestWeight);
+      if (
+        !expectedHead ||
+        !tips.length ||
+        tips.some((row) => row.target_id !== expectedHead) ||
+        tips.some(
+          (row) =>
+            row.meta?.contentOwnerId !== undefined &&
+            row.meta.contentOwnerId !== ownerId,
+        )
+      )
+        throw new ConflictException(
+          'Growth changed after review. Prepare a new review.',
+        );
+    }
+    const saved = await this.repository.begin(state, {
+      ...data,
+      phase: 'applying',
+    });
+    if (saved.error)
+      throw new InternalServerErrorException(saved.error.message);
+    return { id: copy.id, cruxId: merge.crux_id };
   }
 
   async release(id: string) {

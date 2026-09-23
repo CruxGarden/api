@@ -379,6 +379,17 @@ export class LocalGraphRuntime {
     );
   }
 
+  async beginTaskMerge(id: string, reviewData: string): Promise<void> {
+    if (typeof id !== 'string' || !id || typeof reviewData !== 'string')
+      throw new Error('Use a review identity and its checked journal');
+    // Strings capture the exact reviewed input before waiting for API ownership.
+    const captured = JSON.parse(reviewData);
+    await this.executeChanged(
+      ({ taskMerge }) => taskMerge.begin(id, captured),
+      (copy) => ({ entity: 'working-copy', ...copy, fields: ['phase'] }),
+    );
+  }
+
   async releaseTaskReview(id: string): Promise<void> {
     if (typeof id !== 'string' || !id) throw new Error('Use a review identity');
     await this.executeChanged(

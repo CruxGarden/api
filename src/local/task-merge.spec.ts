@@ -99,6 +99,160 @@ describe('owned Task merge finalization', () => {
       [JSON.stringify(data), merge],
     );
   }
+  async function verifiedReview() {
+    await makeReview();
+    const identity = { authorId: randomUUID(), homeId: randomUUID() };
+    const heads: string[] = [];
+    for (const id of [main, copy]) {
+      const snapshot = await owner.createCrux({
+        ...identity,
+        slug: randomUUID(),
+        kind: 'snapshot',
+        meta: { contentOwnerId: id },
+      });
+      await owner.execute(({ dimension }) =>
+        dimension.create({
+          ...identity,
+          sourceId: id,
+          targetId: snapshot,
+          type: 'growth' as any,
+          weight: 1,
+        }),
+      );
+      heads.push(snapshot);
+    }
+    const data = {
+      ...JSON.parse((await state()).merge.data),
+      targetHead: heads[0],
+      sourceHead: heads[1],
+      base: {},
+      main: {},
+      task: {},
+      manifest: {},
+      conflicts: [],
+      verifiedKey: '[]',
+    };
+    await owner.run('UPDATE task_merges SET data = ? WHERE id = ?', [
+      JSON.stringify(data),
+      merge,
+    ]);
+    return data;
+  }
+  it('admits the checked review durably before file projection without changing Task state', async () => {
+    const review = await verifiedReview();
+    const before = await state();
+    await owner.beginTaskMerge(merge, JSON.stringify(review));
+    const saved = await state();
+    expect(saved.copies).toEqual(before.copies);
+    expect(saved.merge.phase).toBe('applying');
+    expect(JSON.parse(saved.merge.data)).toEqual({
+      ...review,
+      phase: 'applying',
+    });
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    expect(await state()).toEqual(saved);
+    await expect(owner.releaseTaskReview(merge)).rejects.toThrow('recover');
+    await expect(
+      owner.beginTaskMerge(merge, JSON.stringify(review)),
+    ).rejects.toThrow();
+  });
+  it('admits only one competing review for Main', async () => {
+    const review = await verifiedReview();
+    const second = { ...review, id: randomUUID() };
+    await owner.run(
+      'INSERT INTO task_merges SELECT ?, crux_id, copy_id, candidate_id, phase, ?, created FROM task_merges WHERE id = ?',
+      [second.id, JSON.stringify(second), merge],
+    );
+    const attempts = await Promise.allSettled([
+      owner.beginTaskMerge(merge, JSON.stringify(review)),
+      owner.beginTaskMerge(second.id, JSON.stringify(second)),
+    ]);
+    expect(
+      attempts.filter((attempt) => attempt.status === 'fulfilled'),
+    ).toHaveLength(1);
+    expect(
+      await owner.all("SELECT id FROM task_merges WHERE phase = 'applying'"),
+    ).toHaveLength(1);
+    expect(
+      await owner.all("SELECT id FROM task_merges WHERE phase = 'review'"),
+    ).toHaveLength(1);
+  });
+  it('refuses a stale review even if the later review is also verified', async () => {
+    const review = await verifiedReview();
+    await owner.run('UPDATE task_merges SET data = ? WHERE id = ?', [
+      JSON.stringify({ ...review, verificationLog: 'New check' }),
+      merge,
+    ]);
+    const before = await state();
+    await expect(
+      owner.beginTaskMerge(merge, JSON.stringify(review)),
+    ).rejects.toThrow();
+    expect(await state()).toEqual(before);
+  });
+  it.each([
+    'conflicts',
+    'unchecked',
+    'archived-source',
+    'archived-candidate',
+    'changed-head',
+    'deleted-head',
+  ])('refuses %s before changing the journal', async (fault) => {
+    const review = await verifiedReview();
+    if (fault === 'conflicts') review.conflicts = ['unresolved'];
+    if (fault === 'unchecked') review.verifiedKey = 'stale';
+    if (fault === 'archived-source' || fault === 'archived-candidate')
+      await owner.run(
+        "UPDATE working_copies SET phase = 'archived' WHERE id = ?",
+        [fault === 'archived-source' ? copy : candidate],
+      );
+    if (fault === 'changed-head')
+      await owner.updateCrux(main, {
+        meta: { settings: { activeBranch: result } },
+      });
+    if (fault === 'deleted-head')
+      await owner.run('UPDATE cruxes SET deleted = ? WHERE id = ?', [
+        new Date().toISOString(),
+        review.sourceHead,
+      ]);
+    await owner.run('UPDATE task_merges SET data = ? WHERE id = ?', [
+      JSON.stringify(review),
+      merge,
+    ]);
+    const before = await state();
+    await expect(
+      owner.beginTaskMerge(merge, JSON.stringify(review)),
+    ).rejects.toThrow();
+    expect(await state()).toEqual(before);
+  });
+  it.each(['ABORT', 'IGNORE'])(
+    'rolls back an admission trigger %s and permits a clean retry',
+    async (action) => {
+      const review = await verifiedReview();
+      await owner.run(
+        `CREATE TRIGGER refuse_admission BEFORE UPDATE ON task_merges WHEN NEW.phase = 'applying' BEGIN SELECT RAISE(${action}${action === 'ABORT' ? ", 'Admission refused'" : ''}); END`,
+      );
+      const before = await state();
+      await expect(
+        owner.beginTaskMerge(merge, JSON.stringify(review)),
+      ).rejects.toThrow();
+      expect(await state()).toEqual(before);
+      await owner.run('DROP TRIGGER refuse_admission');
+      await owner.beginTaskMerge(merge, JSON.stringify(review));
+      expect((await state()).merge.phase).toBe('applying');
+    },
+  );
+  it('rolls back a trigger that closes the candidate during admission', async () => {
+    const review = await verifiedReview();
+    await owner.run(
+      `CREATE TRIGGER close_candidate AFTER UPDATE ON task_merges WHEN NEW.phase = 'applying' BEGIN UPDATE working_copies SET phase = 'archived' WHERE id = NEW.candidate_id; END`,
+    );
+    const before = await state();
+    await expect(
+      owner.beginTaskMerge(merge, JSON.stringify(review)),
+    ).rejects.toThrow();
+    expect(await state()).toEqual(before);
+  });
   it('closes the legacy imported cancelled-column/review-data state without losing evidence', async () => {
     await makeReview();
     await owner.run("UPDATE task_merges SET phase = 'cancelled' WHERE id = ?", [

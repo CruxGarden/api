@@ -8,6 +8,7 @@ interface CopyRow {
   role: string;
   phase: string;
   revision: number;
+  meta: Record<string, any>;
 }
 interface MergeRow {
   id: string;
@@ -27,6 +28,57 @@ export interface MergeState {
 @Injectable()
 export class TaskMergeRepository {
   constructor(private readonly db: DbService) {}
+  async admissionContext(cruxId: string, copyId: string) {
+    try {
+      const db = this.db.query();
+      const pending = await db('task_merges')
+        .where({ crux_id: cruxId, phase: 'applying' })
+        .first('id');
+      const growths = await db('dimensions as d')
+        .join('cruxes as c', 'c.id', 'd.target_id')
+        .whereIn('d.source_id', [cruxId, copyId])
+        .where({ 'd.type': 'growth', 'c.kind': 'snapshot' })
+        .whereNull('d.deleted')
+        .whereNull('c.deleted')
+        .select('d.source_id', 'd.target_id', 'd.weight', 'c.meta');
+      return success({ pending: !!pending, growths });
+    } catch (error) {
+      return failure<{ pending: boolean; growths: any[] }>(error);
+    }
+  }
+  async begin(state: MergeState, data: Record<string, unknown>) {
+    try {
+      const db = this.db.query();
+      const merge = state.merge!;
+      const serialized = JSON.stringify(data);
+      const changed = await db('task_merges')
+        .where({ id: merge.id, phase: 'review', data: merge.data })
+        .update({ phase: 'applying', data: serialized });
+      const saved = await db('task_merges').where({ id: merge.id }).first();
+      if (
+        changed !== 1 ||
+        saved?.phase !== 'applying' ||
+        saved?.data !== serialized
+      )
+        throw new Error('The merge journal did not admit this review');
+      // Extension triggers must not close or redirect either copy as admission commits.
+      for (const copy of [state.copy!, state.candidate!]) {
+        const current = await db('working_copies')
+          .where({ id: copy.id })
+          .first();
+        if (
+          current?.phase !== 'ready' ||
+          current?.revision !== copy.revision ||
+          current?.crux_id !== merge.crux_id ||
+          current?.role !== copy.role
+        )
+          throw new Error('The Task changed during merge admission');
+      }
+      return success({ admitted: true });
+    } catch (error) {
+      return failure<{ admitted: boolean }>(error);
+    }
+  }
   async inspect(id: string, resultHead?: string) {
     try {
       const db = this.db.query();
