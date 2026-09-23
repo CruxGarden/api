@@ -268,8 +268,12 @@ export class FileContentService {
         throw new Error('Existing file content failed integrity check');
     }
     const tree = new FileManifest(store);
+    // apply verifies every introduced payload, traversed node and newly staged
+    // node. Unchanged subtrees already belong to the admitted immutable head;
+    // rescanning them here turns a one-file save into a whole-project read.
+    // Arbitrary root commits, snapshots, restore and recovery still verify
+    // complete trees; ordinary reads verify the selected file on access.
     const root = await tree.apply(before?.root ?? null, input.edits);
-    await tree.verify(root);
     return this.publish(
       { cruxId: input.cruxId, expected: input.expected, root },
       before,

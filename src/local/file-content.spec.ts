@@ -1,4 +1,7 @@
-import { inspectDesktopRecovery } from './desktop-recovery';
+import {
+  inspectDesktopRecovery,
+  inspectDesktopManifestRecovery,
+} from './desktop-recovery';
 import { createHash, randomUUID } from 'crypto';
 import {
   mkdtempSync,
@@ -150,6 +153,145 @@ describe('API file content publication', () => {
     );
     expect(await tree.entries(empty.root)).toEqual([]);
     expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
+  });
+  it('bounds a one-file save to changed content after restart in a large project', async () => {
+    const files = Array.from({ length: 2048 }, (_, i) =>
+      put(`src/file-${i}.txt`, `Distinct retained bytes ${i}`),
+    );
+    const first = await owner.editFileContent(
+      { cruxId: id, expected: null, changes: files },
+      store,
+    );
+    const snapshot = await owner.createGrowthSnapshot(
+      { cruxId: id, expected: first, snapshotId: randomUUID(), parentId: null },
+      store,
+    );
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    const read = jest.spyOn(store, 'read');
+    const edited = put(files[0].put.path, 'Changed file');
+    const next = await owner.editFileContent(
+      { cruxId: id, expected: first, changes: [edited] },
+      store,
+    );
+    const reads = read.mock.calls.map(([fp]) => fp);
+    console.info('Large-project one-file save:', {
+      files: files.length,
+      reads: reads.length,
+    });
+    expect(reads.length).toBeLessThan(40);
+    const untouched = new Set(
+      files.slice(1).map((file) => file.put.fingerprint),
+    );
+    expect(reads.some((fp) => untouched.has(fp))).toBe(false);
+    read.mockRestore();
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    const current = await owner.readFileContent(
+      { cruxId: id, expected: next, path: edited.put.path },
+      store,
+    );
+    expect(Buffer.from(current!.bytes).toString()).toBe('Changed file');
+    const retained = await owner.readFileContent(
+      {
+        cruxId: snapshot.snapshot.id,
+        expected: snapshot.head,
+        path: edited.put.path,
+      },
+      store,
+    );
+    expect(Buffer.from(retained!.bytes)).toEqual(files[0].bytes);
+    expect(await tree.entries(next.root)).toEqual(
+      [edited.put, ...files.slice(1).map((file) => file.put)].sort((a, b) =>
+        a.path < b.path ? -1 : 1,
+      ),
+    );
+    expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
+  });
+  it.each(['payload', 'manifest', 'existing node'])(
+    'refuses an unverified changed %s and preserves the prior head for retry',
+    async (failure) => {
+      const first = await owner.editFileContent(
+        { cruxId: id, expected: null, changes: [put('one', 'Original')] },
+        store,
+      );
+      const changed = put('one', 'Replacement');
+      const input = { cruxId: id, expected: first, changes: [changed] };
+      const realWrite = store.write.bind(store);
+      const realRead = store.read.bind(store);
+      const faulty: DesktopContentStore = {
+        read: async (fp) =>
+          failure === 'existing node' && fp === first.root
+            ? Buffer.from('Corrupted manifest')
+            : realRead(fp),
+        write: async (fp, bytes) => {
+          // Simulate a storage write returning success without durable bytes.
+          if (failure === 'payload' && fp === changed.put.fingerprint) return;
+          if (failure === 'manifest' && fp !== changed.put.fingerprint) return;
+          await realWrite(fp, bytes);
+        },
+      };
+      await expect(owner.editFileContent(input, faulty)).rejects.toThrow();
+      expect(await owner.fileContentHead(id)).toEqual(first);
+      await owner.close();
+      owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+      expect(await owner.fileContentHead(id)).toEqual(first);
+      const next = await owner.editFileContent(input, store);
+      expect(next.revision).toBe(2);
+      expect(
+        Buffer.from(
+          (await owner.readFileContent(
+            { cruxId: id, expected: next, path: 'one' },
+            store,
+          ))!.bytes,
+        ).toString(),
+      ).toBe('Replacement');
+    },
+  );
+
+  it('keeps complete integrity checks at reads, arbitrary root publication, snapshots and recovery', async () => {
+    const a = put('one', 'One');
+    const b = put('two', 'Two');
+    const first = await owner.editFileContent(
+      { cruxId: id, expected: null, changes: [a, b] },
+      store,
+    );
+    rmSync(join(dir, 'objects', b.put.fingerprint));
+    // An unrelated damaged payload does not make every save a full-project audit.
+    // Its entry is retained exactly; neither the edit nor recovery discards it.
+    const next = await owner.editFileContent(
+      { cruxId: id, expected: first, changes: [put('one', 'Updated')] },
+      store,
+    );
+    expect(await tree.get(next.root, 'two')).toEqual(b.put);
+    await expect(
+      owner.readFileContent({ cruxId: id, expected: next, path: 'two' }, store),
+    ).rejects.toThrow('Missing');
+    await expect(
+      owner.commitFileContent(
+        { cruxId: id, expected: next, root: next.root },
+        store,
+      ),
+    ).rejects.toThrow('Missing');
+    const snapshotId = randomUUID();
+    await expect(
+      owner.createGrowthSnapshot(
+        { cruxId: id, expected: next, snapshotId, parentId: null },
+        store,
+      ),
+    ).rejects.toThrow('Missing');
+    expect(
+      await owner.all('SELECT id FROM cruxes WHERE id = ?', [snapshotId]),
+    ).toEqual([]);
+    const image = await owner.exportDatabase();
+    await expect(inspectDesktopManifestRecovery(image, store)).rejects.toThrow(
+      'Missing',
+    );
+    await store.write(b.put.fingerprint, b.bytes);
+    await expect(
+      inspectDesktopManifestRecovery(image, store),
+    ).resolves.toBeDefined();
+    expect(await owner.fileContentHead(id)).toEqual(next);
   });
   it('refuses stale edit batches before accessing storage', async () => {
     const first = await owner.editFileContent(
