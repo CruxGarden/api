@@ -37,6 +37,8 @@ export { FileManifest } from './file-manifest';
 export type { FileEntry, FileEdit } from './file-manifest';
 export type {
   FileContentCommit,
+  FileContentEdit,
+  FileContentChange,
   FileContentRead,
   FileContentReadResult,
 } from './file-content.service';

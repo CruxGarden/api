@@ -5,6 +5,8 @@ import {
   captureFileContent,
   FileContentRead,
   captureFileContentRead,
+  FileContentEdit,
+  captureFileContentEdit,
 } from './file-content.service';
 import {
   captureWorkingCopyCreate,
@@ -351,6 +353,25 @@ export class LocalGraphRuntime {
     };
     return this.executeChanged(
       ({ fileContent }) => fileContent.commit(captured, capturedStore),
+      () => ({ entity: 'crux', id: captured.cruxId, fields: ['fileContent'] }),
+    );
+  }
+
+  /** Create/edit/rename/delete file batches through one API-owned transaction. */
+  async editFileContent(input: FileContentEdit, store: DesktopContentStore) {
+    const captured = captureFileContentEdit(input);
+    if (
+      !store ||
+      typeof store.read !== 'function' ||
+      typeof store.write !== 'function'
+    )
+      throw new Error('Use the host content store');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
+    return this.executeChanged(
+      ({ fileContent }) => fileContent.edit(captured, capturedStore),
       () => ({ entity: 'crux', id: captured.cruxId, fields: ['fileContent'] }),
     );
   }

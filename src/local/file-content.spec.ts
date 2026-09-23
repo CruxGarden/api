@@ -92,6 +92,177 @@ describe('API file content publication', () => {
     );
     expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
   });
+  function put(path: string, text: string) {
+    const bytes = Buffer.from(text);
+    return {
+      put: {
+        id: `file:${path}`,
+        path,
+        fingerprint: createHash('sha256').update(bytes).digest('hex'),
+        size: bytes.length,
+        mimeType: 'application/octet-stream',
+        encoding: 'binary',
+        mode: 0o640,
+        attributes: { label: 'Keep' },
+      },
+      bytes,
+    };
+  }
+  it('creates, edits, renames and deletes files in atomic batches without Artifact rows', async () => {
+    const a = put('one.bin', 'one\0');
+    const b = put('two.bin', 'two');
+    const first = await owner.editFileContent(
+      { cruxId: id, expected: null, changes: [a, b] },
+      store,
+    );
+    const changed = put('one.bin', 'edited');
+    const second = await owner.editFileContent(
+      {
+        cruxId: id,
+        expected: first,
+        changes: [
+          changed,
+          { remove: 'two.bin' },
+          { put: { ...b.put, path: 'renamed.bin' } },
+        ],
+      },
+      store,
+    );
+    expect(second.revision).toBe(2);
+    expect(await tree.entries(first.root)).toEqual([a.put, b.put]);
+    expect(await tree.get(second.root, 'renamed.bin')).toEqual({
+      ...b.put,
+      path: 'renamed.bin',
+    });
+    expect(await tree.get(second.root, 'two.bin')).toBeNull();
+    expect(
+      Buffer.from(
+        (await owner.readFileContent(
+          { cruxId: id, expected: second, path: 'one.bin' },
+          store,
+        ))!.bytes,
+      ).toString(),
+    ).toBe('edited');
+    const empty = await owner.editFileContent(
+      {
+        cruxId: id,
+        expected: second,
+        changes: [{ remove: 'one.bin' }, { remove: 'renamed.bin' }],
+      },
+      store,
+    );
+    expect(await tree.entries(empty.root)).toEqual([]);
+    expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
+  });
+  it('refuses stale edit batches before accessing storage', async () => {
+    const first = await owner.editFileContent(
+      { cruxId: id, expected: null, changes: [put('one', 'one')] },
+      store,
+    );
+    const read = jest.spyOn(store, 'read');
+    const write = jest.spyOn(store, 'write');
+    await expect(
+      owner.editFileContent(
+        { cruxId: id, expected: null, changes: [put('two', 'two')] },
+        store,
+      ),
+    ).rejects.toThrow('File content changed');
+    expect(read).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(await owner.fileContentHead(id)).toEqual(first);
+  });
+  it('retains the prior head after failed file staging and supports a retry', async () => {
+    const first = await owner.editFileContent(
+      { cruxId: id, expected: null, changes: [put('one', 'one')] },
+      store,
+    );
+    const write = jest
+      .spyOn(store, 'write')
+      .mockRejectedValueOnce(new Error('Disk full'));
+    const input = {
+      cruxId: id,
+      expected: first,
+      changes: [put('one', 'replacement')],
+    };
+    await expect(owner.editFileContent(input, store)).rejects.toThrow(
+      'Disk full',
+    );
+    expect(await owner.fileContentHead(id)).toEqual(first);
+    write.mockRestore();
+    expect((await owner.editFileContent(input, store)).revision).toBe(2);
+  });
+  it('retains staged bytes across failed SQL publication, restart and retry', async () => {
+    const first = await owner.editFileContent(
+      { cruxId: id, expected: null, changes: [put('one', 'one')] },
+      store,
+    );
+    await owner.run(
+      "CREATE TRIGGER refuse_edit BEFORE UPDATE ON file_content_heads BEGIN SELECT RAISE(ABORT, 'Refused edit'); END",
+    );
+    const input = {
+      cruxId: id,
+      expected: first,
+      changes: [put('one', 'replacement')],
+    };
+    await expect(owner.editFileContent(input, store)).rejects.toThrow(
+      'Refused edit',
+    );
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    expect(await owner.fileContentHead(id)).toEqual(first);
+    expect(await store.read(input.changes[0].put.fingerprint)).toEqual(
+      input.changes[0].bytes,
+    );
+    await owner.run('DROP TRIGGER refuse_edit');
+    expect((await owner.editFileContent(input, store)).revision).toBe(2);
+  });
+  it('captures queued bytes, metadata and paths and refuses malformed batches before storage', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const prior = owner.execute(async () => {
+      await gate;
+    });
+    const file = put('one', 'one');
+    const pending = owner.editFileContent(
+      { cruxId: id, expected: null, changes: [file] },
+      store,
+    );
+    file.bytes.fill(0);
+    file.put.path = 'wrong';
+    file.put.attributes.label = 'wrong';
+    release();
+    await prior;
+    const head = await pending;
+    const selected = await owner.readFileContent(
+      { cruxId: id, expected: head, path: 'one' },
+      store,
+    );
+    expect(Buffer.from(selected!.bytes).toString()).toBe('one');
+    expect(selected!.entry.attributes.label).toBe('Keep');
+    const read = jest.spyOn(store, 'read');
+    const bad = put('two', 'two');
+    bad.bytes.fill(0);
+    await expect(
+      owner.editFileContent(
+        { cruxId: id, expected: head, changes: [bad] },
+        store,
+      ),
+    ).rejects.toThrow('bytes');
+    await expect(
+      owner.editFileContent(
+        {
+          cruxId: id,
+          expected: head,
+          changes: [put('same', 'a'), put('same', 'b')],
+        },
+        store,
+      ),
+    ).rejects.toThrow('Duplicate');
+    expect(read).not.toHaveBeenCalled();
+  });
+
   it('reads exact verified file bytes through a version-bound API reference after restart', async () => {
     const head = await owner.commitFileContent(
       { cruxId: id, expected: null, root: await root('binary\0content') },

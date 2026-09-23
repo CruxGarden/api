@@ -113,6 +113,27 @@ function size(node: Node) {
     : node.children.reduce((n, child) => n + child.count, 0);
 }
 
+export function captureFileEdits(edits: FileEdit[]): FileEdit[] {
+  // Validation/encoding happen before the first await; callers cannot redirect queued edits.
+  if (!Array.isArray(edits)) return fail('Invalid manifest edits');
+  const captured = JSON.parse(canonical(edits)) as FileEdit[];
+  const paths = new Set<string>();
+  for (const edit of captured) {
+    if (!plain(edit)) return fail('Invalid manifest edit');
+    if ('put' in edit) {
+      keys(edit, ['put']);
+      validateEntry(edit.put);
+    } else {
+      keys(edit, ['remove']);
+      validPath(edit.remove);
+    }
+    const path = 'put' in edit ? edit.put.path : edit.remove;
+    if (paths.has(path)) return fail('Duplicate manifest edit path');
+    paths.add(path);
+  }
+  return captured;
+}
+
 /** Isolated format kernel (ADR 0059). No graph commit, migration or garbage collection. */
 export class FileManifest {
   constructor(private readonly store: DesktopContentStore) {}
@@ -278,23 +299,7 @@ export class FileManifest {
   }
 
   async apply(root: string | null, edits: FileEdit[]): Promise<string> {
-    // Validation/encoding happen before the first await; callers cannot redirect queued edits.
-    if (!Array.isArray(edits)) return fail('Invalid manifest edits');
-    const captured = JSON.parse(canonical(edits)) as FileEdit[];
-    const paths = new Set<string>();
-    for (const edit of captured) {
-      if (!plain(edit)) return fail('Invalid manifest edit');
-      if ('put' in edit) {
-        keys(edit, ['put']);
-        validateEntry(edit.put);
-      } else {
-        keys(edit, ['remove']);
-        validPath(edit.remove);
-      }
-      const path = 'put' in edit ? edit.put.path : edit.remove;
-      if (paths.has(path)) return fail('Duplicate manifest edit path');
-      paths.add(path);
-    }
+    const captured = captureFileEdits(edits);
     for (const edit of captured)
       if ('put' in edit) {
         const bytes = await this.bytes(edit.put.fingerprint);
