@@ -28,3 +28,9 @@ export type {
   LocalWorkingCopyCreate,
   PrepareWorkingCopyFolder,
 } from './working-copy-create';
+
+// Host-side file-content primitives; no renderer transport or normal-profile adoption.
+export { FileManifest } from './file-manifest';
+export type { FileEntry, FileEdit } from './file-manifest';
+export type { FileContentCommit } from './file-content.service';
+export type { FileContentHead } from './file-content.repository';

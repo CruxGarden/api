@@ -97,6 +97,13 @@ export function desktopRecoveryFingerprints(db: any): string[] {
       .all()
       .map((row: { name: string }) => row.name),
   );
+  // This legacy scanner cannot enumerate transitive manifest objects/files.
+  // Refuse rather than return a successful, incomplete archive inventory.
+  if (
+    tables.has('file_content_heads') &&
+    db.prepare('SELECT 1 FROM file_content_heads LIMIT 1').get()
+  )
+    throw new Error('File content requires manifest-aware recovery');
   const references: { fingerprint: string }[] = db
     .prepare(desktopReferenceSql(tables))
     .all();

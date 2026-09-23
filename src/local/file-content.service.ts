@@ -1,0 +1,109 @@
+import {
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
+import { RepositoryResponse } from '../common/types/interfaces';
+import { DesktopContentStore } from './desktop-content';
+import { FileManifest } from './file-manifest';
+import {
+  FileContentHead,
+  FileContentRepository,
+} from './file-content.repository';
+
+export interface FileContentCommit {
+  cruxId: string;
+  expected: { root: string; revision: number } | null;
+  root: string;
+}
+const fingerprint = (value: unknown): value is string =>
+  typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+export function captureFileContent(
+  input: FileContentCommit,
+): FileContentCommit {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    throw new Error('Use a file content commit');
+  const { cruxId, root, expected } = input;
+  if (
+    typeof cruxId !== 'string' ||
+    !cruxId ||
+    !fingerprint(root) ||
+    (expected !== null &&
+      (!expected ||
+        !fingerprint(expected.root) ||
+        !Number.isSafeInteger(expected.revision) ||
+        expected.revision < 1 ||
+        expected.revision >= Number.MAX_SAFE_INTEGER))
+  )
+    throw new Error('Use a Crux identity, content root and expected revision');
+  return {
+    cruxId,
+    root,
+    expected:
+      expected === null
+        ? null
+        : { root: expected.root, revision: expected.revision },
+  };
+}
+
+/** Called only inside the local API owner's transaction. No renderer/remote transport yet. */
+@Injectable()
+export class FileContentService {
+  constructor(private readonly repository: FileContentRepository) {}
+  private unwrap<T>(result: RepositoryResponse<T>): T {
+    if (result.error)
+      throw new InternalServerErrorException(result.error.message);
+    return result.data!;
+  }
+  async head(id: string): Promise<FileContentHead | null> {
+    const context = this.unwrap(await this.repository.context(id));
+    if (!context.crux) throw new ConflictException('Crux not found');
+    return context.head;
+  }
+  async commit(
+    input: FileContentCommit,
+    store: DesktopContentStore,
+  ): Promise<FileContentHead> {
+    const context = this.unwrap(await this.repository.context(input.cruxId));
+    if (
+      !context.crux ||
+      context.crux.deleted !== null ||
+      context.crux.kind === 'snapshot'
+    )
+      throw new ConflictException('File content requires a live editable Crux');
+    if (context.legacy || context.task || context.review || context.history)
+      throw new ConflictException(
+        'Existing files, Tasks and Growth require explicit content migration',
+      );
+    const before = context.head as FileContentHead | null;
+    if (
+      before &&
+      (before.formatVersion !== 1 ||
+        !fingerprint(before.root) ||
+        !Number.isSafeInteger(before.revision) ||
+        before.revision < 1 ||
+        before.revision >= Number.MAX_SAFE_INTEGER)
+    )
+      throw new ConflictException('Invalid stored file content head');
+    if (
+      (before === null) !== (input.expected === null) ||
+      (before &&
+        (before.root !== input.expected!.root ||
+          before.revision !== input.expected!.revision))
+    )
+      throw new ConflictException('File content changed; reload before saving');
+    await new FileManifest(store).verify(input.root);
+    if (before?.root === input.root) return before;
+    return this.unwrap(
+      await this.repository.publish(
+        {
+          cruxId: input.cruxId,
+          formatVersion: 1,
+          root: input.root,
+          revision: (before?.revision ?? 0) + 1,
+        },
+        before,
+      ),
+    );
+  }
+}

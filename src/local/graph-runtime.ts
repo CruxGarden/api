@@ -1,3 +1,9 @@
+import { FileContentRepository } from './file-content.repository';
+import {
+  FileContentService,
+  FileContentCommit,
+  captureFileContent,
+} from './file-content.service';
 import {
   captureWorkingCopyCreate,
   LocalWorkingCopyCreate,
@@ -76,6 +82,8 @@ class LocalGraphModule {
         CruxLifecycleService,
         TaskMergeRepository,
         TaskMergeService,
+        FileContentRepository,
+        FileContentService,
       ],
     };
   }
@@ -88,6 +96,7 @@ export interface GraphOperations {
   workingCopy: WorkingCopyService;
   lifecycle: CruxLifecycleService;
   taskMerge: TaskMergeService;
+  fileContent: FileContentService;
 }
 
 /** Ephemeral invalidation for named commands, never a content payload or durable log.
@@ -152,6 +161,7 @@ export class LocalGraphRuntime {
       workingCopy: context.get(WorkingCopyService),
       lifecycle: context.get(CruxLifecycleService),
       taskMerge: context.get(TaskMergeService),
+      fileContent: context.get(FileContentService),
     });
   }
 
@@ -319,6 +329,34 @@ export class LocalGraphRuntime {
       this.notify(change(result));
       return result;
     });
+  }
+
+  /** Internal staged-content admission. No normal schema or renderer adoption yet. */
+  async commitFileContent(
+    input: FileContentCommit,
+    store: DesktopContentStore,
+  ) {
+    const captured = captureFileContent(input);
+    if (
+      !store ||
+      typeof store.read !== 'function' ||
+      typeof store.write !== 'function'
+    )
+      throw new Error('Use the host content store');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
+    return this.executeChanged(
+      ({ fileContent }) => fileContent.commit(captured, capturedStore),
+      () => ({ entity: 'crux', id: captured.cruxId, fields: ['fileContent'] }),
+    );
+  }
+
+  fileContentHead(id: string) {
+    if (typeof id !== 'string' || !id)
+      return Promise.reject(new Error('Use a Crux identity'));
+    return this.execute(({ fileContent }) => fileContent.head(id));
   }
 
   /** Capture a complete detail patch, then read/merge/write in one transaction. */
