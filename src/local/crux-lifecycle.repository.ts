@@ -26,6 +26,18 @@ const historyReferences = [
 export class CruxLifecycleRepository {
   constructor(private readonly db: DbService) {}
 
+  async freeSlug(wanted: string) {
+    try {
+      let slug = wanted;
+      let suffix = 2;
+      while (await this.db.query()('cruxes').where({ slug }).first('id'))
+        slug = `${wanted}-${suffix++}`;
+      return success({ slug });
+    } catch (error) {
+      return failure<{ slug: string }>(error);
+    }
+  }
+
   async inspect(id: string) {
     try {
       const copy = await this.db

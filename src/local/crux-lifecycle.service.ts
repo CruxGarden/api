@@ -1,3 +1,7 @@
+import { randomUUID } from 'crypto';
+import { CruxGraphService } from '../crux/crux-graph.service';
+import { CreateCruxDto } from '../crux/dto/create-crux.dto';
+import { LocalCruxCreate, PrepareCruxFolder } from './crux-create';
 import {
   ConflictException,
   Injectable,
@@ -9,11 +13,48 @@ import { RepositoryResponse } from '../common/types/interfaces';
 /** Named local lifecycle operations. The host still owns transient workspace admission. */
 @Injectable()
 export class CruxLifecycleService {
-  constructor(private readonly repository: CruxLifecycleRepository) {}
+  constructor(
+    private readonly repository: CruxLifecycleRepository,
+    private readonly crux: CruxGraphService,
+  ) {}
   private unwrap<T>(result: RepositoryResponse<T>): T {
     if (result.error)
       throw new InternalServerErrorException(result.error.message);
     return result.data!;
+  }
+  async create(
+    input: LocalCruxCreate,
+    prepareFolder?: PrepareCruxFolder,
+  ): Promise<string> {
+    const id = input.id ?? randomUUID();
+    const state = this.unwrap(await this.repository.inspect(id));
+    if (state.copy || state.crux)
+      throw new ConflictException('A Crux with this identity already exists');
+    const { slug } = this.unwrap(await this.repository.freeSlug(input.slug));
+    let meta = input.meta ?? {};
+    if (
+      prepareFolder &&
+      input.type === 'workspace' &&
+      input.kind !== 'snapshot' &&
+      !meta.projectFolder
+    ) {
+      const folder = await prepareFolder(slug);
+      if (typeof folder !== 'string' || !folder.trim())
+        throw new Error('Project Folder preparation failed');
+      meta = { ...meta, projectFolder: folder };
+    }
+    const created = await this.crux.create({
+      ...input,
+      id,
+      slug,
+      title: input.title ?? '',
+      description: input.description ?? '',
+      data: input.data ?? '',
+      type: input.type || 'crux',
+      meta,
+    } as CreateCruxDto);
+    if (created.id !== id) throw new Error('Crux creation did not persist');
+    return id;
   }
   async setTrashed(id: string, trashed: boolean): Promise<void> {
     const state = this.unwrap(await this.repository.inspect(id));

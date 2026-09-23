@@ -1,3 +1,8 @@
+import {
+  captureCruxCreate,
+  LocalCruxCreate,
+  PrepareCruxFolder,
+} from './crux-create';
 import { CruxLifecycleRepository } from './crux-lifecycle.repository';
 import { CruxLifecycleService } from './crux-lifecycle.service';
 import { WorkingCopyRepository } from './working-copy.repository';
@@ -86,7 +91,7 @@ export interface LocalGraphChange {
     | 'garden-membership'
     | 'database'
     | 'crux-lifecycle';
-  readonly operation?: 'purge' | 'trash' | 'restore';
+  readonly operation?: 'create' | 'purge' | 'trash' | 'restore';
   readonly id?: string;
   readonly cruxId?: string;
   readonly fields?: readonly string[];
@@ -365,6 +370,17 @@ export class LocalGraphRuntime {
         fields: Object.keys(captured),
         metaKeys: Object.keys(captured.meta!),
       }),
+    );
+  }
+
+  async createCrux(
+    input: LocalCruxCreate,
+    prepareFolder?: PrepareCruxFolder,
+  ): Promise<string> {
+    const captured = captureCruxCreate(input);
+    return this.executeChanged(
+      ({ lifecycle }) => lifecycle.create(captured, prepareFolder),
+      (id) => ({ entity: 'crux-lifecycle', operation: 'create', id }),
     );
   }
 
