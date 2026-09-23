@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../common/services/db.service';
 import { success, failure } from '../common/helpers/repository-helpers';
+import { randomUUID } from 'crypto';
+import { LocalWorkingCopyCreate } from './working-copy-create';
 
 interface WorkingCopyRow {
   id: string;
@@ -15,6 +17,89 @@ interface WorkingCopyRow {
 @Injectable()
 export class WorkingCopyRepository {
   constructor(private readonly db: DbService) {}
+
+  async creationContext(input: LocalWorkingCopyCreate) {
+    try {
+      const db = this.db.query();
+      const collision =
+        !!(await db('working_copies').where({ id: input.id }).first('id')) ||
+        !!(await db('cruxes').where({ id: input.id }).first('id'));
+      const base = await db('cruxes')
+        .where({ id: input.baseSnapshotId, kind: 'snapshot' })
+        .whereNull('deleted')
+        .first();
+      const linked = !!(await db('dimensions')
+        .where({
+          source_id: input.cruxId,
+          target_id: input.baseSnapshotId,
+          type: 'growth',
+        })
+        .whereNull('deleted')
+        .first('id'));
+      const pending = !!(await db('task_merges')
+        .where({ crux_id: input.cruxId, phase: 'applying' })
+        .first('id'));
+      return success({ collision, base, linked, pending });
+    } catch (error) {
+      return failure<{
+        collision: boolean;
+        base: any;
+        linked: boolean;
+        pending: boolean;
+      }>(error);
+    }
+  }
+
+  async create(input: LocalWorkingCopyCreate) {
+    try {
+      const db = this.db.query();
+      const now = new Date();
+      const record = {
+        id: input.id,
+        crux_id: input.cruxId,
+        task_id: input.taskId,
+        title: input.title,
+        base_snapshot_id: input.baseSnapshotId,
+        role: input.role,
+        phase: 'preparing',
+        meta: input.meta,
+        project_folder: null,
+        revision: 0,
+        created: now,
+        updated: now,
+      };
+      await db('working_copies').insert(record);
+      // Preview data is a private independent copy, including every visitor slot
+      // and unknown extension column. It never aliases the live Crux's Store.
+      const original = await db('store')
+        .where({ crux_id: input.cruxId })
+        .orderBy('id');
+      const clones = original.map((row) => ({
+        ...row,
+        id: randomUUID(),
+        crux_id: input.id,
+      }));
+      for (const row of clones) await db('store').insert(row);
+      const saved = await db('working_copies').where({ id: input.id }).first();
+      for (const [field, expected] of Object.entries(record))
+        if (JSON.stringify(saved?.[field]) !== JSON.stringify(expected))
+          throw new Error('Task preparation did not persist');
+      const copied = await db('store')
+        .where({ crux_id: input.id })
+        .orderBy('id');
+      const sorted = clones.sort((a, b) => a.id.localeCompare(b.id));
+      if (
+        JSON.stringify(copied) !== JSON.stringify(sorted) ||
+        JSON.stringify(
+          await db('store').where({ crux_id: input.cruxId }).orderBy('id'),
+        ) !== JSON.stringify(original)
+      )
+        throw new Error('Task preview data did not copy completely');
+      return success({ created: true });
+    } catch (error) {
+      return failure<{ created: boolean }>(error);
+    }
+  }
 
   async find(id: string) {
     try {

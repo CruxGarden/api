@@ -23,3 +23,5 @@ export type { UpdateDimensionDto } from '../dimension/dto/update-dimension.dto';
 export type { LocalCruxUpdate } from './crux-update';
 
 export type { LocalCruxCreate, PrepareCruxFolder } from './crux-create';
+
+export type { LocalWorkingCopyCreate } from './working-copy-create';

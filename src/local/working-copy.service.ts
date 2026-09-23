@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { CruxGraphService } from '../crux/crux-graph.service';
 import { WorkingCopyRepository } from './working-copy.repository';
+import { LocalWorkingCopyCreate } from './working-copy-create';
 
 /** Called inside the API owner's transaction with captured, validated input.
  * Content preparation, transient workspace admission and merge policy stay separate. */
@@ -15,6 +16,34 @@ export class WorkingCopyService {
     private readonly copies: WorkingCopyRepository,
     private readonly crux: CruxGraphService,
   ) {}
+
+  async create(input: LocalWorkingCopyCreate): Promise<void> {
+    const parent = await this.crux.findById(input.cruxId);
+    if ((parent.kind as string) === 'snapshot')
+      throw new ConflictException('Start new Tasks from Main, not a snapshot.');
+    const inspected = await this.copies.creationContext(input);
+    if (inspected.error)
+      throw new InternalServerErrorException(inspected.error.message);
+    const { collision, base, linked, pending } = inspected.data!;
+    if (collision)
+      throw new ConflictException('This Task identity already exists.');
+    if (
+      !base ||
+      !linked ||
+      (base.meta?.contentOwnerId !== undefined &&
+        base.meta.contentOwnerId !== input.cruxId)
+    )
+      throw new ConflictException(
+        'The Task base must belong to Main’s preserved Growth.',
+      );
+    if (pending)
+      throw new ConflictException(
+        'Finish recovering Main’s merge before starting a Task.',
+      );
+    const saved = await this.copies.create(input);
+    if (saved.error)
+      throw new InternalServerErrorException(saved.error.message);
+  }
 
   async setArchived(
     id: string,

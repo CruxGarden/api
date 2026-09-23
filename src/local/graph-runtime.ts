@@ -1,3 +1,7 @@
+import {
+  captureWorkingCopyCreate,
+  LocalWorkingCopyCreate,
+} from './working-copy-create';
 import { TaskMergeRepository } from './task-merge.repository';
 import { TaskMergeService } from './task-merge.service';
 import {
@@ -375,6 +379,19 @@ export class LocalGraphRuntime {
         cruxId,
         fields: Object.keys(captured),
         metaKeys: Object.keys(captured.meta!),
+      }),
+    );
+  }
+
+  async createWorkingCopy(input: LocalWorkingCopyCreate): Promise<void> {
+    const captured = captureWorkingCopyCreate(input);
+    await this.executeChanged(
+      ({ workingCopy }) => workingCopy.create(captured),
+      () => ({
+        entity: 'working-copy',
+        id: captured.id,
+        cruxId: captured.cruxId,
+        fields: ['phase'],
       }),
     );
   }
