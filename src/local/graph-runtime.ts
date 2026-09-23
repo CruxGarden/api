@@ -15,6 +15,7 @@ import {
 import { randomUUID } from 'crypto';
 import { inspectDesktopRecovery } from './desktop-recovery';
 import { inspectDesktopFile } from './desktop-schema';
+import { checkpointDesktopMigration } from './startup-recovery';
 import { migrateDesktopDatabase } from './desktop-migration';
 import { bootstrapDesktopDatabase } from './desktop-bootstrap';
 import { AsyncLocalStorage } from 'async_hooks';
@@ -146,6 +147,7 @@ export class LocalGraphRuntime {
           await file.close();
         }
       }
+      if (!create) checkpointDesktopMigration(canonical);
       const context = await this.openContext(canonical, create);
       return new LocalGraphRuntime(context, ownershipKeys, canonical);
     } catch (error) {

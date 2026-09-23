@@ -175,3 +175,25 @@ export function inspectDesktopFile(filename: string): void {
     db.close();
   }
 }
+
+/** Whether normalization will add known schema or advance the legacy marker. */
+export function needsDesktopMigration(db: any): boolean {
+  if (inspectDesktopSchema(db) !== 4) return true;
+  for (const [table, columns] of expectedColumns()) {
+    const actual = new Set(
+      db
+        .prepare('SELECT name FROM pragma_table_info(?)')
+        .all(table)
+        .map((row: { name: string }) => row.name),
+    );
+    if (columns.some((column) => !actual.has(column.name))) return true;
+  }
+  return namedIndexes.some(
+    ({ name }) =>
+      !db
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+        )
+        .get(name),
+  );
+}

@@ -11,7 +11,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { LocalGraphRuntime } from './graph-runtime';
 import { inspectDesktopRecovery } from './desktop-recovery';
-import * as sqliteGraph from '../common/database/sqlite-graph';
+import * as migration from './desktop-migration';
 import { DbService } from '../common/services/db.service';
 
 const Database = require('better-sqlite3');
@@ -105,15 +105,15 @@ describe('API-owned database replacement', () => {
   it('keeps ownership of the new inode while its API context is still starting', async () => {
     const entered = signal();
     const release = signal();
-    const prepare = sqliteGraph.prepareDesktopGraph;
+    const migrate = migration.migrateDesktopDatabase;
     jest
-      .spyOn(sqliteGraph, 'prepareDesktopGraph')
+      .spyOn(migration, 'migrateDesktopDatabase')
       .mockImplementation(async (db) => {
         if (db.client.config.connection.filename === filename) {
           entered.resolve();
           await release.promise;
         }
-        return prepare(db);
+        return migrate(db);
       });
     const replacing = owner.replaceDatabase(incoming);
     await entered.promise;
@@ -138,13 +138,13 @@ describe('API-owned database replacement', () => {
   });
 
   it('retains recovery bytes and refuses all owners when automatic rollback also fails', async () => {
-    const prepare = sqliteGraph.prepareDesktopGraph;
+    const migrate = migration.migrateDesktopDatabase;
     jest
-      .spyOn(sqliteGraph, 'prepareDesktopGraph')
+      .spyOn(migration, 'migrateDesktopDatabase')
       .mockImplementation(async (db) => {
         if (db.client.config.connection.filename === filename)
           throw new Error('Injected startup failure');
-        return prepare(db);
+        return migrate(db);
       });
     const rename = fs.renameSync;
     jest.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
