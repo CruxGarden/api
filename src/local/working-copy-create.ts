@@ -11,6 +11,7 @@ export interface LocalWorkingCopyCreate {
   taskId: string;
   title: string;
   base: {
+    sourceId?: string;
     expected: FileContentSelection['expected'];
     expectedMeta: Record<string, unknown>;
   };
@@ -39,8 +40,13 @@ export function captureWorkingCopyCreate(
   const meta = captureCruxUpdate({ meta: input.meta }).meta!;
   delete meta.projectFolder;
   delete meta.workingCopy;
+  if (
+    input.base?.sourceId !== undefined &&
+    (typeof input.base.sourceId !== 'string' || !input.base.sourceId.trim())
+  )
+    throw new Error('Use a source workspace identity');
   const expected = captureFileContentSelection({
-    cruxId: input.cruxId,
+    cruxId: input.base?.sourceId ?? input.cruxId,
     expected: input.base?.expected,
   }).expected;
   if (!expected || !input.base?.expectedMeta)
@@ -50,7 +56,11 @@ export function captureWorkingCopyCreate(
   }).meta!;
   return {
     ...input,
-    base: { expected, expectedMeta },
+    base: {
+      ...(input.base.sourceId ? { sourceId: input.base.sourceId } : {}),
+      expected,
+      expectedMeta,
+    },
     title: input.title.trim(),
     meta,
   };

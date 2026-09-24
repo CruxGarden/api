@@ -110,6 +110,19 @@ describe('owned Task merge finalization', () => {
     await owner.close();
     rmSync(dir, { recursive: true, force: true });
   });
+  it('refuses a Main merge for work whose retained source is another Task', async () => {
+    const before = await state();
+    const row = before.copies.find((item: any) => item.id === copy) as any;
+    await owner.run('UPDATE working_copies SET base_state = ? WHERE id = ?', [
+      JSON.stringify({ ...JSON.parse(row.base_state), sourceId: randomUUID() }),
+      copy,
+    ]);
+    const unchanged = await state();
+    await expect(owner.completeTaskMerge(merge, store)).rejects.toThrow(
+      'source Task',
+    );
+    expect(await state()).toEqual(unchanged);
+  });
   async function makeReview() {
     const current = await state();
     const data = {

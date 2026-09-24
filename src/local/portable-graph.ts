@@ -1,4 +1,5 @@
-import { editHistorySchema, retainedWorkspaceSchema } from './edit-history';
+import { workingCopyBaseSchema } from './working-copy-base';
+import { editHistorySchema } from './edit-history';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'util';
 import type { SelectedGraphCapture } from './selected-graph.service';
@@ -27,7 +28,7 @@ const boundary = z
 export const privateGraphSchema = z
   .object({
     purpose: z.literal('private-backup'),
-    graphVersion: z.literal(2),
+    graphVersion: z.literal(3),
     payloadVersion: z.literal(1),
     selection: z
       .object({ roots: z.array(id).min(1), includeMembers: z.boolean() })
@@ -72,7 +73,7 @@ export const privateGraphSchema = z
           cruxId: id,
           taskId: id,
           title: text,
-          baseState: retainedWorkspaceSchema,
+          baseState: workingCopyBaseSchema,
           role: z.enum(['task', 'review']),
           phase: z.enum(['preparing', 'ready', 'merged', 'archived', 'failed']),
           meta,
@@ -178,7 +179,7 @@ export function projectPrivateGraph(
 ): PrivateGraph {
   return privateGraphSchema.parse({
     purpose: 'private-backup',
-    graphVersion: 2,
+    graphVersion: 3,
     payloadVersion: 1,
     selection: capture.selection,
     cruxes: capture.cruxes.map((row) => ({

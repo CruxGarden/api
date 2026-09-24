@@ -89,6 +89,68 @@ describe('owned Task preparation and preview data', () => {
     await owner.close();
     rmSync(dir, { recursive: true, force: true });
   });
+  it('copies the source Task preview slots independently instead of Main, with rollback and retry', async () => {
+    await owner.createWorkingCopy(input, store);
+    await owner.run("UPDATE working_copies SET phase = 'ready' WHERE id = ?", [
+      input.id,
+    ]);
+    await owner.run(
+      'UPDATE store SET value = ?, extension = ? WHERE crux_id = ?',
+      ['{"from":"task"}', 'task-extension', input.id],
+    );
+    const taskRows = await owner.all<any>(
+      'SELECT * FROM store WHERE crux_id = ? ORDER BY id',
+      [input.id],
+    );
+    const mainRows = await sourceRows();
+    const child = {
+      ...input,
+      id: randomUUID(),
+      taskId: randomUUID(),
+      base: {
+        sourceId: input.id,
+        expected: await owner.fileContentHead(input.id),
+        expectedMeta: JSON.parse(
+          (
+            await owner.get<any>(
+              'SELECT meta FROM working_copies WHERE id = ?',
+              [input.id],
+            )
+          ).meta,
+        ),
+      },
+    };
+    await owner.run(
+      'CREATE TRIGGER refuse_source_slot BEFORE INSERT ON store WHEN NEW.visitor_id IS NOT NULL BEGIN SELECT RAISE(IGNORE); END',
+    );
+    await expect(owner.createWorkingCopy(child, store)).rejects.toThrow();
+    expect(
+      await owner.all('SELECT id FROM store WHERE crux_id = ?', [child.id]),
+    ).toEqual([]);
+    expect(
+      await owner.get('SELECT id FROM working_copies WHERE id = ?', [child.id]),
+    ).toBeUndefined();
+    await owner.run('DROP TRIGGER refuse_source_slot');
+    await owner.createWorkingCopy(child, store);
+    const copied = await owner.all<any>(
+      'SELECT * FROM store WHERE crux_id = ? ORDER BY visitor_id',
+      [child.id],
+    );
+    expect(copied).toHaveLength(taskRows.length);
+    for (const row of copied) {
+      const source = taskRows.find(
+        (item) => item.visitor_id === row.visitor_id,
+      )!;
+      expect(row).toEqual({ ...source, id: row.id, crux_id: child.id });
+      expect(row.id).not.toBe(source.id);
+    }
+    expect(await sourceRows()).toEqual(mainRows);
+    expect(
+      await owner.all('SELECT * FROM store WHERE crux_id = ? ORDER BY id', [
+        input.id,
+      ]),
+    ).toEqual(taskRows);
+  });
   it('registers a prepared folder then completes setup across restart without touching preview slots', async () => {
     await owner.createWorkingCopy(input, store);
     const preview = await owner.all('SELECT * FROM store ORDER BY id');

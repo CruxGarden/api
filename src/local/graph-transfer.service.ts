@@ -1,3 +1,8 @@
+import {
+  copySourceChain,
+  copyParentOwner,
+  CopySource,
+} from './working-copy-base';
 import { retainedWorkspaceSchema, editWorkspaceSchema } from './edit-history';
 import {
   GardenMembershipService,
@@ -70,6 +75,11 @@ function checkReferences(graph: PrivateGraph) {
     'edit history owner',
   );
   unique(graph.fingerprints, 'content fingerprint');
+  const sourceCopies = new Map(
+    graph.workingCopies.map((copy) => [copy.id, copy]),
+  ) as unknown as ReadonlyMap<string, CopySource>;
+  for (const copy of graph.workingCopies)
+    copySourceChain(copy.id, sourceCopies);
   const requireRef = (value: unknown, available = owners) => {
     if (typeof value !== 'string' || !available.has(value))
       throw new Error('Private graph has a missing or foreign typed reference');
@@ -89,11 +99,7 @@ function checkReferences(graph: PrivateGraph) {
     for (const checkpoint of row.checkpoints) {
       const parentId = checkpoint.workspace?.parentId;
       if (!parentId) continue;
-      const copy = graph.workingCopies.find((item) => item.id === row.cruxId);
-      const parentOwner =
-        copy?.baseState.workspace.parentId === parentId
-          ? copy.cruxId
-          : row.cruxId;
+      const parentOwner = copyParentOwner(row.cruxId, parentId, sourceCopies);
       const parent = graph.cruxes.find((item) => item.id === parentId);
       if (
         !parent ||
@@ -160,11 +166,11 @@ function checkReferences(graph: PrivateGraph) {
     const branch = meta.settings?.activeBranch;
     if (branch != null) {
       const snapshot = graph.cruxes.find((node) => node.id === branch);
-      const copy = graph.workingCopies.find((node) => node.id === row.id);
-      const contentOwner =
-        copy?.baseState.workspace.parentId === branch
-          ? copy.cruxId
-          : (meta.contentOwnerId ?? row.id);
+      const contentOwner = copyParentOwner(
+        meta.contentOwnerId ?? row.id,
+        branch,
+        sourceCopies,
+      );
       if (
         snapshot?.kind !== 'snapshot' ||
         snapshot.meta.contentOwnerId !== contentOwner
@@ -198,15 +204,19 @@ function checkReferences(graph: PrivateGraph) {
   }
   for (const copy of graph.workingCopies) {
     const { parentId, messages } = copy.baseState.workspace;
+    if (copy.baseState.sourceId) requireRef(copy.baseState.sourceId);
+    const parentOwner = parentId
+      ? copyParentOwner(copy.id, parentId, sourceCopies)
+      : null;
     if (parentId) {
       const parent = graph.cruxes.find((row) => row.id === parentId);
       if (
         parent?.kind !== 'snapshot' ||
-        parent.meta.contentOwnerId !== copy.cruxId ||
+        parent.meta.contentOwnerId !== parentOwner ||
         !graph.dimensions.some(
           (edge) =>
             edge.type === 'growth' &&
-            edge.sourceId === copy.cruxId &&
+            edge.sourceId === parentOwner &&
             edge.targetId === parentId,
         )
       )
@@ -392,6 +402,9 @@ export class GraphTransferService {
       taskId: remap(row.taskId),
       baseState: JSON.stringify({
         ...row.baseState,
+        ...(row.baseState.sourceId
+          ? { sourceId: remap(row.baseState.sourceId) }
+          : {}),
         workspace: {
           ...row.baseState.workspace,
           parentId: row.baseState.workspace.parentId

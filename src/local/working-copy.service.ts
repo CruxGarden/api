@@ -5,13 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CruxGraphService } from '../crux/crux-graph.service';
-import {
-  WorkspaceStateService,
-  RetainedWorkspaceState,
-} from './workspace-state.service';
+import { WorkspaceStateService } from './workspace-state.service';
 import { DesktopContentStore } from './desktop-content';
 import { FileManifest } from './file-manifest';
-import { retainedWorkspaceSchema } from './edit-history';
+import { WorkingCopyBase, workingCopyBaseSchema } from './working-copy-base';
 import { WorkingCopyRepository } from './working-copy.repository';
 import {
   LocalWorkingCopyCreate,
@@ -100,11 +97,32 @@ export class WorkingCopyService {
       throw new ConflictException(
         'Finish recovering Main’s merge before starting a Task.',
       );
-    const base = await this.workspace.read(
-      { cruxId: input.cruxId, expected: input.base.expected },
+    const sourceId = input.base.sourceId ?? input.cruxId;
+    if (sourceId !== input.cruxId) {
+      const found = await this.copies.find(sourceId);
+      if (found.error)
+        throw new InternalServerErrorException(found.error.message);
+      const source = found.data;
+      if (
+        !source ||
+        source.crux_id !== input.cruxId ||
+        source.role !== 'task' ||
+        source.phase !== 'ready'
+      )
+        throw new ConflictException(
+          'Start delegated work from a ready Task in this Crux.',
+        );
+      await this.copies.sourceChain(input.cruxId, sourceId);
+    }
+    const captured = await this.workspace.read(
+      { cruxId: sourceId, expected: input.base.expected },
       store,
       input.base.expectedMeta,
     );
+    const base = workingCopyBaseSchema.parse({
+      ...captured,
+      ...(sourceId !== input.cruxId ? { sourceId } : {}),
+    }) as WorkingCopyBase;
     const saved = await this.copies.create(
       {
         ...input,
@@ -129,10 +147,14 @@ export class WorkingCopyService {
     const copy = result.data;
     if (!copy) throw new NotFoundException('Working Copy not found.');
     await this.crux.findById(copy.crux_id);
-    const base = retainedWorkspaceSchema.parse(
+    const base = workingCopyBaseSchema.parse(
       JSON.parse(copy.base_state),
-    ) as RetainedWorkspaceState;
-    await this.workspace.assertContext(copy.crux_id, base.workspace);
+    ) as WorkingCopyBase;
+    await this.copies.sourceChain(copy.crux_id, id);
+    await this.workspace.assertContext(
+      base.sourceId ?? copy.crux_id,
+      base.workspace,
+    );
     const manifest = new FileManifest(store);
     await manifest.verify(base.root);
     return { ...base, entries: await manifest.entries(base.root) };

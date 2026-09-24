@@ -10,7 +10,7 @@ const archiveSchema = z
   .object({
     archiveVersion: z.literal(3),
     purpose: z.literal('private-backup'),
-    graphVersion: z.literal(2),
+    graphVersion: z.literal(3),
     payloadVersion: z.literal(1),
     graphFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   })
@@ -31,7 +31,7 @@ export async function packPrivateGraph(
     JSON.stringify({
       archiveVersion: 3,
       purpose: 'private-backup',
-      graphVersion: 2,
+      graphVersion: 3,
       payloadVersion: 1,
       graphFingerprint: hash(json),
     }),

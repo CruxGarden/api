@@ -1,4 +1,10 @@
 import {
+  workingCopyBaseSchema,
+  copySourceChain,
+  copyParentOwner,
+  CopySource,
+} from './working-copy-base';
+import {
   retainedWorkspaceSchema,
   parseEditHistory,
   EditHistory,
@@ -133,10 +139,12 @@ export class SelectedGraphService {
       await this.repository.rows('working_copies', [...live]),
     ).map((copy) => ({
       ...copy,
-      baseState: retainedWorkspaceSchema.parse(JSON.parse(copy.baseState)),
+      baseState: workingCopyBaseSchema.parse(JSON.parse(copy.baseState)),
     }));
     const copies = new Map(workingCopies.map((copy) => [copy.id, copy]));
+    const sourceCopies = copies as unknown as ReadonlyMap<string, CopySource>;
     for (const copy of workingCopies) {
+      copySourceChain(copy.id, sourceCopies);
       if (nodes.has(copy.id) || !['task', 'review'].includes(copy.role))
         throw new Error('Invalid selected Working Copy identity');
     }
@@ -164,11 +172,11 @@ export class SelectedGraphService {
       if (parentId != null) {
         const parent = nodes.get(parentId);
         const contentOwner = node.meta.contentOwnerId;
-        const copy = copies.get(contentOwner);
-        const parentOwner =
-          copy?.baseState.workspace.parentId === parentId
-            ? copy.cruxId
-            : contentOwner;
+        const parentOwner = copyParentOwner(
+          contentOwner,
+          parentId,
+          sourceCopies,
+        );
         if (
           !parent ||
           parent.kind !== 'snapshot' ||
@@ -197,7 +205,8 @@ export class SelectedGraphService {
       if (
         !base ||
         base.kind !== 'snapshot' ||
-        base.meta.contentOwnerId !== copy.cruxId
+        base.meta.contentOwnerId !==
+          copyParentOwner(copy.id, parentId, sourceCopies)
       )
         throw new Error(
           'Selected Task base is missing or belongs to another Crux',
@@ -356,11 +365,11 @@ export class SelectedGraphService {
       for (const checkpoint of history.checkpoints) {
         const parentId = checkpoint.workspace?.parentId;
         if (!parentId) continue;
-        const copy = workingCopies.find((item) => item.id === history.cruxId);
-        const parentOwner =
-          copy?.baseState.workspace.parentId === parentId
-            ? copy.cruxId
-            : history.cruxId;
+        const parentOwner = copyParentOwner(
+          history.cruxId,
+          parentId,
+          sourceCopies,
+        );
         const parent = nodes.get(parentId);
         if (
           !parent ||

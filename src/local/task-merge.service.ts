@@ -1,3 +1,4 @@
+import { workingCopyBaseSchema } from './working-copy-base';
 import {
   Injectable,
   ConflictException,
@@ -69,6 +70,13 @@ export class TaskMergeService {
       throw new ConflictException(
         'The merge ownership or state does not match its journal',
       );
+    for (const row of [copy, candidate]) {
+      const base = workingCopyBaseSchema.parse(JSON.parse(row.base_state));
+      if (base.sourceId && base.sourceId !== merge.crux_id)
+        throw new ConflictException(
+          'Review delegated work in its source Task.',
+        );
+    }
     for (const row of [copy, candidate])
       if (
         !Number.isSafeInteger(row.revision) ||

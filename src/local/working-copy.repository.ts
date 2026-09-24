@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { DbService } from '../common/services/db.service';
 import { success, failure } from '../common/helpers/repository-helpers';
 import { randomUUID } from 'crypto';
-import { RetainedWorkspaceState } from './workspace-state.service';
+import {
+  WorkingCopyBase,
+  readCopySources,
+  copySourceChain,
+} from './working-copy-base';
 import { LocalWorkingCopyCreate } from './working-copy-create';
 
 interface WorkingCopyRow {
@@ -40,7 +44,7 @@ export class WorkingCopyRepository {
     }
   }
 
-  async create(input: LocalWorkingCopyCreate, base: RetainedWorkspaceState) {
+  async create(input: LocalWorkingCopyCreate, base: WorkingCopyBase) {
     try {
       const db = this.db.query();
       const now = new Date();
@@ -77,7 +81,7 @@ export class WorkingCopyRepository {
       // Preview data is a private independent copy, including every visitor slot
       // and unknown extension column. It never aliases the live Crux's Store.
       const original = await db('store')
-        .where({ crux_id: input.cruxId })
+        .where({ crux_id: input.base.sourceId ?? input.cruxId })
         .orderBy('id');
       const clones = original.map((row) => ({
         ...row,
@@ -96,7 +100,9 @@ export class WorkingCopyRepository {
       if (
         JSON.stringify(copied) !== JSON.stringify(sorted) ||
         JSON.stringify(
-          await db('store').where({ crux_id: input.cruxId }).orderBy('id'),
+          await db('store')
+            .where({ crux_id: input.base.sourceId ?? input.cruxId })
+            .orderBy('id'),
         ) !== JSON.stringify(original)
       )
         throw new Error('Task preview data did not copy completely');
@@ -104,6 +110,15 @@ export class WorkingCopyRepository {
     } catch (error) {
       return failure<{ created: boolean }>(error);
     }
+  }
+
+  async sourceChain(cruxId: string, id: string) {
+    const copies = await readCopySources(id, (sourceId) =>
+      this.db.query()('working_copies').where({ id: sourceId }).first(),
+    );
+    if (copies.get(id)?.cruxId !== cruxId)
+      throw new Error('Working Copy owner is missing');
+    return copySourceChain(id, copies);
   }
 
   async find(id: string) {

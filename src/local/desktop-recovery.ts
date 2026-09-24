@@ -1,3 +1,9 @@
+import {
+  WorkingCopyBase,
+  CopySource,
+  copySourceChain,
+  workingCopyBaseSchema,
+} from './working-copy-base';
 import { retainedWorkspaceSchema, editHistorySchema } from './edit-history';
 import { createHash } from 'crypto';
 import { FileManifest } from './file-manifest';
@@ -210,12 +216,26 @@ export async function inspectDesktopManifestRecovery(
         )
         .get()
     ) {
-      for (const row of db
-        .prepare('SELECT base_state FROM working_copies')
-        .all())
-        roots.push(
-          retainedWorkspaceSchema.parse(JSON.parse(row.base_state)).root,
-        );
+      const sources = new Map<string, CopySource>(
+        db
+          .prepare('SELECT id, crux_id, role, base_state FROM working_copies')
+          .all()
+          .map((row) => [
+            row.id,
+            {
+              id: row.id,
+              cruxId: row.crux_id,
+              role: row.role,
+              baseState: workingCopyBaseSchema.parse(
+                JSON.parse(row.base_state),
+              ) as WorkingCopyBase,
+            },
+          ]),
+      );
+      for (const copy of sources.values()) {
+        copySourceChain(copy.id, sources);
+        roots.push(copy.baseState.root);
+      }
       roots = [...new Set(roots)];
     }
     legacy = legacyRecoveryFingerprints(db, tables);

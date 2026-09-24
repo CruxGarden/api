@@ -102,6 +102,302 @@ describe('retained Task starting state', () => {
     owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
     expect(await owner.workingCopyBase(input.id, store)).toEqual(original);
   });
+  it('retains the actual Task source rather than Main when starting delegated work', async () => {
+    await owner.createWorkingCopy(input, store);
+    await owner.run("UPDATE working_copies SET phase = 'ready' WHERE id = ?", [
+      input.id,
+    ]);
+    const head = await owner.editFileContent(
+      {
+        cruxId: input.id,
+        expected: await owner.fileContentHead(input.id),
+        changes: [put('Task-specific starting work')],
+      },
+      store,
+    );
+    const sourceMeta = {
+      messages: [{ role: 'user', content: 'Task-only context' }],
+      settings: { activeBranch: null },
+    };
+    await owner.updateWorkingCopyMeta(input.id, sourceMeta);
+    const child = {
+      ...input,
+      id: randomUUID(),
+      taskId: randomUUID(),
+      base: { sourceId: input.id, expected: head, expectedMeta: sourceMeta },
+    };
+    await owner.createWorkingCopy(child, store);
+    const retained = await owner.workingCopyBase(child.id, store);
+    expect(retained).toMatchObject({
+      sourceId: input.id,
+      root: head.root,
+      workspace: { messages: sourceMeta.messages },
+    });
+    expect(retained.root).not.toBe(input.base.expected!.root);
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    expect(await owner.workingCopyBase(child.id, store)).toEqual(retained);
+    expect(
+      await owner.all("SELECT id FROM dimensions WHERE type = 'growth'"),
+    ).toEqual([]);
+    const graph = await owner.exportPrivateGraph(
+      { roots: [main], includeMembers: false },
+      store,
+    );
+    const target = await LocalGraphRuntime.create(
+      join(dir, 'delegated-copy.db'),
+    );
+    try {
+      const result = await target.importPrivateGraph(
+        {
+          requestId: randomUUID(),
+          mode: 'copy',
+          destination: { authorId: randomUUID(), homeId: randomUUID() },
+          graph,
+        },
+        store,
+        store,
+      );
+      expect(
+        await target.workingCopyBase(result.ids[child.id], store),
+      ).toMatchObject({
+        ...retained,
+        sourceId: result.ids[input.id],
+      });
+      expect(
+        (
+          await inspectDesktopManifestRecovery(
+            await owner.exportDatabase(),
+            store,
+          )
+        ).fingerprints,
+      ).toContain(retained.root);
+    } finally {
+      await target.close();
+    }
+  });
+  it('retains marked ancestry through source Tasks, including inherited Main anchors', async () => {
+    const marked = await owner.createGrowthSnapshot(
+      {
+        cruxId: main,
+        expected: input.base.expected!,
+        snapshotId: randomUUID(),
+        parentId: null,
+      },
+      store,
+    );
+    const mainMeta = {
+      ...input.base.expectedMeta,
+      settings: { activeBranch: marked.snapshot.id },
+    };
+    await owner.updateCrux(main, { meta: mainMeta });
+    input.base.expectedMeta = mainMeta;
+    await owner.createWorkingCopy(input, store);
+    await owner.run("UPDATE working_copies SET phase = 'ready' WHERE id = ?", [
+      input.id,
+    ]);
+    const createChild = async (sourceId: string) => {
+      const source = await owner.get<any>(
+        'SELECT meta FROM working_copies WHERE id = ?',
+        [sourceId],
+      );
+      const child = {
+        ...input,
+        id: randomUUID(),
+        taskId: randomUUID(),
+        base: {
+          sourceId,
+          expected: await owner.fileContentHead(sourceId),
+          expectedMeta: JSON.parse(source.meta),
+        },
+      };
+      await owner.createWorkingCopy(child, store);
+      await owner.run(
+        "UPDATE working_copies SET phase = 'ready' WHERE id = ?",
+        [child.id],
+      );
+      return child;
+    };
+    const inherited = await createChild(input.id);
+    expect(
+      (await owner.workingCopyBase(inherited.id, store)).workspace.parentId,
+    ).toBe(marked.snapshot.id);
+    const taskMark = await owner.createGrowthSnapshot(
+      {
+        cruxId: input.id,
+        expected: await owner.fileContentHead(input.id),
+        snapshotId: randomUUID(),
+        parentId: marked.snapshot.id,
+      },
+      store,
+    );
+    await owner.updateWorkingCopyMeta(input.id, {
+      settings: { activeBranch: taskMark.snapshot.id },
+    });
+    const own = await createChild(input.id);
+    const descendant = await createChild(own.id);
+    expect(
+      (await owner.workingCopyBase(descendant.id, store)).workspace.parentId,
+    ).toBe(taskMark.snapshot.id);
+    await owner.createGrowthSnapshot(
+      {
+        cruxId: descendant.id,
+        expected: await owner.fileContentHead(descendant.id),
+        snapshotId: randomUUID(),
+        parentId: taskMark.snapshot.id,
+      },
+      store,
+    );
+    const graph = await owner.exportPrivateGraph(
+      { roots: [main], includeMembers: false },
+      store,
+    );
+    const target = await LocalGraphRuntime.create(
+      join(dir, 'marked-source.db'),
+    );
+    try {
+      const imported = await target.importPrivateGraph(
+        {
+          requestId: randomUUID(),
+          mode: 'copy',
+          destination: { authorId: randomUUID(), homeId: randomUUID() },
+          graph,
+        },
+        store,
+        store,
+      );
+      expect(
+        await target.workingCopyBase(imported.ids[descendant.id], store),
+      ).toMatchObject({
+        sourceId: imported.ids[own.id],
+        workspace: { parentId: imported.ids[taskMark.snapshot.id] },
+      });
+    } finally {
+      await target.close();
+    }
+  });
+  it.each([
+    'missing',
+    'foreign',
+    'closed',
+    'review',
+    'stale files',
+    'stale context',
+    'ignored write',
+  ])('refuses a %s source without partial delegated work', async (fault) => {
+    await owner.createWorkingCopy(input, store);
+    await owner.run("UPDATE working_copies SET phase = 'ready' WHERE id = ?", [
+      input.id,
+    ]);
+    const child = {
+      ...input,
+      id: randomUUID(),
+      taskId: randomUUID(),
+      base: {
+        sourceId: input.id,
+        expected: await owner.fileContentHead(input.id),
+        expectedMeta: JSON.parse(
+          (
+            await owner.get<any>(
+              'SELECT meta FROM working_copies WHERE id = ?',
+              [input.id],
+            )
+          ).meta,
+        ),
+      },
+    };
+    if (fault === 'missing') child.base.sourceId = randomUUID();
+    if (fault === 'foreign') {
+      child.cruxId = await owner.createCrux({
+        slug: randomUUID(),
+        authorId: randomUUID(),
+        homeId: randomUUID(),
+      });
+    }
+    if (fault === 'closed')
+      await owner.run(
+        "UPDATE working_copies SET phase = 'archived' WHERE id = ?",
+        [input.id],
+      );
+    if (fault === 'review')
+      await owner.run(
+        "UPDATE working_copies SET role = 'review' WHERE id = ?",
+        [input.id],
+      );
+    if (fault === 'stale files')
+      child.base.expected = { ...child.base.expected!, revision: 999 };
+    if (fault === 'stale context') child.base.expectedMeta = { messages: [] };
+    if (fault === 'ignored write')
+      await owner.run(
+        'CREATE TRIGGER refuse BEFORE INSERT ON working_copies BEGIN SELECT RAISE(IGNORE); END',
+      );
+    await expect(owner.createWorkingCopy(child, store)).rejects.toThrow();
+    expect(
+      await owner.get('SELECT id FROM working_copies WHERE id = ?', [child.id]),
+    ).toBeUndefined();
+    expect(
+      await owner.get(
+        'SELECT crux_id FROM file_content_heads WHERE crux_id = ?',
+        [child.id],
+      ),
+    ).toBeUndefined();
+    expect(
+      await owner.all("SELECT id FROM dimensions WHERE type = 'growth'"),
+    ).toEqual([]);
+  });
+  it.each(['dangling', 'foreign', 'cycle'])(
+    'refuses %s retained source references on read and import',
+    async (fault) => {
+      await owner.createWorkingCopy(input, store);
+      const graph = await owner.exportPrivateGraph(
+        { roots: [main], includeMembers: false },
+        store,
+      );
+      const sourceId = fault === 'cycle' ? input.id : randomUUID();
+      if (fault === 'foreign') {
+        const other = {
+          ...graph.workingCopies[0],
+          id: sourceId,
+          taskId: randomUUID(),
+          cruxId: randomUUID(),
+        };
+        graph.workingCopies.push(other);
+      }
+      graph.workingCopies[0].baseState.sourceId = sourceId;
+      const target = await LocalGraphRuntime.create(join(dir, 'bad-source.db'));
+      try {
+        await expect(
+          target.importPrivateGraph(
+            {
+              requestId: randomUUID(),
+              mode: 'copy',
+              destination: { authorId: randomUUID(), homeId: randomUUID() },
+              graph,
+            },
+            store,
+            store,
+          ),
+        ).rejects.toThrow();
+        expect(await target.all('SELECT id FROM working_copies')).toEqual([]);
+      } finally {
+        await target.close();
+      }
+      await owner.run('UPDATE working_copies SET base_state = ? WHERE id = ?', [
+        JSON.stringify(graph.workingCopies[0].baseState),
+        input.id,
+      ]);
+      await expect(owner.workingCopyBase(input.id, store)).rejects.toThrow();
+      await expect(
+        inspectDesktopManifestRecovery(await owner.exportDatabase(), store),
+      ).rejects.toThrow();
+      await expect(
+        owner.exportPrivateGraph(
+          { roots: [main], includeMembers: false },
+          store,
+        ),
+      ).rejects.toThrow();
+    },
+  );
   it.each([
     'files',
     'conversation',
@@ -169,7 +465,7 @@ describe('retained Task starting state', () => {
       { roots: [main], includeMembers: false },
       store,
     );
-    expect(graph.graphVersion).toBe(2);
+    expect(graph.graphVersion).toBe(3);
     expect(graph.fingerprints).toContain(original.root);
     const recovered = await inspectDesktopManifestRecovery(
       await owner.exportDatabase(),

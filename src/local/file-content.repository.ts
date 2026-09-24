@@ -1,4 +1,4 @@
-import { retainedWorkspaceSchema } from './edit-history';
+import { readCopySources, copyParentOwner } from './working-copy-base';
 import { isDeepStrictEqual } from 'util';
 import { Injectable } from '@nestjs/common';
 import { toEntityFields } from '../common/helpers/case-helpers';
@@ -140,12 +140,10 @@ export class FileContentRepository {
 
   /** A Task's first-parent ancestry may enter its declared Main base only. */
   async parentOwner(id: string, parentId: string): Promise<string> {
-    const copy = await this.db.query()('working_copies').where({ id }).first();
-    return copy &&
-      retainedWorkspaceSchema.parse(JSON.parse(copy.base_state)).workspace
-        .parentId === parentId
-      ? copy.crux_id
-      : id;
+    const copies = await readCopySources(id, (sourceId) =>
+      this.db.query()('working_copies').where({ id: sourceId }).first(),
+    );
+    return copyParentOwner(id, parentId, copies);
   }
 
   async applyingMerge(id: string, mergeId: string): Promise<boolean> {
