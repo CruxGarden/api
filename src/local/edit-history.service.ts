@@ -17,6 +17,22 @@ import { DesktopContentStore } from './desktop-content';
 import { FileManifest } from './file-manifest';
 import { RepositoryResponse } from '../common/types/interfaces';
 
+export interface EditCheckpointCapture extends FileContentSelection {
+  reason?: EditCheckpoint['reason'];
+}
+export function captureEditCheckpoint(
+  input: EditCheckpointCapture,
+): EditCheckpointCapture {
+  const selected = captureFileContentSelection(input);
+  if (
+    input.reason !== undefined &&
+    input.reason !== 'autosave' &&
+    input.reason !== 'safety'
+  )
+    throw new Error('Choose automatic recovery or a protected safety copy');
+  return { ...selected, reason: input.reason ?? 'autosave' };
+}
+
 export interface EditCheckpointRestore extends FileContentSelection {
   checkpointId: string;
 }

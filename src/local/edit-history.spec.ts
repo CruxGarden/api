@@ -82,6 +82,25 @@ describe('edit history outside the Crux graph', () => {
     expect(await runtime.listEditHistory(cruxId)).toEqual(history);
   });
 
+  it('protects an explicit safety capture before destructive work from automatic eviction', async () => {
+    const head = await edit('keep this before deleting');
+    const request = { cruxId, expected: head, reason: 'safety' as const };
+    const safety = await runtime.createEditCheckpoint(request, store);
+    expect(safety.reason).toBe('safety');
+    for (let i = 0; i < 25; i++) {
+      await edit(String(i));
+      await capture();
+    }
+    expect((await runtime.listEditHistory(cruxId)).checkpoints).toContainEqual(
+      safety,
+    );
+    expect(
+      (await runtime.inspectEditCheckpoint(cruxId, safety.id, store)).files,
+    ).toHaveLength(1);
+    expect(await runtime.all('SELECT id FROM dimensions')).toEqual([]);
+    expect(await runtime.all('SELECT id FROM cruxes')).toHaveLength(1);
+  });
+
   it('deduplicates unchanged captures and refuses stale content without losing history', async () => {
     const first = await edit('one');
     const checkpoint = await capture();

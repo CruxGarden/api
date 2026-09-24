@@ -74,4 +74,7 @@ export type { PrepareImportedWorkspace } from './import-workspace';
 export type { GardenEntry } from './garden-entry.service';
 
 export type { EditCheckpoint, EditHistory } from './edit-history';
-export type { EditCheckpointRestore } from './edit-history.service';
+export type {
+  EditCheckpointRestore,
+  EditCheckpointCapture,
+} from './edit-history.service';

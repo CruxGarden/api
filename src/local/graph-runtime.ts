@@ -3,6 +3,8 @@ import { EditHistoryRepository } from './edit-history.repository';
 import {
   EditHistoryService,
   EditCheckpointRestore,
+  EditCheckpointCapture,
+  captureEditCheckpoint,
   captureEditCheckpointRestore,
 } from './edit-history.service';
 import { GardenEntryRepository } from './garden-entry.repository';
@@ -957,16 +959,17 @@ export class LocalGraphRuntime {
     );
   }
   createEditCheckpoint(
-    input: FileContentSelection,
+    input: EditCheckpointCapture,
     store: DesktopContentStore,
   ) {
-    const captured = captureFileContentSelection(input);
+    const captured = captureEditCheckpoint(input);
     const content = {
       read: store.read.bind(store),
       write: store.write.bind(store),
     };
     return this.executeChanged(
-      ({ editHistory }) => editHistory.capture(captured, content),
+      ({ editHistory }) =>
+        editHistory.capture(captured, content, captured.reason),
       () => ({
         entity: 'crux',
         fields: ['editHistory'],
