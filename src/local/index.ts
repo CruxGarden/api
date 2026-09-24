@@ -82,3 +82,9 @@ export type {
   EditCheckpointRestore,
   EditCheckpointCapture,
 } from './edit-history.service';
+
+export type {
+  GardenMoodMode,
+  GardenMoodSelection,
+  SelectGardenMood,
+} from './garden-mood.service';

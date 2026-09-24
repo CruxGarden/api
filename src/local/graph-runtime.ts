@@ -1,3 +1,5 @@
+import { GardenMoodService, SelectGardenMood } from './garden-mood.service';
+import { GardenMoodRepository } from './garden-mood.repository';
 import { WorkspaceStateService } from './workspace-state.service';
 import { EditRetentionService } from './edit-retention.service';
 import { EditHistoryRepository } from './edit-history.repository';
@@ -118,6 +120,8 @@ class LocalGraphModule {
         DimensionRepository,
         GardenMembershipRepository,
         GardenMembershipService,
+        GardenMoodService,
+        GardenMoodRepository,
         GardenEntryRepository,
         GardenEntryService,
         WorkingCopyRepository,
@@ -146,6 +150,7 @@ export interface GraphOperations {
   crux: CruxGraphService;
   dimension: DimensionService;
   garden: GardenMembershipService;
+  gardenMood: GardenMoodService;
   gardenEntry: GardenEntryService;
   workingCopy: WorkingCopyService;
   lifecycle: CruxLifecycleService;
@@ -217,6 +222,7 @@ export class LocalGraphRuntime {
       crux: context.get(CruxGraphService),
       dimension: context.get(DimensionService),
       garden: context.get(GardenMembershipService),
+      gardenMood: context.get(GardenMoodService),
       gardenEntry: context.get(GardenEntryService),
       workingCopy: context.get(WorkingCopyService),
       lifecycle: context.get(CruxLifecycleService),
@@ -950,6 +956,24 @@ export class LocalGraphRuntime {
         });
       return result.entry;
     });
+  }
+
+  readGardenMood(gardenId: string) {
+    return this.execute(({ gardenMood }) => gardenMood.read(gardenId));
+  }
+  resolveGardenMood(gardenId: string) {
+    return this.execute(({ gardenMood }) => gardenMood.resolve(gardenId));
+  }
+  selectGardenMood(input: SelectGardenMood) {
+    const captured = structuredClone(input);
+    return this.executeChanged(
+      ({ gardenMood }) => gardenMood.select(captured),
+      () => ({
+        entity: 'crux',
+        id: captured.gardenId,
+        metaKeys: ['moodSelection'],
+      }),
+    );
   }
 
   addGardenMember(input: AddGardenMember) {
