@@ -34,8 +34,20 @@ export const editHistorySchema = z
         message: 'Edit history exceeds retention',
       });
   });
-export type EditCheckpoint = z.infer<typeof editCheckpointSchema>;
-export type EditHistory = z.infer<typeof editHistorySchema>;
+export interface EditCheckpoint {
+  id: string;
+  root: string;
+  created: string;
+  reason: 'autosave' | 'safety';
+}
+export interface EditHistory {
+  cruxId: string;
+  revision: number;
+  checkpoints: EditCheckpoint[];
+}
+export function parseEditHistory(value: unknown): EditHistory {
+  return editHistorySchema.parse(value) as EditHistory;
+}
 export const EDIT_HISTORY_SCHEMA = `CREATE TABLE edit_history (
   crux_id TEXT PRIMARY KEY NOT NULL,
   revision INTEGER NOT NULL,

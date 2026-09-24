@@ -1,4 +1,4 @@
-import { editHistorySchema, EditHistory } from './edit-history';
+import { parseEditHistory, EditHistory } from './edit-history';
 import { createHash } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import { isUUID } from 'class-validator';
@@ -283,7 +283,7 @@ export class SelectedGraphService {
     const editHistory = unwrap(
       await this.repository.rows('edit_history', [...selected]),
     ).map((row) =>
-      editHistorySchema.parse({
+      parseEditHistory({
         cruxId: row.cruxId,
         revision: row.revision,
         checkpoints:

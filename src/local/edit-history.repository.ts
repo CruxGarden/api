@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { isDeepStrictEqual } from 'util';
 import { DbService } from '../common/services/db.service';
 import { success, failure } from '../common/helpers/repository-helpers';
-import { editHistorySchema, EditHistory } from './edit-history';
+import { parseEditHistory, EditHistory } from './edit-history';
 
 @Injectable()
 export class EditHistoryRepository {
@@ -15,7 +15,7 @@ export class EditHistoryRepository {
         .first();
       return success<EditHistory | null>(
         row
-          ? editHistorySchema.parse({
+          ? parseEditHistory({
               cruxId,
               revision: row.revision,
               checkpoints:
@@ -31,7 +31,7 @@ export class EditHistoryRepository {
   }
   async write(value: EditHistory, previous: EditHistory | null) {
     try {
-      const saved = editHistorySchema.parse(value);
+      const saved = parseEditHistory(value);
       const row = {
         crux_id: saved.cruxId,
         revision: saved.revision,
