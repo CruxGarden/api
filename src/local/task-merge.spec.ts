@@ -3,10 +3,23 @@ import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { LocalGraphRuntime } from './graph-runtime';
+import { DesktopContentStore } from './desktop-content';
+import { FileManifest } from './file-manifest';
 
 describe('owned Task merge finalization', () => {
   let dir: string;
   let owner: LocalGraphRuntime;
+  let store: DesktopContentStore;
+  const save = (data: string, expected?: string) =>
+    owner.saveTaskReview(data, expected, store);
+  const begin = (id: string, data: string) =>
+    owner.beginTaskMerge(id, data, store);
+  const draft = (review: any) => {
+    const input = { ...review };
+    delete input.sourceState;
+    delete input.targetState;
+    return input;
+  };
   let main: string,
     copy: string,
     candidate: string,
@@ -20,6 +33,13 @@ describe('owned Task merge finalization', () => {
   });
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'task-merge-'));
+    const objects = new Map<string, Uint8Array>();
+    store = {
+      read: async (fp) => objects.get(fp) ?? null,
+      write: async (fp, bytes) => {
+        objects.set(fp, Uint8Array.from(bytes));
+      },
+    };
     owner = await LocalGraphRuntime.create(join(dir, 'garden.db'));
     const identity = { authorId: randomUUID(), homeId: randomUUID() };
     main = await owner.createCrux({ ...identity, slug: 'main' });
@@ -51,7 +71,7 @@ describe('owned Task merge finalization', () => {
           main,
           randomUUID(),
           role,
-          randomUUID(),
+          result,
           role,
           'ready',
           JSON.stringify({ preserved: 'state' }),
@@ -101,30 +121,14 @@ describe('owned Task merge finalization', () => {
   }
   async function verifiedReview() {
     await makeReview();
-    const identity = { authorId: randomUUID(), homeId: randomUUID() };
-    const heads: string[] = [];
-    for (const id of [main, copy]) {
-      const snapshot = await owner.createCrux({
-        ...identity,
-        slug: randomUUID(),
-        kind: 'snapshot',
-        meta: { contentOwnerId: id },
-      });
-      await owner.execute(({ dimension }) =>
-        dimension.create({
-          ...identity,
-          sourceId: id,
-          targetId: snapshot,
-          type: 'growth' as any,
-          weight: 1,
-        }),
+    const root = await new FileManifest(store).apply(null, []);
+    for (const id of [main, copy, candidate, result])
+      await owner.run(
+        'INSERT OR REPLACE INTO file_content_heads (crux_id, format_version, root, revision) VALUES (?,1,?,1)',
+        [id, root],
       );
-      heads.push(snapshot);
-    }
     const data = {
       ...JSON.parse((await state()).merge.data),
-      targetHead: heads[0],
-      sourceHead: heads[1],
       base: {},
       main: {},
       task: {},
@@ -132,11 +136,9 @@ describe('owned Task merge finalization', () => {
       conflicts: [],
       verifiedKey: '[]',
     };
-    await owner.run('UPDATE task_merges SET data = ? WHERE id = ?', [
-      JSON.stringify(data),
-      merge,
-    ]);
-    return data;
+    await owner.run('DELETE FROM task_merges WHERE id = ?', [merge]);
+    await save(JSON.stringify(data));
+    return JSON.parse((await state()).merge.data);
   }
   it('creates a review without changing its copies and safely repeats after restart', async () => {
     const review = {
@@ -145,14 +147,14 @@ describe('owned Task merge finalization', () => {
     };
     await owner.run('DELETE FROM task_merges WHERE id = ?', [merge]);
     const before = await state();
-    await owner.saveTaskReview(JSON.stringify(review));
+    await save(JSON.stringify(draft(review)));
     const saved = await state();
     expect(saved.copies).toEqual(before.copies);
     expect(JSON.parse(saved.merge.data)).toEqual(review);
     expect(saved.merge.phase).toBe('review');
     await owner.close();
     owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
-    await owner.saveTaskReview(JSON.stringify(review));
+    await save(JSON.stringify(draft(review)));
     expect(await state()).toEqual(saved);
   });
   it('allows a verified update only against the exact previous review and retains extension data', async () => {
@@ -169,11 +171,11 @@ describe('owned Task merge finalization', () => {
       verificationLog: 'Rechecked preview',
       previewUrl: 'http://localhost:23456',
     };
-    await owner.saveTaskReview(JSON.stringify(next), JSON.stringify(original));
+    await save(JSON.stringify(next), JSON.stringify(original));
     expect(JSON.parse((await state()).merge.data)).toEqual(next);
     const saved = await state();
     await expect(
-      owner.saveTaskReview(
+      save(
         JSON.stringify({ ...original, verificationLog: 'Late check' }),
         JSON.stringify(original),
       ),
@@ -190,7 +192,7 @@ describe('owned Task merge finalization', () => {
       );
       const before = await state();
       await expect(
-        owner.saveTaskReview(
+        save(
           JSON.stringify({ ...review, verificationLog: 'Late build' }),
           JSON.stringify(review),
         ),
@@ -198,7 +200,7 @@ describe('owned Task merge finalization', () => {
       expect(await state()).toEqual(before);
     },
   );
-  it.each(['candidateId', 'sourceHead', 'main'])(
+  it.each(['candidateId', 'sourceState', 'main'])(
     'refuses rewriting the fixed %s reference of a review',
     async (field) => {
       const review = await verifiedReview();
@@ -208,7 +210,7 @@ describe('owned Task merge finalization', () => {
         [field]: field === 'main' ? { 'other.txt': {} } : randomUUID(),
       };
       await expect(
-        owner.saveTaskReview(JSON.stringify(changed), JSON.stringify(review)),
+        save(JSON.stringify(changed), JSON.stringify(review)),
       ).rejects.toThrow();
       expect(await state()).toEqual(before);
     },
@@ -217,11 +219,9 @@ describe('owned Task merge finalization', () => {
     const review = await verifiedReview();
     const second = { ...review, id: randomUUID() };
     const before = await state();
+    await expect(save(JSON.stringify(second))).rejects.toThrow();
     await expect(
-      owner.saveTaskReview(JSON.stringify(second)),
-    ).rejects.toThrow();
-    await expect(
-      owner.saveTaskReview(JSON.stringify(second), JSON.stringify(second)),
+      save(JSON.stringify(second), JSON.stringify(second)),
     ).rejects.toThrow();
     expect(await state()).toEqual(before);
   });
@@ -235,22 +235,23 @@ describe('owned Task merge finalization', () => {
         `CREATE TRIGGER ignore_review BEFORE ${operation.toUpperCase()} ON task_merges BEGIN SELECT RAISE(IGNORE); END`,
       );
       const before = await state();
-      const next = { ...review, verificationLog: 'New evidence' };
+      const next = {
+        ...(operation === 'insert' ? draft(review) : review),
+        verificationLog: 'New evidence',
+      };
       const expected =
         operation === 'update' ? JSON.stringify(review) : undefined;
-      await expect(
-        owner.saveTaskReview(JSON.stringify(next), expected),
-      ).rejects.toThrow();
+      await expect(save(JSON.stringify(next), expected)).rejects.toThrow();
       expect(await state()).toEqual(before);
       await owner.run('DROP TRIGGER ignore_review');
-      await owner.saveTaskReview(JSON.stringify(next), expected);
-      expect(JSON.parse((await state()).merge.data)).toEqual(next);
+      await save(JSON.stringify(next), expected);
+      expect(JSON.parse((await state()).merge.data)).toMatchObject(next);
     },
   );
   it('admits the checked review durably before file projection without changing Task state', async () => {
     const review = await verifiedReview();
     const before = await state();
-    await owner.beginTaskMerge(merge, JSON.stringify(review));
+    await begin(merge, JSON.stringify(review));
     const saved = await state();
     expect(saved.copies).toEqual(before.copies);
     expect(saved.merge.phase).toBe('applying');
@@ -262,9 +263,7 @@ describe('owned Task merge finalization', () => {
     owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
     expect(await state()).toEqual(saved);
     await expect(owner.releaseTaskReview(merge)).rejects.toThrow('recover');
-    await expect(
-      owner.beginTaskMerge(merge, JSON.stringify(review)),
-    ).rejects.toThrow();
+    await expect(begin(merge, JSON.stringify(review))).rejects.toThrow();
   });
   it('admits only one competing review for Main', async () => {
     const review = await verifiedReview();
@@ -274,8 +273,8 @@ describe('owned Task merge finalization', () => {
       [second.id, JSON.stringify(second), merge],
     );
     const attempts = await Promise.allSettled([
-      owner.beginTaskMerge(merge, JSON.stringify(review)),
-      owner.beginTaskMerge(second.id, JSON.stringify(second)),
+      begin(merge, JSON.stringify(review)),
+      begin(second.id, JSON.stringify(second)),
     ]);
     expect(
       attempts.filter((attempt) => attempt.status === 'fulfilled'),
@@ -294,9 +293,7 @@ describe('owned Task merge finalization', () => {
       merge,
     ]);
     const before = await state();
-    await expect(
-      owner.beginTaskMerge(merge, JSON.stringify(review)),
-    ).rejects.toThrow();
+    await expect(begin(merge, JSON.stringify(review))).rejects.toThrow();
     expect(await state()).toEqual(before);
   });
   it.each([
@@ -305,6 +302,7 @@ describe('owned Task merge finalization', () => {
     'archived-source',
     'archived-candidate',
     'changed-head',
+    'changed-conversation',
     'deleted-head',
   ])('refuses %s before changing the journal', async (fault) => {
     const review = await verifiedReview();
@@ -317,21 +315,23 @@ describe('owned Task merge finalization', () => {
       );
     if (fault === 'changed-head')
       await owner.updateCrux(main, {
-        meta: { settings: { activeBranch: result } },
+        meta: { settings: { activeBranch: null } },
+      });
+    if (fault === 'changed-conversation')
+      await owner.updateWorkingCopyMeta(copy, {
+        messages: [{ role: 'user', content: 'A later message' }],
       });
     if (fault === 'deleted-head')
       await owner.run('UPDATE cruxes SET deleted = ? WHERE id = ?', [
         new Date().toISOString(),
-        review.sourceHead,
+        result,
       ]);
     await owner.run('UPDATE task_merges SET data = ? WHERE id = ?', [
       JSON.stringify(review),
       merge,
     ]);
     const before = await state();
-    await expect(
-      owner.beginTaskMerge(merge, JSON.stringify(review)),
-    ).rejects.toThrow();
+    await expect(begin(merge, JSON.stringify(review))).rejects.toThrow();
     expect(await state()).toEqual(before);
   });
   it.each(['ABORT', 'IGNORE'])(
@@ -342,12 +342,10 @@ describe('owned Task merge finalization', () => {
         `CREATE TRIGGER refuse_admission BEFORE UPDATE ON task_merges WHEN NEW.phase = 'applying' BEGIN SELECT RAISE(${action}${action === 'ABORT' ? ", 'Admission refused'" : ''}); END`,
       );
       const before = await state();
-      await expect(
-        owner.beginTaskMerge(merge, JSON.stringify(review)),
-      ).rejects.toThrow();
+      await expect(begin(merge, JSON.stringify(review))).rejects.toThrow();
       expect(await state()).toEqual(before);
       await owner.run('DROP TRIGGER refuse_admission');
-      await owner.beginTaskMerge(merge, JSON.stringify(review));
+      await begin(merge, JSON.stringify(review));
       expect((await state()).merge.phase).toBe('applying');
     },
   );
@@ -357,9 +355,7 @@ describe('owned Task merge finalization', () => {
       `CREATE TRIGGER close_candidate AFTER UPDATE ON task_merges WHEN NEW.phase = 'applying' BEGIN UPDATE working_copies SET phase = 'archived' WHERE id = NEW.candidate_id; END`,
     );
     const before = await state();
-    await expect(
-      owner.beginTaskMerge(merge, JSON.stringify(review)),
-    ).rejects.toThrow();
+    await expect(begin(merge, JSON.stringify(review))).rejects.toThrow();
     expect(await state()).toEqual(before);
   });
   it('closes the legacy imported cancelled-column/review-data state without losing evidence', async () => {

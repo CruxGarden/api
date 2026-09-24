@@ -196,6 +196,11 @@ function checkReferences(graph: PrivateGraph) {
   }
   for (const merge of graph.taskMerges) {
     for (const workspace of [
+      ...['sourceState', 'targetState'].map((key) =>
+        merge.data[key] === undefined
+          ? undefined
+          : retainedWorkspaceSchema.parse(merge.data[key]).workspace,
+      ),
       merge.data.resultState === undefined
         ? undefined
         : retainedWorkspaceSchema.parse(merge.data.resultState).workspace,
@@ -391,11 +396,12 @@ export class GraphTransferService {
             throw new Error('Private review has a missing typed reference');
           data[key] = remap(data[key] as string);
         }
-      if (data.resultState !== undefined) {
-        const result = retainedWorkspaceSchema.parse(data.resultState);
+      for (const key of ['sourceState', 'targetState', 'resultState']) {
+        if (data[key] === undefined) continue;
+        const result = retainedWorkspaceSchema.parse(data[key]);
         if (result.workspace.parentId && !ids[result.workspace.parentId])
           throw new Error('Private Task result has a missing parent');
-        data.resultState = {
+        data[key] = {
           ...result,
           workspace: {
             ...result.workspace,

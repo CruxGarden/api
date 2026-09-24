@@ -196,8 +196,9 @@ export async function inspectDesktopManifestRecovery(
     if (tables.has('task_merges')) {
       for (const row of db.prepare('SELECT data FROM task_merges').all()) {
         const data = JSON.parse(row.data);
-        if (data.resultState !== undefined)
-          roots.push(retainedWorkspaceSchema.parse(data.resultState).root);
+        for (const key of ['sourceState', 'targetState', 'resultState'])
+          if (data[key] !== undefined)
+            roots.push(retainedWorkspaceSchema.parse(data[key]).root);
       }
       roots = [...new Set(roots)];
     }

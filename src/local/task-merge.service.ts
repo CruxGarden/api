@@ -17,7 +17,7 @@ import {
   WorkspaceStateService,
   RetainedWorkspaceState,
 } from './workspace-state.service';
-import { editWorkspaceSchema, retainedWorkspaceSchema } from './edit-history';
+import { retainedWorkspaceSchema } from './edit-history';
 import { FileManifest } from './file-manifest';
 
 /** Durable review closure/finalization. Host file projection and Growth capture remain recoverable earlier steps. */
@@ -79,20 +79,19 @@ export class TaskMergeService {
     return { state, merge, copy, candidate, data, crux };
   }
 
-  async save(next: Record<string, any>, expected?: Record<string, any>) {
+  async save(
+    next: Record<string, any>,
+    expected: Record<string, any> | undefined,
+    store: DesktopContentStore,
+  ) {
     if (
       !next ||
       typeof next !== 'object' ||
       Array.isArray(next) ||
       next.phase !== 'review' ||
-      [
-        'id',
-        'cruxId',
-        'copyId',
-        'candidateId',
-        'sourceHead',
-        'targetHead',
-      ].some((key) => typeof next[key] !== 'string' || !next[key]) ||
+      ['id', 'cruxId', 'copyId', 'candidateId'].some(
+        (key) => typeof next[key] !== 'string' || !next[key],
+      ) ||
       ['base', 'main', 'task', 'manifest', 'resolutions'].some(
         (key) =>
           !next[key] ||
@@ -102,7 +101,9 @@ export class TaskMergeService {
       !Array.isArray(next.conflicts) ||
       next.resultHead !== undefined ||
       next.resultState !== undefined ||
-      next.targetWorkspace !== undefined
+      next.targetWorkspace !== undefined ||
+      next.sourceHead !== undefined ||
+      next.targetHead !== undefined
     )
       throw new ConflictException('Use a complete unapplied Task review.');
     const draft: MergeRow = {
@@ -124,7 +125,13 @@ export class TaskMergeService {
     )
       throw new ConflictException('This review is no longer open for changes.');
     if (state.present && expected === undefined) {
-      if (JSON.stringify(data) !== JSON.stringify(next))
+      const original = { ...data };
+      delete original.sourceState;
+      delete original.targetState;
+      if (
+        JSON.stringify(data) !== JSON.stringify(next) &&
+        JSON.stringify(original) !== JSON.stringify(next)
+      )
         throw new ConflictException('This review already exists.');
       return { id: copy.id, cruxId: merge.crux_id }; // Lost-response retry, no timestamp/revision change.
     }
@@ -162,6 +169,31 @@ export class TaskMergeService {
       throw new ConflictException(
         'Finish the existing merge or prepare a separate review candidate.',
       );
+    if (!state.present) {
+      if (next.sourceState !== undefined || next.targetState !== undefined)
+        throw new ConflictException('Review context is captured by the API.');
+      const capture = async (cruxId: string, files: Record<string, any>) => {
+        const head = await this.content.head(cruxId);
+        if (!head)
+          throw new ConflictException(
+            'The reviewed workspace has no retained content',
+          );
+        const captured = await this.workspace.read(
+          { cruxId, expected: head },
+          store,
+        );
+        assertTaskContent(
+          await new FileManifest(store).entries(captured.root),
+          files,
+        );
+        return captured;
+      };
+      next = {
+        ...next,
+        sourceState: await capture(copy.id, next.task),
+        targetState: await capture(merge.crux_id, next.main),
+      };
+    }
     const saved = await this.repository.saveReview(state, next);
     if (saved.error)
       throw new InternalServerErrorException(saved.error.message);
@@ -169,8 +201,7 @@ export class TaskMergeService {
   }
 
   async begin(id: string, expected: unknown, store?: DesktopContentStore) {
-    const { state, merge, copy, candidate, data, crux } =
-      await this.ownedState(id);
+    const { state, merge, copy, candidate, data } = await this.ownedState(id);
     if (
       merge.phase !== 'review' ||
       copy.phase !== 'ready' ||
@@ -187,49 +218,33 @@ export class TaskMergeService {
     );
     if (inspected.error)
       throw new InternalServerErrorException(inspected.error.message);
-    const { pending, growths } = inspected.data!;
+    const { pending } = inspected.data!;
     if (pending)
       throw new ConflictException(
         'Finish recovering the existing merge before starting another.',
       );
-    for (const [ownerId, expectedHead, meta] of [
-      [merge.crux_id, data.targetHead, crux.meta],
-      [copy.id, data.sourceHead, copy.meta],
+    if (!store)
+      throw new Error('Use the host content store to admit a file merge');
+    for (const [cruxId, retained] of [
+      [copy.id, data.sourceState],
+      [merge.crux_id, data.targetState],
     ] as const) {
-      const owned = growths.filter((row) => row.source_id === ownerId);
-      const active = meta?.settings?.activeBranch;
-      const latestWeight = Math.max(...owned.map((row) => row.weight ?? 0));
-      const tips = active
-        ? owned.filter((row) => row.target_id === active)
-        : owned.filter((row) => (row.weight ?? 0) === latestWeight);
+      const expectedState = retainedWorkspaceSchema.parse(retained);
+      const head = await this.content.head(cruxId);
       if (
-        !expectedHead ||
-        !tips.length ||
-        tips.some((row) => row.target_id !== expectedHead) ||
-        tips.some(
-          (row) =>
-            row.meta?.contentOwnerId !== undefined &&
-            row.meta.contentOwnerId !== ownerId,
+        !head ||
+        !isDeepStrictEqual(
+          await this.workspace.read({ cruxId, expected: head }, store),
+          expectedState,
         )
       )
         throw new ConflictException(
-          'Growth changed after review. Prepare a new review.',
+          'The workspace changed after review. Prepare a new review.',
         );
     }
-    const head = await this.content.head(merge.crux_id);
-    const targetWorkspace =
-      head && store
-        ? (
-            await this.workspace.read(
-              { cruxId: merge.crux_id, expected: head },
-              store,
-            )
-          ).workspace
-        : undefined;
     const saved = await this.repository.begin(state, {
       ...data,
       phase: 'applying',
-      ...(targetWorkspace ? { targetWorkspace } : {}),
     });
     if (saved.error)
       throw new InternalServerErrorException(saved.error.message);
@@ -380,7 +395,7 @@ export class TaskMergeService {
     if (
       !isDeepStrictEqual(
         before.workspace,
-        editWorkspaceSchema.parse(data.targetWorkspace),
+        retainedWorkspaceSchema.parse(data.targetState).workspace,
       )
     )
       throw new ConflictException(
@@ -390,13 +405,11 @@ export class TaskMergeService {
       await new FileManifest(store).entries(before.root),
       data.manifest,
     );
-    const segments: any[][] = [];
+    const source = retainedWorkspaceSchema.parse(data.sourceState);
+    await new FileManifest(store).verify(source.root);
+    const segments: any[][] = [source.workspace.messages];
     const seen = new Set<string>();
-    let tip = data.sourceHead;
-    if (typeof tip !== 'string' || !tip)
-      throw new ConflictException(
-        'The reviewed Task conversation is unavailable',
-      );
+    let tip = source.workspace.parentId;
     while (tip) {
       if (seen.has(tip))
         throw new ConflictException('Task conversation has cyclic ancestry');
@@ -409,7 +422,6 @@ export class TaskMergeService {
       const node = await this.crux.findById(tip);
       if (node.meta?.contentOwnerId !== copy.id) {
         if (
-          tip === data.sourceHead ||
           tip !== copy.base_snapshot_id ||
           node.meta?.contentOwnerId !== merge.crux_id
         )

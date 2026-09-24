@@ -234,6 +234,7 @@ describe('manifest-backed Growth commands', () => {
 
   it.each([
     'none',
+    'unmarked Task',
     'journal abort',
     'journal ignore',
     'reverse metadata',
@@ -288,19 +289,30 @@ describe('manifest-backed Growth commands', () => {
         },
         store,
       );
+      if (failure === 'unmarked Task') {
+        await owner.run('DELETE FROM dimensions WHERE target_id = ?', [
+          task.snapshot.id,
+        ]);
+        await owner.run('DELETE FROM file_content_heads WHERE crux_id = ?', [
+          task.snapshot.id,
+        ]);
+        await owner.run('DELETE FROM cruxes WHERE id = ?', [task.snapshot.id]);
+        await owner.updateWorkingCopyMeta(copyId, {
+          settings: { activeBranch: base.snapshot.id },
+          messages: [{ role: 'user', content: 'Unmarked Task conversation' }],
+        });
+      }
       const asManifest = (text: string) => {
         const { fingerprint, mode, encoding, mimeType, size } = put(text).put;
         return { 'hello.txt': { fingerprint, mode, encoding, mimeType, size } };
       };
       const mergeId = randomUUID();
-      const review = {
+      let review: any = {
         id: mergeId,
         cruxId: id,
         copyId,
         candidateId,
         phase: 'review',
-        sourceHead: task.snapshot.id,
-        targetHead: base.snapshot.id,
         base: asManifest('First\0version'),
         main: asManifest('First\0version'),
         task: asManifest('Reviewed work'),
@@ -319,7 +331,19 @@ describe('manifest-backed Growth commands', () => {
         store,
       );
       await owner.updateCrux(id, { meta: { projectFolder: '/owned/main' } });
-      await owner.saveTaskReview(JSON.stringify(review));
+      await owner.saveTaskReview(JSON.stringify(review), undefined, store);
+      review = JSON.parse(
+        (
+          await owner.get<any>('SELECT data FROM task_merges WHERE id = ?', [
+            mergeId,
+          ])
+        ).data,
+      );
+      expect(review.sourceState.root).toBe(
+        (await owner.fileContentHead(copyId))!.root,
+      );
+      expect(review.sourceHead).toBeUndefined();
+      expect(review.targetHead).toBeUndefined();
       await (owner.beginTaskMerge as any)(
         mergeId,
         JSON.stringify(review),
@@ -476,7 +500,7 @@ describe('manifest-backed Growth commands', () => {
         await owner.run('UPDATE task_merges SET data = ? WHERE id = ?', [
           JSON.stringify({
             ...JSON.parse(before.journal.data),
-            sourceHead: '',
+            sourceState: undefined,
           }),
           mergeId,
         ]);
@@ -493,7 +517,7 @@ describe('manifest-backed Growth commands', () => {
           objects.set(taskFile.put.fingerprint, bytes);
         };
       }
-      if (failure !== 'none') {
+      if (failure !== 'none' && failure !== 'unmarked Task') {
         const refused = await state();
         await expect(owner.completeTaskMerge(mergeId, store)).rejects.toThrow();
         expect(await state()).toEqual(refused);
@@ -514,6 +538,10 @@ describe('manifest-backed Growth commands', () => {
           (m: any) => m.taskMergeId === mergeId,
         ),
       ).toHaveLength(1);
+      if (failure === 'unmarked Task')
+        expect(journal.resultState.workspace.messages.at(-1).content).toContain(
+          'Unmarked Task conversation',
+        );
       expect(journal).not.toHaveProperty('resultHead');
       expect(
         await owner.all("SELECT * FROM dimensions WHERE type = 'growth'"),

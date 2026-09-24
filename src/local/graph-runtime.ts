@@ -783,6 +783,7 @@ export class LocalGraphRuntime {
   async saveTaskReview(
     reviewData: string,
     expectedData?: string,
+    store?: DesktopContentStore,
   ): Promise<void> {
     if (
       typeof reviewData !== 'string' ||
@@ -792,8 +793,14 @@ export class LocalGraphRuntime {
     const next = JSON.parse(reviewData);
     const expected =
       expectedData === undefined ? undefined : JSON.parse(expectedData);
+    if (!store)
+      throw new Error('Use the host content store to retain a review');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
     await this.executeChanged(
-      ({ taskMerge }) => taskMerge.save(next, expected),
+      ({ taskMerge }) => taskMerge.save(next, expected, capturedStore),
       (copy) => ({ entity: 'working-copy', ...copy, fields: ['phase'] }),
     );
   }

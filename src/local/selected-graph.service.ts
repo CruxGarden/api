@@ -270,11 +270,42 @@ export class SelectedGraphService {
         resultRoots.push(result.root);
       }
       for (const [key, contentOwner] of [
+        ['sourceState', merge.copyId],
+        ['targetState', merge.cruxId],
+      ]) {
+        // Retain older recorded journals without inventing review context for them.
+        if (
+          data[key] === undefined &&
+          typeof data.sourceHead === 'string' &&
+          typeof data.targetHead === 'string'
+        )
+          continue;
+        const retained = retainedWorkspaceSchema.parse(data[key]);
+        const parentId = retained.workspace.parentId;
+        const parent = parentId && nodes.get(parentId);
+        const task = workingCopies.find((copy) => copy.id === merge.copyId);
+        if (
+          parentId &&
+          (!parent ||
+            parent.kind !== 'snapshot' ||
+            (parent.meta.contentOwnerId !== contentOwner &&
+              !(
+                key === 'sourceState' &&
+                parentId === task?.baseSnapshotId &&
+                parent.meta.contentOwnerId === merge.cruxId
+              )))
+        )
+          throw new Error(
+            'Selected Task review has foreign conversation context',
+          );
+        resultRoots.push(retained.root);
+      }
+      for (const [key, contentOwner] of [
         ['sourceHead', merge.copyId],
         ['targetHead', merge.cruxId],
         ['resultHead', merge.cruxId],
       ]) {
-        if (data[key] == null && key === 'resultHead') continue;
+        if (data[key] == null) continue;
         const snapshot = nodes.get(data[key]);
         if (
           !snapshot ||
