@@ -767,16 +767,37 @@ export class LocalGraphRuntime {
       throw new Error('Use a Task identity and valid setup revision');
   }
 
-  async createWorkingCopy(input: LocalWorkingCopyCreate): Promise<void> {
+  async createWorkingCopy(
+    input: LocalWorkingCopyCreate,
+    store?: DesktopContentStore,
+  ): Promise<void> {
     const captured = captureWorkingCopyCreate(input);
+    if (!store)
+      throw new Error(
+        'Use the host content store to retain Task starting state',
+      );
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
     await this.executeChanged(
-      ({ workingCopy }) => workingCopy.create(captured),
+      ({ workingCopy }) => workingCopy.create(captured, capturedStore),
       () => ({
         entity: 'working-copy',
         id: captured.id,
         cruxId: captured.cruxId,
         fields: ['phase'],
       }),
+    );
+  }
+
+  async workingCopyBase(id: string, store: DesktopContentStore) {
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
+    return this.execute(({ workingCopy }) =>
+      workingCopy.readBase(id, capturedStore),
     );
   }
 
@@ -1179,7 +1200,18 @@ export class LocalGraphRuntime {
       return result.database;
     };
     const replacement = this.enqueue(async () =>
-      this.replaceCapturedDatabase(await inspect(captured), inspect),
+      this.replaceCapturedDatabase(
+        await inspect(captured),
+        inspect,
+        reader
+          ? {
+              read: reader.read,
+              write: async () => {
+                throw new Error('Recovery cannot rewrite immutable content');
+              },
+            }
+          : undefined,
+      ),
     );
     this.replacing = true;
     return replacement.then(
@@ -1211,6 +1243,7 @@ export class LocalGraphRuntime {
     inspectRecovery: (image: ArrayBuffer) => Promise<ArrayBuffer> = async (
       image,
     ) => inspectDesktopRecovery(image).database,
+    contentStore?: DesktopContentStore,
   ): Promise<ArrayBuffer> {
     const prefix = join(
       dirname(this.filename),
@@ -1232,7 +1265,11 @@ export class LocalGraphRuntime {
       });
       // Prepare the complete incoming file through the same API adapter before
       // touching the working connection. Unknown tables/columns remain intact.
-      candidate = await LocalGraphRuntime.openContext(candidatePath);
+      candidate = await LocalGraphRuntime.openContext(
+        candidatePath,
+        false,
+        contentStore,
+      );
       await candidate.close();
       candidateClosed = true;
       const staged = openSync(candidatePath, 'r+');

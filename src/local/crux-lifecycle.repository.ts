@@ -14,7 +14,7 @@ const historyReferences = [
     ].map((path) => `SELECT id, json_extract(meta, '$.${path}') FROM ${table}`),
   ),
   "SELECT h.crux_id, json_extract(p.value, '$.workspace.parentId') FROM edit_history h, json_each(h.checkpoints) p",
-  'SELECT id, base_snapshot_id FROM working_copies',
+  "SELECT id, json_extract(base_state, '$.workspace.parentId') FROM working_copies",
   'SELECT crux_id, candidate_id FROM task_merges',
   ...[
     'sourceHead',
@@ -92,7 +92,7 @@ export class CruxLifecycleRepository {
         `
     WITH RECURSIVE roots(id) AS (
       SELECT json_extract(p.value, '$.workspace.parentId') FROM edit_history h, json_each(h.checkpoints) p
-      UNION SELECT base_snapshot_id FROM working_copies
+      UNION SELECT json_extract(base_state, '$.workspace.parentId') FROM working_copies
       UNION SELECT candidate_id FROM task_merges
       UNION SELECT json_extract(meta, '$.merge.baseId') FROM cruxes
       UNION SELECT json_extract(meta, '$.merge.sourceHead') FROM cruxes

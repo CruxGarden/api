@@ -12,7 +12,7 @@ export async function bootstrapDesktopDatabase(db: Knex): Promise<void> {
     try {
       // All DDL executes on this transaction's owned native connection.
       connection.exec(
-        `${DESKTOP_SCHEMA_SQL}\n${FILE_CONTENT_SCHEMA};\n${EDIT_HISTORY_SCHEMA};\nINSERT INTO schema_version (version) VALUES (6);`,
+        `${DESKTOP_SCHEMA_SQL}\n${FILE_CONTENT_SCHEMA};\n${EDIT_HISTORY_SCHEMA};\nINSERT INTO schema_version (version) VALUES (7);`,
       );
     } finally {
       await trx.client.releaseConnection(connection);

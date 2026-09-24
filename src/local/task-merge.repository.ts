@@ -9,7 +9,7 @@ interface CopyRow {
   phase: string;
   revision: number;
   title: string;
-  base_snapshot_id: string;
+  base_state: string;
   meta: Record<string, any>;
 }
 export interface MergeRow {

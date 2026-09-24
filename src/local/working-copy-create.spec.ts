@@ -3,12 +3,15 @@ import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { LocalGraphRuntime } from './graph-runtime';
+import { DesktopContentStore } from './desktop-content';
 import { LocalWorkingCopyCreate } from './working-copy-create';
 
 describe('owned Task preparation and preview data', () => {
   let owner: LocalGraphRuntime;
   let dir: string;
   let input: LocalWorkingCopyCreate;
+  let base: string;
+  let store: DesktopContentStore;
   const sourceRows = () =>
     owner.all<any>('SELECT * FROM store WHERE crux_id = ? ORDER BY id', [
       input.cruxId,
@@ -18,24 +21,40 @@ describe('owned Task preparation and preview data', () => {
     owner = await LocalGraphRuntime.create(join(dir, 'garden.db'));
     const identity = { authorId: randomUUID(), homeId: randomUUID() };
     const main = await owner.createCrux({ ...identity, slug: 'main' });
-    const base = await owner.createCrux({
-      ...identity,
-      slug: 'base',
-      kind: 'snapshot',
-    });
-    await owner.execute(({ dimension }) =>
-      dimension.create({
-        ...identity,
-        sourceId: main,
-        targetId: base,
-        type: 'growth' as any,
-      }),
+    const objects = new Map<string, Uint8Array>();
+    store = {
+      read: async (id) => objects.get(id) ?? null,
+      write: async (id, bytes) => {
+        objects.set(id, bytes);
+      },
+    };
+    const head = await owner.editFileContent(
+      { cruxId: main, expected: null, changes: [] },
+      store,
     );
+    base = (
+      await owner.createGrowthSnapshot(
+        {
+          cruxId: main,
+          expected: head,
+          snapshotId: randomUUID(),
+          parentId: null,
+        },
+        store,
+      )
+    ).snapshot.id;
+    await owner.updateCrux(main, {
+      meta: { settings: { activeBranch: base } },
+    });
     input = {
       id: randomUUID(),
       cruxId: main,
       taskId: randomUUID(),
-      baseSnapshotId: base,
+      base: {
+        expected: head,
+        expectedMeta:
+          (await owner.execute(({ crux }) => crux.findById(main))).meta ?? {},
+      },
       title: 'My task',
       role: 'task',
       meta: {
@@ -71,7 +90,7 @@ describe('owned Task preparation and preview data', () => {
     rmSync(dir, { recursive: true, force: true });
   });
   it('registers a prepared folder then completes setup across restart without touching preview slots', async () => {
-    await owner.createWorkingCopy(input);
+    await owner.createWorkingCopy(input, store);
     const preview = await owner.all('SELECT * FROM store ORDER BY id');
     const prepare = jest.fn(async (id, current) => {
       expect(id).toBe(input.id);
@@ -111,7 +130,7 @@ describe('owned Task preparation and preview data', () => {
     ).toEqual({ phase: 'ready' });
   });
   it('rejects stale setup before invoking the folder hook and retains changes', async () => {
-    await owner.createWorkingCopy(input);
+    await owner.createWorkingCopy(input, store);
     await owner.updateWorkingCopyMeta(input.id, { notes: 'Concurrent edit' });
     const before = await owner.get(
       'SELECT * FROM working_copies WHERE id = ?',
@@ -130,7 +149,7 @@ describe('owned Task preparation and preview data', () => {
     ).toEqual(before);
   });
   it('retains a failed setup and its folder for guarded recovery', async () => {
-    await owner.createWorkingCopy(input);
+    await owner.createWorkingCopy(input, store);
     await owner.prepareWorkingCopyFolder(input.id, 0, () => '/retained');
     await owner.finishWorkingCopySetup(input.id, 1, 'failed');
     expect(
@@ -148,7 +167,7 @@ describe('owned Task preparation and preview data', () => {
     ).toEqual({ phase: 'ready', revision: 4, project_folder: '/retained' });
   });
   it('refuses ready without a folder and keeps failed host preparation retryable', async () => {
-    await owner.createWorkingCopy(input);
+    await owner.createWorkingCopy(input, store);
     const before = await owner.get(
       'SELECT * FROM working_copies WHERE id = ?',
       [input.id],
@@ -168,7 +187,7 @@ describe('owned Task preparation and preview data', () => {
   it.each(['ABORT', 'IGNORE'])(
     'rolls back setup %s without undoing host files',
     async (action) => {
-      await owner.createWorkingCopy(input);
+      await owner.createWorkingCopy(input, store);
       const before = await owner.get(
         'SELECT * FROM working_copies WHERE id = ?',
         [input.id],
@@ -210,7 +229,7 @@ describe('owned Task preparation and preview data', () => {
     async (role) => {
       input.role = role;
       const original = await sourceRows();
-      await owner.createWorkingCopy(input);
+      await owner.createWorkingCopy(input, store);
       const copy = await owner.get<any>(
         'SELECT * FROM working_copies WHERE id = ?',
         [input.id],
@@ -219,7 +238,10 @@ describe('owned Task preparation and preview data', () => {
         id: input.id,
         crux_id: input.cruxId,
         task_id: input.taskId,
-        base_snapshot_id: input.baseSnapshotId,
+        base_state: JSON.stringify({
+          root: input.base.expected!.root,
+          workspace: { parentId: base, messages: [], entryFile: null },
+        }),
         role,
         phase: 'preparing',
         revision: 0,
@@ -260,7 +282,7 @@ describe('owned Task preparation and preview data', () => {
       await owner.run(
         `CREATE TRIGGER refuse_clone BEFORE INSERT ON store WHEN NEW.crux_id = '${input.id}' AND NEW.extension = 'opaque-2' BEGIN SELECT RAISE(${action}${action === 'ABORT' ? ", 'Preview copy refused'" : ''}); END`,
       );
-      await expect(owner.createWorkingCopy(input)).rejects.toThrow();
+      await expect(owner.createWorkingCopy(input, store)).rejects.toThrow();
       expect(
         await owner.get('SELECT * FROM working_copies WHERE id = ?', [
           input.id,
@@ -271,7 +293,7 @@ describe('owned Task preparation and preview data', () => {
       ).toEqual([]);
       expect(await sourceRows()).toEqual(original);
       await owner.run('DROP TRIGGER refuse_clone');
-      await owner.createWorkingCopy(input);
+      await owner.createWorkingCopy(input, store);
       expect(
         await owner.all('SELECT * FROM store WHERE crux_id = ?', [input.id]),
       ).toHaveLength(3);
@@ -279,14 +301,14 @@ describe('owned Task preparation and preview data', () => {
   );
   it('refuses identity collisions and duplicate creation without changing a prepared copy', async () => {
     await expect(
-      owner.createWorkingCopy({ ...input, id: input.cruxId }),
+      owner.createWorkingCopy({ ...input, id: input.cruxId }, store),
     ).rejects.toThrow();
-    await owner.createWorkingCopy(input);
+    await owner.createWorkingCopy(input, store);
     const copy = await owner.get('SELECT * FROM working_copies WHERE id = ?', [
       input.id,
     ]);
     await expect(
-      owner.createWorkingCopy({ ...input, title: 'Overwrite' }),
+      owner.createWorkingCopy({ ...input, title: 'Overwrite' }, store),
     ).rejects.toThrow();
     expect(
       await owner.get('SELECT * FROM working_copies WHERE id = ?', [input.id]),
@@ -304,12 +326,12 @@ describe('owned Task preparation and preview data', () => {
         new Date().toISOString(),
         input.cruxId,
       ]);
-    if (fault === 'snapshot-owner') input.cruxId = input.baseSnapshotId;
+    if (fault === 'snapshot-owner') input.cruxId = base;
     if (fault === 'unlinked-base') await owner.run('DELETE FROM dimensions');
     if (fault === 'deleted-base')
       await owner.run('UPDATE cruxes SET deleted = ? WHERE id = ?', [
         new Date().toISOString(),
-        input.baseSnapshotId,
+        base,
       ]);
     if (fault === 'applying-merge')
       await owner.run(
@@ -322,7 +344,7 @@ describe('owned Task preparation and preview data', () => {
           new Date().toISOString(),
         ],
       );
-    await expect(owner.createWorkingCopy(input)).rejects.toThrow();
+    await expect(owner.createWorkingCopy(input, store)).rejects.toThrow();
     expect(
       await owner.get('SELECT * FROM working_copies WHERE id = ?', [input.id]),
     ).toBeUndefined();
@@ -336,7 +358,7 @@ describe('owned Task preparation and preview data', () => {
         }),
     );
     await new Promise<void>((resolve) => setImmediate(resolve));
-    const create = owner.createWorkingCopy(input);
+    const create = owner.createWorkingCopy(input, store);
     (input.meta.settings as any).activeBranch = 'changed';
     input.title = 'Changed later';
     unblock();
@@ -347,8 +369,6 @@ describe('owned Task preparation and preview data', () => {
       [input.id],
     );
     expect(saved.title).toBe('My task');
-    expect(JSON.parse(saved.meta).settings.activeBranch).toBe(
-      input.baseSnapshotId,
-    );
+    expect(JSON.parse(saved.meta).settings.activeBranch).toBe(base);
   });
 });

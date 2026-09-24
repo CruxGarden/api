@@ -5,6 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CruxGraphService } from '../crux/crux-graph.service';
+import {
+  WorkspaceStateService,
+  RetainedWorkspaceState,
+} from './workspace-state.service';
+import { DesktopContentStore } from './desktop-content';
+import { FileManifest } from './file-manifest';
+import { retainedWorkspaceSchema } from './edit-history';
 import { WorkingCopyRepository } from './working-copy.repository';
 import {
   LocalWorkingCopyCreate,
@@ -18,6 +25,7 @@ export class WorkingCopyService {
   constructor(
     private readonly copies: WorkingCopyRepository,
     private readonly crux: CruxGraphService,
+    private readonly workspace: WorkspaceStateService,
   ) {}
 
   private async setupState(id: string, revision: number) {
@@ -75,32 +83,59 @@ export class WorkingCopyService {
     return copy.crux_id;
   }
 
-  async create(input: LocalWorkingCopyCreate): Promise<void> {
+  async create(
+    input: LocalWorkingCopyCreate,
+    store: DesktopContentStore,
+  ): Promise<void> {
     const parent = await this.crux.findById(input.cruxId);
     if ((parent.kind as string) === 'snapshot')
       throw new ConflictException('Start new Tasks from Main, not a snapshot.');
     const inspected = await this.copies.creationContext(input);
     if (inspected.error)
       throw new InternalServerErrorException(inspected.error.message);
-    const { collision, base, linked, pending } = inspected.data!;
+    const { collision, pending } = inspected.data!;
     if (collision)
       throw new ConflictException('This Task identity already exists.');
-    if (
-      !base ||
-      !linked ||
-      (base.meta?.contentOwnerId !== undefined &&
-        base.meta.contentOwnerId !== input.cruxId)
-    )
-      throw new ConflictException(
-        'The Task base must belong to Main’s preserved Growth.',
-      );
     if (pending)
       throw new ConflictException(
         'Finish recovering Main’s merge before starting a Task.',
       );
-    const saved = await this.copies.create(input);
+    const base = await this.workspace.read(
+      { cruxId: input.cruxId, expected: input.base.expected },
+      store,
+      input.base.expectedMeta,
+    );
+    const saved = await this.copies.create(
+      {
+        ...input,
+        meta: {
+          ...input.meta,
+          settings: {
+            ...(input.meta?.settings as object),
+            activeBranch: base.workspace.parentId,
+          },
+        },
+      },
+      base,
+    );
     if (saved.error)
       throw new InternalServerErrorException(saved.error.message);
+  }
+
+  async readBase(id: string, store: DesktopContentStore) {
+    const result = await this.copies.find(id);
+    if (result.error)
+      throw new InternalServerErrorException(result.error.message);
+    const copy = result.data;
+    if (!copy) throw new NotFoundException('Working Copy not found.');
+    await this.crux.findById(copy.crux_id);
+    const base = retainedWorkspaceSchema.parse(
+      JSON.parse(copy.base_state),
+    ) as RetainedWorkspaceState;
+    await this.workspace.assertContext(copy.crux_id, base.workspace);
+    const manifest = new FileManifest(store);
+    await manifest.verify(base.root);
+    return { ...base, entries: await manifest.entries(base.root) };
   }
 
   async setArchived(

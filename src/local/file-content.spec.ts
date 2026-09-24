@@ -914,7 +914,7 @@ describe('API file content publication', () => {
         );
       if (state === 'task')
         await owner.run(
-          "INSERT INTO working_copies (id, crux_id, task_id, title, base_snapshot_id, created, updated) VALUES ('copy', ?, 'task', 'Task', 'base', 'now', 'now')",
+          "INSERT INTO working_copies (id, crux_id, task_id, title, base_state, created, updated) VALUES ('copy', ?, 'task', 'Task', 'base', 'now', 'now')",
           [id],
         );
       if (state === 'growth')

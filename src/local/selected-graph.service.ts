@@ -129,9 +129,12 @@ export class SelectedGraphService {
     };
     for (const id of live) acyclic(id, new Set());
 
-    const workingCopies = unwrap(
+    const workingCopies: CapturedRecord[] = unwrap(
       await this.repository.rows('working_copies', [...live]),
-    );
+    ).map((copy) => ({
+      ...copy,
+      baseState: retainedWorkspaceSchema.parse(JSON.parse(copy.baseState)),
+    }));
     const copies = new Map(workingCopies.map((copy) => [copy.id, copy]));
     for (const copy of workingCopies) {
       if (nodes.has(copy.id) || !['task', 'review'].includes(copy.role))
@@ -163,7 +166,9 @@ export class SelectedGraphService {
         const contentOwner = node.meta.contentOwnerId;
         const copy = copies.get(contentOwner);
         const parentOwner =
-          copy?.baseSnapshotId === parentId ? copy.cruxId : contentOwner;
+          copy?.baseState.workspace.parentId === parentId
+            ? copy.cruxId
+            : contentOwner;
         if (
           !parent ||
           parent.kind !== 'snapshot' ||
@@ -186,7 +191,9 @@ export class SelectedGraphService {
     for (const node of nodes.values())
       if (node.kind === 'snapshot') checkGrowth(node.id, new Set());
     for (const copy of workingCopies) {
-      const base = nodes.get(copy.baseSnapshotId);
+      const parentId = copy.baseState.workspace.parentId;
+      if (!parentId) continue;
+      const base = nodes.get(parentId);
       if (
         !base ||
         base.kind !== 'snapshot' ||
@@ -291,7 +298,7 @@ export class SelectedGraphService {
             (parent.meta.contentOwnerId !== contentOwner &&
               !(
                 key === 'sourceState' &&
-                parentId === task?.baseSnapshotId &&
+                parentId === task?.baseState.workspace.parentId &&
                 parent.meta.contentOwnerId === merge.cruxId
               )))
         )
@@ -351,7 +358,9 @@ export class SelectedGraphService {
         if (!parentId) continue;
         const copy = workingCopies.find((item) => item.id === history.cruxId);
         const parentOwner =
-          copy?.baseSnapshotId === parentId ? copy.cruxId : history.cruxId;
+          copy?.baseState.workspace.parentId === parentId
+            ? copy.cruxId
+            : history.cruxId;
         const parent = nodes.get(parentId);
         if (
           !parent ||
@@ -393,7 +402,10 @@ export class SelectedGraphService {
           verifiedRoots.add(checkpoint.root);
         }
       }
-    for (const root of resultRoots)
+    for (const root of [
+      ...resultRoots,
+      ...workingCopies.map((copy) => copy.baseState.root),
+    ])
       if (!verifiedRoots.has(root)) {
         for (const fp of await manifest.verify(root)) fingerprints.add(fp);
         verifiedRoots.add(root);

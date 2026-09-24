@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS working_copies (
   crux_id TEXT NOT NULL,
   task_id TEXT NOT NULL UNIQUE,
   title TEXT NOT NULL,
-  base_snapshot_id TEXT NOT NULL,
+  base_state TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'task',
   phase TEXT NOT NULL DEFAULT 'preparing',
   meta TEXT NOT NULL DEFAULT '{}',
@@ -131,3 +131,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER PRIMARY KEY
 );
 `;
+
+/** Historical column shape, used only while upgrading an existing profile. */
+export const PRE_TASK_STATE_SCHEMA_SQL = DESKTOP_SCHEMA_SQL.replace(
+  'base_state TEXT NOT NULL',
+  'base_snapshot_id TEXT NOT NULL',
+);

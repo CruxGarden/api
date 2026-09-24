@@ -127,13 +127,16 @@ describe('committed local graph notifications', () => {
   it('identifies the Task and its owning Crux only after a successful update', async () => {
     const task = randomUUID();
     await owner.run(
-      'INSERT INTO working_copies (id, crux_id, task_id, title, base_snapshot_id, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO working_copies (id, crux_id, task_id, title, base_state, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [
         task,
         id,
         randomUUID(),
         'Task',
-        randomUUID(),
+        JSON.stringify({
+          root: 'a'.repeat(64),
+          workspace: { parentId: null, messages: [], entryFile: null },
+        }),
         new Date().toISOString(),
         new Date().toISOString(),
       ],

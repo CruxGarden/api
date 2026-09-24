@@ -26,13 +26,16 @@ describe('owned working-copy metadata update', () => {
     ).id;
     id = randomUUID();
     await owner.run(
-      'INSERT INTO working_copies (id, crux_id, task_id, title, base_snapshot_id, phase, meta, project_folder, revision, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO working_copies (id, crux_id, task_id, title, base_state, phase, meta, project_folder, revision, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         id,
         cruxId,
         randomUUID(),
         'Original task',
-        randomUUID(),
+        JSON.stringify({
+          root: 'a'.repeat(64),
+          workspace: { parentId: null, messages: [], entryFile: null },
+        }),
         'ready',
         JSON.stringify({
           retained: true,
@@ -75,7 +78,7 @@ describe('owned working-copy metadata update', () => {
       revision: 5,
       project_folder: '/actual-folder',
       task_id: before.task_id,
-      base_snapshot_id: before.base_snapshot_id,
+      base_state: before.base_state,
       phase: 'ready',
     });
     expect(JSON.parse(after.meta)).toEqual({

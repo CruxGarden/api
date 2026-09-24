@@ -422,7 +422,9 @@ export class TaskMergeService {
       const node = await this.crux.findById(tip);
       if (node.meta?.contentOwnerId !== copy.id) {
         if (
-          tip !== copy.base_snapshot_id ||
+          tip !==
+            retainedWorkspaceSchema.parse(JSON.parse(copy.base_state)).workspace
+              .parentId ||
           node.meta?.contentOwnerId !== merge.crux_id
         )
           throw new ConflictException(

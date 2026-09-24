@@ -256,19 +256,21 @@ describe('edit history outside the Crux graph', () => {
     await runtime.close();
     const Database = require('better-sqlite3');
     const db = new Database(join(dir, 'garden.db'));
-    db.exec('DROP TABLE edit_history; UPDATE schema_version SET version = 5;');
+    db.exec(
+      'ALTER TABLE working_copies RENAME COLUMN base_state TO base_snapshot_id; DROP TABLE edit_history; UPDATE schema_version SET version = 5;',
+    );
     const oldImage = Uint8Array.from(db.serialize()).buffer;
     db.close();
     runtime = await LocalGraphRuntime.open(join(dir, 'garden.db'));
     expect(await runtime.get('SELECT version FROM schema_version')).toEqual({
-      version: 6,
+      version: 7,
     });
     expect(await runtime.fileContentHead(cruxId)).toEqual(head);
     expect((await runtime.listEditHistory(cruxId)).checkpoints).toEqual([]);
     await capture();
     await runtime.replaceDatabaseWithContent(oldImage, store);
     expect(await runtime.get('SELECT version FROM schema_version')).toEqual({
-      version: 6,
+      version: 7,
     });
     expect(await runtime.fileContentHead(cruxId)).toEqual(head);
   });

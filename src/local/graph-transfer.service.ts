@@ -91,7 +91,9 @@ function checkReferences(graph: PrivateGraph) {
       if (!parentId) continue;
       const copy = graph.workingCopies.find((item) => item.id === row.cruxId);
       const parentOwner =
-        copy?.baseSnapshotId === parentId ? copy.cruxId : row.cruxId;
+        copy?.baseState.workspace.parentId === parentId
+          ? copy.cruxId
+          : row.cruxId;
       const parent = graph.cruxes.find((item) => item.id === parentId);
       if (
         !parent ||
@@ -160,7 +162,7 @@ function checkReferences(graph: PrivateGraph) {
       const snapshot = graph.cruxes.find((node) => node.id === branch);
       const copy = graph.workingCopies.find((node) => node.id === row.id);
       const contentOwner =
-        copy?.baseSnapshotId === branch
+        copy?.baseState.workspace.parentId === branch
           ? copy.cruxId
           : (meta.contentOwnerId ?? row.id);
       if (
@@ -176,7 +178,7 @@ function checkReferences(graph: PrivateGraph) {
       meta.parentCruxId,
       meta.contentOwnerId,
       meta.settings?.activeBranch,
-      ...['cruxId', 'taskId', 'baseSnapshotId'].map(
+      ...['cruxId', 'taskId', 'baseParentId'].map(
         (key) => meta.workingCopy?.[key],
       ),
       ...[
@@ -193,6 +195,27 @@ function checkReferences(graph: PrivateGraph) {
         : []),
     ])
       if (value != null) requireRef(value, allIds);
+  }
+  for (const copy of graph.workingCopies) {
+    const { parentId, messages } = copy.baseState.workspace;
+    if (parentId) {
+      const parent = graph.cruxes.find((row) => row.id === parentId);
+      if (
+        parent?.kind !== 'snapshot' ||
+        parent.meta.contentOwnerId !== copy.cruxId ||
+        !graph.dimensions.some(
+          (edge) =>
+            edge.type === 'growth' &&
+            edge.sourceId === copy.cruxId &&
+            edge.targetId === parentId,
+        )
+      )
+        throw new Error(
+          'Private Task starting state has foreign Growth context',
+        );
+    }
+    for (const message of messages as any[])
+      if (message?.taskMergeId != null) requireRef(message.taskMergeId, allIds);
   }
   for (const merge of graph.taskMerges) {
     for (const workspace of [
@@ -367,7 +390,19 @@ export class GraphTransferService {
       id: remap(row.id),
       cruxId: remap(row.cruxId),
       taskId: remap(row.taskId),
-      baseSnapshotId: remap(row.baseSnapshotId),
+      baseState: JSON.stringify({
+        ...row.baseState,
+        workspace: {
+          ...row.baseState.workspace,
+          parentId: row.baseState.workspace.parentId
+            ? remap(row.baseState.workspace.parentId)
+            : null,
+          messages: remapGraphMeta(
+            { messages: row.baseState.workspace.messages },
+            ids,
+          ).messages,
+        },
+      }),
       meta: remapGraphMeta(row.meta, ids),
       projectFolder: null,
       revision:
@@ -521,7 +556,14 @@ export class GraphTransferService {
         );
       for (const row of expected)
         for (const [key, value] of Object.entries(row))
-          if (!isDeepStrictEqual(indexed.get(row.id)?.[key], value))
+          if (
+            !isDeepStrictEqual(
+              indexed.get(row.id)?.[key],
+              key === 'baseState' && typeof value === 'string'
+                ? JSON.parse(value)
+                : value,
+            )
+          )
             throw new Error('Private graph changed during admission');
     }
     if (

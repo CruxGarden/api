@@ -1,4 +1,4 @@
-import { editHistorySchema } from './edit-history';
+import { editHistorySchema, retainedWorkspaceSchema } from './edit-history';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'util';
 import type { SelectedGraphCapture } from './selected-graph.service';
@@ -27,7 +27,7 @@ const boundary = z
 export const privateGraphSchema = z
   .object({
     purpose: z.literal('private-backup'),
-    graphVersion: z.literal(1),
+    graphVersion: z.literal(2),
     payloadVersion: z.literal(1),
     selection: z
       .object({ roots: z.array(id).min(1), includeMembers: z.boolean() })
@@ -72,7 +72,7 @@ export const privateGraphSchema = z
           cruxId: id,
           taskId: id,
           title: text,
-          baseSnapshotId: id,
+          baseState: retainedWorkspaceSchema,
           role: z.enum(['task', 'review']),
           phase: z.enum(['preparing', 'ready', 'merged', 'archived', 'failed']),
           meta,
@@ -178,7 +178,7 @@ export function projectPrivateGraph(
 ): PrivateGraph {
   return privateGraphSchema.parse({
     purpose: 'private-backup',
-    graphVersion: 1,
+    graphVersion: 2,
     payloadVersion: 1,
     selection: capture.selection,
     cruxes: capture.cruxes.map((row) => ({
@@ -197,7 +197,7 @@ export function projectPrivateGraph(
     workingCopies: capture.workingCopies.map((row) => ({
       ...pick(
         row,
-        'id cruxId taskId title baseSnapshotId role phase created updated',
+        'id cruxId taskId title baseState role phase created updated',
       ),
       meta: portableGraphMeta(row.meta),
     })),
@@ -247,7 +247,7 @@ export function remapGraphMeta(
   };
   replace(result, ['parentCruxId', 'contentOwnerId']);
   replace(result.settings, ['activeBranch']);
-  replace(result.workingCopy, ['cruxId', 'taskId', 'baseSnapshotId']);
+  replace(result.workingCopy, ['cruxId', 'taskId', 'baseParentId']);
   replace(result.merge, [
     'id',
     'taskId',

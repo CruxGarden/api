@@ -65,13 +65,16 @@ describe('owned Task merge finalization', () => {
       [candidate, 'review'],
     ]) {
       await owner.run(
-        'INSERT INTO working_copies (id, crux_id, task_id, title, base_snapshot_id, role, phase, meta, revision, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO working_copies (id, crux_id, task_id, title, base_state, role, phase, meta, revision, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           id,
           main,
           randomUUID(),
           role,
-          result,
+          JSON.stringify({
+            root: 'a'.repeat(64),
+            workspace: { parentId: result, messages: [], entryFile: null },
+          }),
           role,
           'ready',
           JSON.stringify({ preserved: 'state' }),

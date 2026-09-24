@@ -136,15 +136,23 @@ describe('private selected graph transfer through the API owner', () => {
       incoming,
     );
     const task = randomUUID();
-    await source.createWorkingCopy({
-      id: task,
-      taskId: randomUUID(),
-      cruxId: work,
-      title: 'Task',
-      baseSnapshotId: growth.snapshot.id,
-      role: 'task',
-      meta: { settings: { activeBranch: growth.snapshot.id } },
-    });
+    await source.createWorkingCopy(
+      {
+        id: task,
+        taskId: randomUUID(),
+        cruxId: work,
+        title: 'Task',
+        base: {
+          expected: await source.fileContentHead(work),
+          expectedMeta:
+            (await source.execute(({ crux }) => crux.findById(work))).meta ??
+            {},
+        },
+        role: 'task',
+        meta: { settings: { activeBranch: growth.snapshot.id } },
+      },
+      incoming,
+    );
     const taskGrowth = await source.createGrowthSnapshot(
       {
         cruxId: task,
@@ -155,15 +163,23 @@ describe('private selected graph transfer through the API owner', () => {
       incoming,
     );
     const review = randomUUID();
-    await source.createWorkingCopy({
-      id: review,
-      taskId: randomUUID(),
-      cruxId: work,
-      title: 'Review',
-      baseSnapshotId: growth.snapshot.id,
-      role: 'review',
-      meta: {},
-    });
+    await source.createWorkingCopy(
+      {
+        id: review,
+        taskId: randomUUID(),
+        cruxId: work,
+        title: 'Review',
+        base: {
+          expected: await source.fileContentHead(work),
+          expectedMeta:
+            (await source.execute(({ crux }) => crux.findById(work))).meta ??
+            {},
+        },
+        role: 'review',
+        meta: {},
+      },
+      incoming,
+    );
     const merge = randomUUID();
     const data = {
       id: merge,
@@ -504,7 +520,7 @@ describe('private selected graph transfer through the API owner', () => {
     const f = await fixture();
     const attempts: Array<(request: any) => void> = [
       (r) => {
-        r.graph.graphVersion = 2;
+        r.graph.graphVersion = 1;
       },
       (r) => {
         r.graph.payloadVersion = 2;

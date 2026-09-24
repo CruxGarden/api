@@ -71,7 +71,7 @@ describe('single-owner local API runtime', () => {
         'preserved',
       ]);
       const image = await fresh.closeWithRecoveryImage();
-      expect(inspectDesktopRecovery(image).schemaVersion).toBe(6);
+      expect(inspectDesktopRecovery(image).schemaVersion).toBe(7);
       const recoveredPath = join(scratch, 'fresh-recovered.db');
       writeFileSync(recoveredPath, Buffer.from(image));
       fresh = await LocalGraphRuntime.open(recoveredPath);
@@ -134,7 +134,7 @@ describe('single-owner local API runtime', () => {
         const result = original.call(this, sql);
         if (
           typeof sql === 'string' &&
-          sql.includes('INSERT INTO schema_version (version) VALUES (6)')
+          sql.includes('INSERT INTO schema_version (version) VALUES (7)')
         )
           throw new Error('bootstrap interrupted');
         return result;

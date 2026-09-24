@@ -233,7 +233,9 @@ describe('manifest-aware API installation replacement', () => {
     const image = openDesktopRecovery(incoming, true);
     let older: ArrayBuffer;
     try {
-      image.prepare('UPDATE schema_version SET version = 4').run();
+      image.exec(
+        'ALTER TABLE working_copies RENAME COLUMN base_state TO base_snapshot_id; UPDATE schema_version SET version = 4',
+      );
       older = Uint8Array.from(image.serialize()).buffer;
     } finally {
       image.close();

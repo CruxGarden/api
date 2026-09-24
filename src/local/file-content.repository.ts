@@ -1,3 +1,4 @@
+import { retainedWorkspaceSchema } from './edit-history';
 import { isDeepStrictEqual } from 'util';
 import { Injectable } from '@nestjs/common';
 import { toEntityFields } from '../common/helpers/case-helpers';
@@ -63,11 +64,8 @@ export class FileContentRepository {
         .first('id'));
       const task = !!(await db('working_copies as w')
         .leftJoin('file_content_heads as h', 'h.crux_id', 'w.id')
-        .leftJoin('file_content_heads as b', 'b.crux_id', 'w.base_snapshot_id')
         .where({ 'w.crux_id': id })
-        .andWhere((query) =>
-          query.whereNull('h.crux_id').orWhereNull('b.crux_id'),
-        )
+        .whereNull('h.crux_id')
         .first('w.id'));
       const review = !!(await db('task_merges')
         .where({ crux_id: copy?.crux_id ?? id, phase: 'applying' })
@@ -143,7 +141,11 @@ export class FileContentRepository {
   /** A Task's first-parent ancestry may enter its declared Main base only. */
   async parentOwner(id: string, parentId: string): Promise<string> {
     const copy = await this.db.query()('working_copies').where({ id }).first();
-    return copy?.base_snapshot_id === parentId ? copy.crux_id : id;
+    return copy &&
+      retainedWorkspaceSchema.parse(JSON.parse(copy.base_state)).workspace
+        .parentId === parentId
+      ? copy.crux_id
+      : id;
   }
 
   async applyingMerge(id: string, mergeId: string): Promise<boolean> {

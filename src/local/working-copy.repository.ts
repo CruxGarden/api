@@ -2,13 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { DbService } from '../common/services/db.service';
 import { success, failure } from '../common/helpers/repository-helpers';
 import { randomUUID } from 'crypto';
+import { RetainedWorkspaceState } from './workspace-state.service';
 import { LocalWorkingCopyCreate } from './working-copy-create';
 
 interface WorkingCopyRow {
   id: string;
   crux_id: string;
   task_id: string;
-  base_snapshot_id: string;
+  base_state: string;
   meta: Record<string, unknown>;
   revision: number;
   role: string;
@@ -27,33 +28,19 @@ export class WorkingCopyRepository {
       const collision =
         !!(await db('working_copies').where({ id: input.id }).first('id')) ||
         !!(await db('cruxes').where({ id: input.id }).first('id'));
-      const base = await db('cruxes')
-        .where({ id: input.baseSnapshotId, kind: 'snapshot' })
-        .whereNull('deleted')
-        .first();
-      const linked = !!(await db('dimensions')
-        .where({
-          source_id: input.cruxId,
-          target_id: input.baseSnapshotId,
-          type: 'growth',
-        })
-        .whereNull('deleted')
-        .first('id'));
       const pending = !!(await db('task_merges')
         .where({ crux_id: input.cruxId, phase: 'applying' })
         .first('id'));
-      return success({ collision, base, linked, pending });
+      return success({ collision, pending });
     } catch (error) {
       return failure<{
         collision: boolean;
-        base: any;
-        linked: boolean;
         pending: boolean;
       }>(error);
     }
   }
 
-  async create(input: LocalWorkingCopyCreate) {
+  async create(input: LocalWorkingCopyCreate, base: RetainedWorkspaceState) {
     try {
       const db = this.db.query();
       const now = new Date();
@@ -62,7 +49,7 @@ export class WorkingCopyRepository {
         crux_id: input.cruxId,
         task_id: input.taskId,
         title: input.title,
-        base_snapshot_id: input.baseSnapshotId,
+        base_state: JSON.stringify(base),
         role: input.role,
         phase: 'preparing',
         meta: input.meta,
@@ -74,18 +61,18 @@ export class WorkingCopyRepository {
       await db('working_copies').insert(record);
       // A Task starts from the retained base root, without cloning file records.
       // Its subsequent edits publish an independent head under its copy identity.
-      const baseHead = await db('file_content_heads')
-        .where({ crux_id: input.baseSnapshotId })
+      const retained = {
+        crux_id: input.id,
+        format_version: 1,
+        root: base.root,
+        revision: 1,
+      };
+      await db('file_content_heads').insert(retained);
+      const savedHead = await db('file_content_heads')
+        .where({ crux_id: input.id })
         .first();
-      if (baseHead) {
-        const retained = { ...baseHead, crux_id: input.id, revision: 1 };
-        await db('file_content_heads').insert(retained);
-        const savedHead = await db('file_content_heads')
-          .where({ crux_id: input.id })
-          .first();
-        if (JSON.stringify(savedHead) !== JSON.stringify(retained))
-          throw new Error('Task content retention did not persist');
-      }
+      if (JSON.stringify(savedHead) !== JSON.stringify(retained))
+        throw new Error('Task content retention did not persist');
 
       // Preview data is a private independent copy, including every visitor slot
       // and unknown extension column. It never aliases the live Crux's Store.
@@ -151,7 +138,7 @@ export class WorkingCopyRepository {
         saved?.revision !== copy.revision + 1 ||
         saved?.project_folder !== folder ||
         saved?.task_id !== copy.task_id ||
-        saved?.base_snapshot_id !== copy.base_snapshot_id ||
+        saved?.base_state !== copy.base_state ||
         saved?.crux_id !== copy.crux_id ||
         saved?.role !== copy.role ||
         JSON.stringify(saved?.meta) !== JSON.stringify(copy.meta)

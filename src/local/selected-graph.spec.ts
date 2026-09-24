@@ -125,15 +125,22 @@ describe('API-owned selected graph capture', () => {
       store,
     );
     const taskId = randomUUID();
-    await owner.createWorkingCopy({
-      id: taskId,
-      cruxId: id,
-      taskId: randomUUID(),
-      title: 'Task',
-      baseSnapshotId: growth.snapshot.id,
-      role: 'task',
-      meta: {},
-    });
+    await owner.createWorkingCopy(
+      {
+        id: taskId,
+        cruxId: id,
+        taskId: randomUUID(),
+        title: 'Task',
+        base: {
+          expected: await owner.fileContentHead(id),
+          expectedMeta:
+            (await owner.execute(({ crux }) => crux.findById(id))).meta ?? {},
+        },
+        role: 'task',
+        meta: {},
+      },
+      store,
+    );
     const taskGrowth = await owner.createGrowthSnapshot(
       {
         cruxId: taskId,
@@ -228,7 +235,10 @@ describe('API-owned selected graph capture', () => {
     const selected = await owner.captureSelectedGraph(selection, store);
     expect(selected.contentHeads).toHaveLength(4);
     expect(selected.workingCopies).toMatchObject([
-      { id: retained.taskId, baseSnapshotId: retained.growth.snapshot.id },
+      {
+        id: retained.taskId,
+        baseState: { workspace: { parentId: retained.growth.snapshot.id } },
+      },
     ]);
     expect(
       selected.cruxes.find(
@@ -411,15 +421,22 @@ describe('API-owned selected graph capture', () => {
     const work = await create('Work');
     const { taskId, growth, taskGrowth } = await content(work);
     const candidateId = randomUUID();
-    await owner.createWorkingCopy({
-      id: candidateId,
-      cruxId: work,
-      taskId: randomUUID(),
-      title: 'Review',
-      baseSnapshotId: growth.snapshot.id,
-      role: 'review',
-      meta: {},
-    });
+    await owner.createWorkingCopy(
+      {
+        id: candidateId,
+        cruxId: work,
+        taskId: randomUUID(),
+        title: 'Review',
+        base: {
+          expected: await owner.fileContentHead(work),
+          expectedMeta:
+            (await owner.execute(({ crux }) => crux.findById(work))).meta ?? {},
+        },
+        role: 'review',
+        meta: {},
+      },
+      store,
+    );
     const bytes = Buffer.from('Resolved content, not in any current manifest');
     const fingerprint = hash(bytes);
     objects.set(fingerprint, bytes);

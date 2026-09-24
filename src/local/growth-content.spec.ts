@@ -118,15 +118,22 @@ describe('manifest-backed Growth commands', () => {
   it('retains a Task base, edits and snapshots its independent content, and reopens both owners', async () => {
     const base = await owner.createGrowthSnapshot(request(), store);
     const taskId = randomUUID();
-    await owner.createWorkingCopy({
-      id: taskId,
-      cruxId: id,
-      taskId: randomUUID(),
-      title: 'Independent work',
-      baseSnapshotId: base.snapshot.id,
-      role: 'task',
-      meta: {},
-    });
+    await owner.createWorkingCopy(
+      {
+        id: taskId,
+        cruxId: id,
+        taskId: randomUUID(),
+        title: 'Independent work',
+        base: {
+          expected: await owner.fileContentHead(id),
+          expectedMeta:
+            (await owner.execute(({ crux }) => crux.findById(id))).meta ?? {},
+        },
+        role: 'task',
+        meta: {},
+      },
+      store,
+    );
     const taskHead = await owner.fileContentHead(taskId);
     expect(taskHead).toEqual({ ...head, cruxId: taskId, revision: 1 });
     const edited = await owner.editFileContent(
@@ -255,15 +262,23 @@ describe('manifest-backed Growth commands', () => {
       for (const role of ['task', 'review'] as const) {
         const copyId = randomUUID();
         copies.push(copyId);
-        await owner.createWorkingCopy({
-          id: copyId,
-          cruxId: id,
-          taskId: randomUUID(),
-          title: role,
-          baseSnapshotId: base.snapshot.id,
-          role,
-          meta: {},
-        });
+        await owner.createWorkingCopy(
+          {
+            id: copyId,
+            cruxId: id,
+            taskId: randomUUID(),
+            title: role,
+            base: {
+              expected: await owner.fileContentHead(id),
+              expectedMeta:
+                (await owner.execute(({ crux }) => crux.findById(id))).meta ??
+                {},
+            },
+            role,
+            meta: {},
+          },
+          store,
+        );
         await owner.prepareWorkingCopyFolder(
           copyId,
           0,
@@ -289,6 +304,9 @@ describe('manifest-backed Growth commands', () => {
         },
         store,
       );
+      await owner.updateWorkingCopyMeta(copyId, {
+        settings: { activeBranch: task.snapshot.id },
+      });
       if (failure === 'unmarked Task') {
         await owner.run('DELETE FROM dimensions WHERE target_id = ?', [
           task.snapshot.id,

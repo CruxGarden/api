@@ -21,13 +21,16 @@ describe('owned Task archive/reopen', () => {
     });
     id = randomUUID();
     await owner.run(
-      'INSERT INTO working_copies (id, crux_id, task_id, title, base_snapshot_id, role, phase, meta, project_folder, revision, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO working_copies (id, crux_id, task_id, title, base_state, role, phase, meta, project_folder, revision, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         id,
         cruxId,
         randomUUID(),
         'My task',
-        randomUUID(),
+        JSON.stringify({
+          root: 'a'.repeat(64),
+          workspace: { parentId: null, messages: [], entryFile: null },
+        }),
         'task',
         'ready',
         JSON.stringify({

@@ -121,13 +121,16 @@ describe('owned Crux lifecycle', () => {
     await link(id, base.id, 'growth');
     const task = randomUUID();
     await owner.run(
-      'INSERT INTO working_copies (id, crux_id, task_id, title, base_snapshot_id, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO working_copies (id, crux_id, task_id, title, base_state, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [
         task,
         id,
         randomUUID(),
         'Task',
-        base.id,
+        JSON.stringify({
+          root: 'a'.repeat(64),
+          workspace: { parentId: base.id, messages: [], entryFile: null },
+        }),
         new Date().toISOString(),
         new Date().toISOString(),
       ],
@@ -226,8 +229,20 @@ describe('owned Crux lifecycle', () => {
     const now = new Date().toISOString(),
       task = randomUUID();
     await owner.run(
-      'INSERT INTO working_copies (id, crux_id, task_id, title, base_snapshot_id, phase, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [task, id, randomUUID(), 'Task', randomUUID(), 'archived', now, now],
+      'INSERT INTO working_copies (id, crux_id, task_id, title, base_state, phase, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        task,
+        id,
+        randomUUID(),
+        'Task',
+        JSON.stringify({
+          root: 'a'.repeat(64),
+          workspace: { parentId: null, messages: [], entryFile: null },
+        }),
+        'archived',
+        now,
+        now,
+      ],
     );
     await owner.run(
       'INSERT INTO task_merges (id, crux_id, copy_id, candidate_id, phase, data, created) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -293,8 +308,20 @@ describe('owned Crux lifecycle', () => {
       [external, other.id, tip.id],
     ])
       await owner.run(
-        'INSERT INTO working_copies (id, crux_id, task_id, title, base_snapshot_id, phase, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [copy, parent, randomUUID(), 'Task', snapshot, 'archived', now, now],
+        'INSERT INTO working_copies (id, crux_id, task_id, title, base_state, phase, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          copy,
+          parent,
+          randomUUID(),
+          'Task',
+          JSON.stringify({
+            root: 'a'.repeat(64),
+            workspace: { parentId: snapshot, messages: [], entryFile: null },
+          }),
+          'archived',
+          now,
+          now,
+        ],
       );
     const ownedTip = await create({ contentOwnerId: task }, 'snapshot');
     await link(task, ownedTip.id, 'growth');

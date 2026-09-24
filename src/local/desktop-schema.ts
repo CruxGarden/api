@@ -13,7 +13,7 @@ export function desktopSchemaVersion(db: any): number {
     versions.length > 1 ||
     !Number.isInteger(version) ||
     version < 0 ||
-    version > 6
+    version > 7
   )
     throw new Error('Unsupported desktop schema version');
   return version;
@@ -108,7 +108,18 @@ export function inspectDesktopSchema(
   const version = desktopSchemaVersion(db);
   const columnsByTable = new Map(expectedColumns());
   if (version >= 5) columnsByTable.set('file_content_heads', contentColumns);
-  if (version === 6) columnsByTable.set('edit_history', historyColumns);
+  if (version >= 6) columnsByTable.set('edit_history', historyColumns);
+  if (version < 7)
+    columnsByTable.set(
+      'working_copies',
+      columnsByTable
+        .get('working_copies')!
+        .map((column) =>
+          column.name === 'base_state'
+            ? { ...column, name: 'base_snapshot_id' }
+            : column,
+        ),
+    );
   for (const [table, columns] of columnsByTable) {
     if (!tables.has(table)) {
       if (
@@ -208,7 +219,8 @@ export function needsDesktopMigration(
   allowInlineContent = false,
 ): boolean {
   const version = inspectDesktopSchema(db, allowInlineContent);
-  if (version === 6) return false;
+  if (version === 7) return false;
+  if (version === 6) return true;
   if (version === 5) return true;
   if (version !== 4 || (allowInlineContent && hasDesktopInlineContent(db)))
     return true;
@@ -219,7 +231,15 @@ export function needsDesktopMigration(
         .all(table)
         .map((row: { name: string }) => row.name),
     );
-    if (columns.some((column) => !actual.has(column.name))) return true;
+    if (
+      columns.some(
+        (column) =>
+          !actual.has(
+            column.name === 'base_state' ? 'base_snapshot_id' : column.name,
+          ),
+      )
+    )
+      return true;
   }
   return namedIndexes.some(
     ({ name }) =>

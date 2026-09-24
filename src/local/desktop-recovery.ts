@@ -65,7 +65,7 @@ export function openDesktopRecovery(
       versions.length > 1 ||
       !Number.isInteger(schemaVersion) ||
       schemaVersion < 0 ||
-      schemaVersion > 6
+      schemaVersion > 7
     )
       throw new Error('Unsupported recovery schema version');
     inspectDesktopSchema(db, allowInlineContent);
@@ -200,6 +200,22 @@ export async function inspectDesktopManifestRecovery(
           if (data[key] !== undefined)
             roots.push(retainedWorkspaceSchema.parse(data[key]).root);
       }
+      roots = [...new Set(roots)];
+    }
+    if (
+      tables.has('working_copies') &&
+      db
+        .prepare(
+          "SELECT name FROM pragma_table_info('working_copies') WHERE name='base_state'",
+        )
+        .get()
+    ) {
+      for (const row of db
+        .prepare('SELECT base_state FROM working_copies')
+        .all())
+        roots.push(
+          retainedWorkspaceSchema.parse(JSON.parse(row.base_state)).root,
+        );
       roots = [...new Set(roots)];
     }
     legacy = legacyRecoveryFingerprints(db, tables);
