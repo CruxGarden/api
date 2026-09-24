@@ -67,3 +67,5 @@ export {
 } from './private-graph-archive';
 
 export type { PrepareImportedWorkspace } from './import-workspace';
+
+export type { GardenEntry } from './garden-entry.service';

@@ -1,3 +1,5 @@
+import { GardenEntryRepository } from './garden-entry.repository';
+import { GardenEntryService } from './garden-entry.service';
 import type { PrepareImportedWorkspace } from './import-workspace';
 import { GraphTransferService } from './graph-transfer.service';
 import { GraphTransferRepository } from './graph-transfer.repository';
@@ -105,6 +107,8 @@ class LocalGraphModule {
         DimensionRepository,
         GardenMembershipRepository,
         GardenMembershipService,
+        GardenEntryRepository,
+        GardenEntryService,
         WorkingCopyRepository,
         WorkingCopyService,
         CruxLifecycleRepository,
@@ -127,6 +131,7 @@ export interface GraphOperations {
   crux: CruxGraphService;
   dimension: DimensionService;
   garden: GardenMembershipService;
+  gardenEntry: GardenEntryService;
   workingCopy: WorkingCopyService;
   lifecycle: CruxLifecycleService;
   taskMerge: TaskMergeService;
@@ -195,6 +200,7 @@ export class LocalGraphRuntime {
       crux: context.get(CruxGraphService),
       dimension: context.get(DimensionService),
       garden: context.get(GardenMembershipService),
+      gardenEntry: context.get(GardenEntryService),
       workingCopy: context.get(WorkingCopyService),
       lifecycle: context.get(CruxLifecycleService),
       taskMerge: context.get(TaskMergeService),
@@ -863,6 +869,22 @@ export class LocalGraphRuntime {
       ({ lifecycle }) => lifecycle.purge(id),
       () => ({ entity: 'crux-lifecycle', operation: 'purge', id }),
     );
+  }
+
+  /** Explicit local installation entry, never inferred from unlinked nodes. */
+  enterLocalGarden() {
+    return this.enqueue(async () => {
+      const result = await this.db.transaction(() =>
+        this.operations.gardenEntry.enter(),
+      );
+      if (result.created)
+        this.notify({
+          entity: 'crux-lifecycle',
+          operation: 'create',
+          id: result.entry.id,
+        });
+      return result.entry;
+    });
   }
 
   addGardenMember(input: AddGardenMember) {

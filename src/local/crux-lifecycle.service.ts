@@ -1,3 +1,7 @@
+import {
+  GardenEntryRepository,
+  LOCAL_GARDEN_ID,
+} from './garden-entry.repository';
 import { randomUUID } from 'crypto';
 import { CruxGraphService } from '../crux/crux-graph.service';
 import { CreateCruxDto } from '../crux/dto/create-crux.dto';
@@ -16,6 +20,7 @@ export class CruxLifecycleService {
   constructor(
     private readonly repository: CruxLifecycleRepository,
     private readonly crux: CruxGraphService,
+    private readonly entries: GardenEntryRepository,
   ) {}
   private unwrap<T>(result: RepositoryResponse<T>): T {
     if (result.error)
@@ -56,7 +61,13 @@ export class CruxLifecycleService {
     if (created.id !== id) throw new Error('Crux creation did not persist');
     return id;
   }
+  private async protectEntry(ids: string[]): Promise<void> {
+    const settings = this.unwrap(await this.entries.read());
+    if (ids.includes(settings[LOCAL_GARDEN_ID]))
+      throw new ConflictException('The local Garden entry cannot be deleted');
+  }
   async setTrashed(id: string, trashed: boolean): Promise<void> {
+    if (trashed) await this.protectEntry([id]);
     const state = this.unwrap(await this.repository.inspect(id));
     if (state.copy)
       throw new ConflictException(
@@ -79,6 +90,7 @@ export class CruxLifecycleService {
         'This snapshot is shared or referenced by other work.',
       );
     const { ids } = this.unwrap(await this.repository.plan(id));
+    await this.protectEntry(ids);
     this.unwrap(await this.repository.purge(id, ids));
   }
 }
