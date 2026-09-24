@@ -1,3 +1,4 @@
+import { workingCopyBaseSchema } from './working-copy-base';
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../common/services/db.service';
 import { success, failure } from '../common/helpers/repository-helpers';
@@ -25,6 +26,7 @@ export interface MergeState {
   merge?: MergeRow;
   copy?: CopyRow;
   candidate?: CopyRow;
+  target?: CopyRow;
   linked: boolean;
 }
 @Injectable()
@@ -71,7 +73,11 @@ export class TaskMergeRepository {
         saved?.candidate_id !== merge.candidate_id
       )
         throw new Error('The review did not persist');
-      for (const copy of [state.copy!, state.candidate!]) {
+      for (const copy of [
+        state.copy!,
+        state.candidate!,
+        ...(state.target ? [state.target] : []),
+      ]) {
         const current = await db('working_copies')
           .where({ id: copy.id })
           .first();
@@ -115,7 +121,11 @@ export class TaskMergeRepository {
       )
         throw new Error('The merge journal did not admit this review');
       // Extension triggers must not close or redirect either copy as admission commits.
-      for (const copy of [state.copy!, state.candidate!]) {
+      for (const copy of [
+        state.copy!,
+        state.candidate!,
+        ...(state.target ? [state.target] : []),
+      ]) {
         const current = await db('working_copies')
           .where({ id: copy.id })
           .first();
@@ -144,7 +154,15 @@ export class TaskMergeRepository {
       const candidate = await db('working_copies')
         .where({ id: merge.candidate_id })
         .first();
+      const sourceId =
+        copy &&
+        workingCopyBaseSchema.parse(JSON.parse(copy.base_state)).sourceId;
+      const target =
+        sourceId && sourceId !== merge.crux_id
+          ? await db('working_copies').where({ id: sourceId }).first()
+          : undefined;
       return success<MergeState>({
+        target,
         present: !!stored,
         merge,
         copy,
@@ -194,6 +212,21 @@ export class TaskMergeRepository {
           saved?.crux_id !== merge.crux_id
         )
           throw new Error('Task finalization did not persist');
+      }
+      if (complete && state.target) {
+        const target = await db('working_copies')
+          .where({ id: state.target.id })
+          .first();
+        if (
+          target?.phase !== 'ready' ||
+          target?.role !== 'task' ||
+          target?.crux_id !== merge.crux_id ||
+          target?.revision !== state.target.revision + 1 ||
+          target?.base_state !== state.target.base_state
+        )
+          throw new Error(
+            'The destination Task changed during merge finalization',
+          );
       }
       const saved = await db('task_merges').where({ id: merge.id }).first();
       if (saved?.phase !== data.phase || saved?.data !== serialized)

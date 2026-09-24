@@ -173,7 +173,10 @@ export class WorkingCopyRepository {
         .query()('task_merges')
         .where({ phase: 'applying' })
         .andWhere((query) =>
-          query.where({ copy_id: id }).orWhere({ candidate_id: id }),
+          query
+            .where({ copy_id: id })
+            .orWhere({ candidate_id: id })
+            .orWhereRaw("json_extract(data, '$.targetId') = ?", [id]),
         )
         .first('id');
       return success({ pending: !!row });

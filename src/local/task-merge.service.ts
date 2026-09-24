@@ -1,3 +1,4 @@
+import { WorkingCopyService } from './working-copy.service';
 import { workingCopyBaseSchema } from './working-copy-base';
 import {
   Injectable,
@@ -30,6 +31,7 @@ export class TaskMergeService {
     private readonly content: FileContentService,
     private readonly contentRepository: FileContentRepository,
     private readonly workspace: WorkspaceStateService,
+    private readonly copies: WorkingCopyService,
   ) {}
   private async ownedState(
     id: string,
@@ -70,13 +72,24 @@ export class TaskMergeService {
       throw new ConflictException(
         'The merge ownership or state does not match its journal',
       );
-    for (const row of [copy, candidate]) {
-      const base = workingCopyBaseSchema.parse(JSON.parse(row.base_state));
-      if (base.sourceId && base.sourceId !== merge.crux_id)
-        throw new ConflictException(
-          'Review delegated work in its source Task.',
-        );
-    }
+    const base = workingCopyBaseSchema.parse(JSON.parse(copy.base_state));
+    const candidateBase = workingCopyBaseSchema.parse(
+      JSON.parse(candidate.base_state),
+    );
+    const targetId = base.sourceId ?? merge.crux_id;
+    if (
+      (data.targetId !== undefined && data.targetId !== targetId) ||
+      (candidateBase.sourceId ?? merge.crux_id) !== targetId ||
+      (targetId !== merge.crux_id &&
+        (!state.target ||
+          state.target.crux_id !== merge.crux_id ||
+          state.target.role !== 'task'))
+    )
+      throw new ConflictException(
+        'The review destination does not match its source Task.',
+      );
+    const target =
+      targetId === merge.crux_id ? crux : await this.content.owner(targetId);
     for (const row of [copy, candidate])
       if (
         !Number.isSafeInteger(row.revision) ||
@@ -84,7 +97,7 @@ export class TaskMergeService {
         row.revision >= Number.MAX_SAFE_INTEGER
       )
         throw new ConflictException('The Task revision is invalid');
-    return { state, merge, copy, candidate, data, crux };
+    return { state, merge, copy, candidate, data, crux, target, targetId };
   }
 
   async save(
@@ -122,20 +135,22 @@ export class TaskMergeService {
       phase: 'review',
       data: JSON.stringify(next),
     };
-    const { state, merge, copy, candidate, data } = await this.ownedState(
-      next.id,
-      { draft: expected === undefined ? draft : undefined },
-    );
+    const { state, merge, copy, candidate, data, targetId } =
+      await this.ownedState(next.id, {
+        draft: expected === undefined ? draft : undefined,
+      });
     if (
       merge.phase !== 'review' ||
       copy.phase !== 'ready' ||
-      candidate.phase !== 'ready'
+      candidate.phase !== 'ready' ||
+      (state.target && state.target.phase !== 'ready')
     )
       throw new ConflictException('This review is no longer open for changes.');
     if (state.present && expected === undefined) {
       const original = { ...data };
       delete original.sourceState;
       delete original.targetState;
+      if (next.targetId === undefined) delete original.targetId;
       if (
         JSON.stringify(data) !== JSON.stringify(next) &&
         JSON.stringify(original) !== JSON.stringify(next)
@@ -198,8 +213,9 @@ export class TaskMergeService {
       };
       next = {
         ...next,
+        targetId,
         sourceState: await capture(copy.id, next.task),
-        targetState: await capture(merge.crux_id, next.main),
+        targetState: await capture(targetId, next.main),
       };
     }
     const saved = await this.repository.saveReview(state, next);
@@ -209,11 +225,13 @@ export class TaskMergeService {
   }
 
   async begin(id: string, expected: unknown, store?: DesktopContentStore) {
-    const { state, merge, copy, candidate, data } = await this.ownedState(id);
+    const { state, merge, copy, candidate, data, targetId } =
+      await this.ownedState(id);
     if (
       merge.phase !== 'review' ||
       copy.phase !== 'ready' ||
       candidate.phase !== 'ready' ||
+      (state.target && state.target.phase !== 'ready') ||
       JSON.stringify(data) !== JSON.stringify(expected)
     )
       throw new ConflictException(
@@ -232,7 +250,7 @@ export class TaskMergeService {
       throw new Error('Use the host content store to admit a file merge');
     for (const [cruxId, retained] of [
       [copy.id, data.sourceState],
-      [merge.crux_id, data.targetState],
+      [targetId, data.targetState],
     ] as const) {
       const expectedState = retainedWorkspaceSchema.parse(retained);
       const head = await this.content.head(cruxId);
@@ -253,15 +271,12 @@ export class TaskMergeService {
     });
     if (saved.error)
       throw new InternalServerErrorException(saved.error.message);
-    const mainHead = await this.content.head(merge.crux_id);
+    const mainHead = await this.content.head(targetId);
     if (mainHead) {
       if (!store)
         throw new Error('Use the host content store to admit a file merge');
       const mainFiles = (
-        await this.content.list(
-          { cruxId: merge.crux_id, expected: mainHead },
-          store,
-        )
+        await this.content.list({ cruxId: targetId, expected: mainHead }, store)
       ).entries;
       assertTaskContent(mainFiles, data.main);
       const candidateHead = await this.content.head(candidate.id);
@@ -295,14 +310,14 @@ export class TaskMergeService {
       ];
       const head = await this.content.edit(
         captureFileContentEdit({
-          cruxId: merge.crux_id,
+          cruxId: targetId,
           expected: mainHead,
           changes,
         }),
         store,
         id,
       );
-      await this.contentRepository.queueProjection(merge.crux_id, head);
+      await this.contentRepository.queueProjection(targetId, head);
     }
     return { id: copy.id, cruxId: merge.crux_id };
   }
@@ -367,7 +382,7 @@ export class TaskMergeService {
   }
 
   async complete(id: string, store: DesktopContentStore) {
-    const { state, merge, copy, candidate, data, crux } =
+    const { state, merge, copy, candidate, data, target, targetId } =
       await this.ownedState(id);
     if (merge.phase === 'merged') {
       const result = retainedWorkspaceSchema.parse(
@@ -377,24 +392,25 @@ export class TaskMergeService {
         throw new ConflictException(
           'The completed merge has inconsistent state',
         );
-      await this.workspace.assertContext(merge.crux_id, result.workspace);
+      await this.workspace.assertContext(targetId, result.workspace);
       await new FileManifest(store).verify(result.root);
       return { id: copy.id, cruxId: merge.crux_id };
     }
     if (
       merge.phase !== 'applying' ||
       copy.phase !== 'ready' ||
-      candidate.phase !== 'ready'
+      candidate.phase !== 'ready' ||
+      (state.target && state.target.phase !== 'ready')
     )
       throw new ConflictException('This merge is not awaiting completion');
     this.assertVerified(data);
-    const head = await this.content.head(merge.crux_id);
+    const head = await this.content.head(targetId);
     if (!head) throw new ConflictException('The merge has no retained content');
     // Admission checks the pending projection and permits only this applying journal.
     const before = await this.workspace.read(
-      { cruxId: merge.crux_id, expected: head },
+      { cruxId: targetId, expected: head },
       store,
-      crux.meta,
+      target.meta,
       id,
     );
     if (
@@ -404,7 +420,7 @@ export class TaskMergeService {
       )
     )
       throw new ConflictException(
-        'Main’s conversation changed during the merge. Keep it safe before resuming.',
+        'The destination’s conversation changed during the merge. Keep it safe before resuming.',
       );
     assertTaskContent(
       await new FileManifest(store).entries(before.root),
@@ -428,9 +444,8 @@ export class TaskMergeService {
       if (node.meta?.contentOwnerId !== copy.id) {
         if (
           tip !==
-            retainedWorkspaceSchema.parse(JSON.parse(copy.base_state)).workspace
-              .parentId ||
-          node.meta?.contentOwnerId !== merge.crux_id
+          workingCopyBaseSchema.parse(JSON.parse(copy.base_state)).workspace
+            .parentId
         )
           throw new ConflictException(
             'The reviewed conversation belongs to another Task',
@@ -456,12 +471,13 @@ export class TaskMergeService {
       timestamp: new Date().toISOString(),
     };
     const meta = {
-      ...crux.meta,
+      ...target.meta,
       messages: [...before.workspace.messages, summary],
     };
-    await this.crux.update(merge.crux_id, { meta });
+    if (state.target) await this.copies.updateMeta(targetId, meta);
+    else await this.crux.update(targetId, { meta });
     const resultState = await this.workspace.read(
-      { cruxId: merge.crux_id, expected: head },
+      { cruxId: targetId, expected: head },
       store,
       meta,
       id,
@@ -475,11 +491,8 @@ export class TaskMergeService {
       throw new InternalServerErrorException(saved.error.message);
     // A journal/copy trigger must not undo the already-written Collaboration or content.
     if (
-      !isDeepStrictEqual(
-        (await this.crux.findById(merge.crux_id)).meta,
-        meta,
-      ) ||
-      !isDeepStrictEqual(await this.content.head(merge.crux_id), head)
+      !isDeepStrictEqual((await this.content.owner(targetId)).meta, meta) ||
+      !isDeepStrictEqual(await this.content.head(targetId), head)
     )
       throw new InternalServerErrorException(
         'The merge result did not persist',

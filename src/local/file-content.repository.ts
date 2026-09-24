@@ -149,7 +149,8 @@ export class FileContentRepository {
   async applyingMerge(id: string, mergeId: string): Promise<boolean> {
     return !!(await this.db
       .query()('task_merges')
-      .where({ id: mergeId, crux_id: id, phase: 'applying' })
+      .where({ id: mergeId, phase: 'applying' })
+      .whereRaw("COALESCE(json_extract(data, '$.targetId'), crux_id) = ?", [id])
       .first('id'));
   }
 

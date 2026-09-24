@@ -270,6 +270,16 @@ export class SelectedGraphService {
         throw new Error(
           'Selected Task review identity or phase is inconsistent',
         );
+      const targetId =
+        copies.get(merge.copyId)!.baseState.sourceId ?? merge.cruxId;
+      if (
+        (data.targetId !== undefined && data.targetId !== targetId) ||
+        (copies.get(merge.candidateId)!.baseState.sourceId ?? merge.cruxId) !==
+          targetId
+      )
+        throw new Error(
+          'Selected review destination does not match its source',
+        );
       if (data.resultState !== undefined) {
         const result = retainedWorkspaceSchema.parse(data.resultState);
         if (merge.phase !== 'merged' || data.resultHead !== undefined)
@@ -280,14 +290,19 @@ export class SelectedGraphService {
           result.workspace.parentId &&
           (!parent ||
             parent.kind !== 'snapshot' ||
-            parent.meta.contentOwnerId !== merge.cruxId)
+            parent.meta.contentOwnerId !==
+              copyParentOwner(
+                targetId,
+                result.workspace.parentId,
+                sourceCopies,
+              ))
         )
           throw new Error('Selected Task result has foreign Growth context');
         resultRoots.push(result.root);
       }
       for (const [key, contentOwner] of [
         ['sourceState', merge.copyId],
-        ['targetState', merge.cruxId],
+        ['targetState', targetId],
       ]) {
         // Retain older recorded journals without inventing review context for them.
         if (
@@ -299,17 +314,12 @@ export class SelectedGraphService {
         const retained = retainedWorkspaceSchema.parse(data[key]);
         const parentId = retained.workspace.parentId;
         const parent = parentId && nodes.get(parentId);
-        const task = workingCopies.find((copy) => copy.id === merge.copyId);
         if (
           parentId &&
           (!parent ||
             parent.kind !== 'snapshot' ||
-            (parent.meta.contentOwnerId !== contentOwner &&
-              !(
-                key === 'sourceState' &&
-                parentId === task?.baseState.workspace.parentId &&
-                parent.meta.contentOwnerId === merge.cruxId
-              )))
+            parent.meta.contentOwnerId !==
+              copyParentOwner(contentOwner, parentId, sourceCopies))
         )
           throw new Error(
             'Selected Task review has foreign conversation context',
@@ -318,8 +328,8 @@ export class SelectedGraphService {
       }
       for (const [key, contentOwner] of [
         ['sourceHead', merge.copyId],
-        ['targetHead', merge.cruxId],
-        ['resultHead', merge.cruxId],
+        ['targetHead', targetId],
+        ['resultHead', targetId],
       ]) {
         if (data[key] == null) continue;
         const snapshot = nodes.get(data[key]);

@@ -228,6 +228,44 @@ function checkReferences(graph: PrivateGraph) {
       if (message?.taskMergeId != null) requireRef(message.taskMergeId, allIds);
   }
   for (const merge of graph.taskMerges) {
+    const source = sourceCopies.get(merge.copyId),
+      candidate = sourceCopies.get(merge.candidateId);
+    const targetId = source?.baseState.sourceId ?? merge.cruxId;
+    if (
+      !source ||
+      source.cruxId !== merge.cruxId ||
+      source.role !== 'task' ||
+      !candidate ||
+      candidate.cruxId !== merge.cruxId ||
+      candidate.role !== 'review' ||
+      (candidate.baseState.sourceId ?? merge.cruxId) !== targetId ||
+      (merge.data.targetId !== undefined && merge.data.targetId !== targetId)
+    )
+      throw new Error('Private review destination does not match its source');
+    requireRef(targetId);
+    for (const [key, owner] of [
+      ['sourceState', merge.copyId],
+      ['targetState', targetId],
+      ['resultState', targetId],
+    ]) {
+      if (merge.data[key] === undefined) continue;
+      const parentId = retainedWorkspaceSchema.parse(merge.data[key]).workspace
+        .parentId;
+      if (!parentId) continue;
+      const parent = graph.cruxes.find((item) => item.id === parentId);
+      const parentOwner = copyParentOwner(owner, parentId, sourceCopies);
+      if (
+        parent?.kind !== 'snapshot' ||
+        parent.meta.contentOwnerId !== parentOwner ||
+        !graph.dimensions.some(
+          (edge) =>
+            edge.type === 'growth' &&
+            edge.sourceId === parentOwner &&
+            edge.targetId === parentId,
+        )
+      )
+        throw new Error('Private review has foreign workspace context');
+    }
     for (const workspace of [
       ...['sourceState', 'targetState'].map((key) =>
         merge.data[key] === undefined
@@ -435,6 +473,7 @@ export class GraphTransferService {
         'cruxId',
         'copyId',
         'candidateId',
+        'targetId',
         'sourceHead',
         'targetHead',
         'resultHead',
