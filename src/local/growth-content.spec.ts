@@ -241,6 +241,10 @@ describe('manifest-backed Growth commands', () => {
     'foreign copy',
     'changed conversation',
     'corrupt result',
+    'foreign ancestry',
+    'unlinked transcript',
+    'deleted transcript',
+    'missing transcript source',
   ])(
     'retains a Task result outside Growth with restart and %s',
     async (failure) => {
@@ -398,6 +402,88 @@ describe('manifest-backed Growth commands', () => {
           await owner.run('UPDATE cruxes SET meta = ? WHERE id = ?', [
             before.main.meta,
             id,
+          ]);
+        };
+      } else if (failure === 'foreign ancestry') {
+        const foreign = await owner.createCrux({
+          slug: randomUUID(),
+          authorId: task.snapshot.authorId,
+          homeId: task.snapshot.homeId,
+          kind: 'snapshot',
+          meta: { contentOwnerId: id },
+        });
+        await owner.run(
+          'INSERT INTO file_content_heads (crux_id,format_version,root,revision) SELECT ?,format_version,root,revision FROM file_content_heads WHERE crux_id = ?',
+          [foreign, base.snapshot.id],
+        );
+        await owner.run(
+          'INSERT INTO dimensions (id,source_id,target_id,type,weight,home_id,author_id,created,updated) VALUES (?,?,?, ?,0,?,?,?,?)',
+          [
+            randomUUID(),
+            id,
+            foreign,
+            'growth',
+            task.snapshot.homeId,
+            task.snapshot.authorId,
+            new Date().toISOString(),
+            new Date().toISOString(),
+          ],
+        );
+        const meta = (
+          await owner.get<any>('SELECT meta FROM cruxes WHERE id = ?', [
+            task.snapshot.id,
+          ])
+        ).meta;
+        await owner.run('UPDATE cruxes SET meta = ? WHERE id = ?', [
+          JSON.stringify({ ...JSON.parse(meta), parentCruxId: foreign }),
+          task.snapshot.id,
+        ]);
+        repair = async () => {
+          await owner.run('UPDATE cruxes SET meta = ? WHERE id = ?', [
+            meta,
+            task.snapshot.id,
+          ]);
+          await owner.run('DELETE FROM dimensions WHERE target_id = ?', [
+            foreign,
+          ]);
+          await owner.run('DELETE FROM file_content_heads WHERE crux_id = ?', [
+            foreign,
+          ]);
+          await owner.run('DELETE FROM cruxes WHERE id = ?', [foreign]);
+        };
+      } else if (failure === 'unlinked transcript') {
+        await owner.run(
+          "UPDATE dimensions SET deleted = ? WHERE source_id = ? AND target_id = ? AND type = 'growth'",
+          [new Date().toISOString(), copyId, task.snapshot.id],
+        );
+        repair = async () => {
+          await owner.run(
+            'UPDATE dimensions SET deleted = NULL WHERE source_id = ? AND target_id = ?',
+            [copyId, task.snapshot.id],
+          );
+        };
+      } else if (failure === 'deleted transcript') {
+        await owner.run('UPDATE cruxes SET deleted = ? WHERE id = ?', [
+          new Date().toISOString(),
+          task.snapshot.id,
+        ]);
+        repair = async () => {
+          await owner.run('UPDATE cruxes SET deleted = NULL WHERE id = ?', [
+            task.snapshot.id,
+          ]);
+        };
+      } else if (failure === 'missing transcript source') {
+        await owner.run('UPDATE task_merges SET data = ? WHERE id = ?', [
+          JSON.stringify({
+            ...JSON.parse(before.journal.data),
+            sourceHead: '',
+          }),
+          mergeId,
+        ]);
+        repair = async () => {
+          await owner.run('UPDATE task_merges SET data = ? WHERE id = ?', [
+            before.journal.data,
+            mergeId,
           ]);
         };
       } else if (failure === 'corrupt result') {

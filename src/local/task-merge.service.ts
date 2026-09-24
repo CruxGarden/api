@@ -393,13 +393,26 @@ export class TaskMergeService {
     const segments: any[][] = [];
     const seen = new Set<string>();
     let tip = data.sourceHead;
+    if (typeof tip !== 'string' || !tip)
+      throw new ConflictException(
+        'The reviewed Task conversation is unavailable',
+      );
     while (tip) {
       if (seen.has(tip))
         throw new ConflictException('Task conversation has cyclic ancestry');
       seen.add(tip);
+      await this.workspace.assertContext(copy.id, {
+        parentId: tip,
+        messages: [],
+        entryFile: null,
+      });
       const node = await this.crux.findById(tip);
       if (node.meta?.contentOwnerId !== copy.id) {
-        if (tip === data.sourceHead)
+        if (
+          tip === data.sourceHead ||
+          tip !== copy.base_snapshot_id ||
+          node.meta?.contentOwnerId !== merge.crux_id
+        )
           throw new ConflictException(
             'The reviewed conversation belongs to another Task',
           );
