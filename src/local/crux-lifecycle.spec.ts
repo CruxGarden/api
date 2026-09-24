@@ -361,7 +361,7 @@ describe('owned Crux lifecycle', () => {
         ],
       );
       await expect(owner.deleteCrux(snapshot.id)).rejects.toThrow(
-        'used by a task or merge',
+        'used by a task, merge or recovery copy',
       );
       expect(
         await owner.get('SELECT id FROM cruxes WHERE id = ?', [snapshot.id]),

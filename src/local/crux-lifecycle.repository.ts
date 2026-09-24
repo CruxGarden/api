@@ -13,6 +13,7 @@ const historyReferences = [
       'merge.baseId',
     ].map((path) => `SELECT id, json_extract(meta, '$.${path}') FROM ${table}`),
   ),
+  "SELECT h.crux_id, json_extract(p.value, '$.workspace.parentId') FROM edit_history h, json_each(h.checkpoints) p",
   'SELECT id, base_snapshot_id FROM working_copies',
   'SELECT crux_id, candidate_id FROM task_merges',
   ...['sourceHead', 'targetHead', 'resultHead', 'baseId'].map(
@@ -81,7 +82,8 @@ export class CruxLifecycleRepository {
       const history = await this.db.query().raw(
         `
     WITH RECURSIVE roots(id) AS (
-      SELECT base_snapshot_id FROM working_copies
+      SELECT json_extract(p.value, '$.workspace.parentId') FROM edit_history h, json_each(h.checkpoints) p
+      UNION SELECT base_snapshot_id FROM working_copies
       UNION SELECT candidate_id FROM task_merges
       UNION SELECT json_extract(meta, '$.merge.baseId') FROM cruxes
       UNION SELECT json_extract(meta, '$.merge.sourceHead') FROM cruxes
@@ -165,6 +167,13 @@ export class CruxLifecycleRepository {
           .whereIn('resource_id', chunk)
           .delete();
         await this.db.query()('store').whereIn('crux_id', chunk).delete();
+        for (const table of ['file_content_heads', 'edit_history'])
+          await this.db.query()(table).whereIn('crux_id', chunk).delete();
+        for (const owner of chunk)
+          await this.db
+            .query()('settings')
+            .where({ key: `cruxgarden:content-projection:${owner}` })
+            .delete();
         await this.db
           .query()('dimensions')
           .whereIn('source_id', chunk)
@@ -184,6 +193,22 @@ export class CruxLifecycleRepository {
           ['cruxes', 'id'],
         ])
           if (await this.db.query()(table).whereIn(column, chunk).first('id'))
+            throw new Error('Incomplete Crux deletion');
+        for (const table of ['file_content_heads', 'edit_history'])
+          if (
+            await this.db
+              .query()(table)
+              .whereIn('crux_id', chunk)
+              .first('crux_id')
+          )
+            throw new Error('Incomplete Crux deletion');
+        for (const owner of chunk)
+          if (
+            await this.db
+              .query()('settings')
+              .where({ key: `cruxgarden:content-projection:${owner}` })
+              .first('key')
+          )
             throw new Error('Incomplete Crux deletion');
         if (
           await this.db

@@ -453,6 +453,95 @@ describe('manifest-backed Growth commands', () => {
     ).rejects.toThrow();
   });
 
+  it('protects recovery conversation ancestry from version deletion, but purges owned retention with its Crux', async () => {
+    const base = await owner.createGrowthSnapshot(request(), store);
+    const later = await owner.createGrowthSnapshot(
+      { ...request(), parentId: base.snapshot.id },
+      store,
+    );
+    await owner.updateCrux(id, {
+      meta: {
+        messages: [{ role: 'user', content: 'Still unmarked' }],
+        settings: { activeBranch: later.snapshot.id },
+      },
+    });
+    const current = await owner.get<any>(
+      'SELECT meta FROM cruxes WHERE id = ?',
+      [id],
+    );
+    const restored = await owner.restoreGrowthContent(
+      {
+        safety: selection(),
+        target: { cruxId: base.snapshot.id, expected: base.head },
+        workspace: { expectedMeta: JSON.parse(current.meta), messages: [] },
+      },
+      store,
+    );
+    expect(restored.safety.workspace?.parentId).toBe(later.snapshot.id);
+    for (const target of [later.snapshot.id, base.snapshot.id])
+      await expect(owner.deleteCrux(target)).rejects.toThrow(
+        /recovery|referenced|used/,
+      );
+    await expect(owner.setCruxTrashed(later.snapshot.id, true)).rejects.toThrow(
+      'recovery copy',
+    );
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    await expect(owner.deleteCrux(later.snapshot.id)).rejects.toThrow(
+      /recovery|referenced|used/,
+    );
+    expect(
+      (
+        await owner.exportPrivateGraph(
+          { roots: [id], includeMembers: false },
+          store,
+        )
+      ).cruxes,
+    ).toHaveLength(3);
+    // Explicitly purging the entire owner also removes its own retention records.
+    await owner.deleteCrux(id);
+    expect(await owner.all('SELECT * FROM file_content_heads')).toEqual([]);
+    expect(await owner.all('SELECT * FROM edit_history')).toEqual([]);
+    expect(await owner.all('SELECT id FROM cruxes')).toEqual([]);
+    await expect(
+      inspectDesktopManifestRecovery(await owner.exportDatabase(), store),
+    ).resolves.toBeDefined();
+  });
+
+  it.each(['file_content_heads', 'edit_history', 'settings'])(
+    'refuses an ignored %s purge and retains all current and recovery data',
+    async (table) => {
+      await owner.createEditCheckpoint(
+        { ...selection(), reason: 'safety' },
+        store,
+      );
+      await owner.run('INSERT INTO settings (key, value) VALUES (?, ?)', [
+        `cruxgarden:content-projection:${id}`,
+        JSON.stringify({ head, folder: '/isolated-unused' }),
+      ]);
+      await owner.run(
+        `CREATE TRIGGER hold_retention BEFORE DELETE ON ${table} BEGIN SELECT RAISE(IGNORE); END`,
+      );
+      await expect(owner.deleteCrux(id)).rejects.toThrow(
+        'Incomplete Crux deletion',
+      );
+      expect(
+        await owner.get('SELECT id FROM cruxes WHERE id = ?', [id]),
+      ).toEqual({ id });
+      expect(await owner.fileContentHead(id)).toEqual(head);
+      expect((await owner.listEditHistory(id)).checkpoints).toHaveLength(1);
+      await owner.run('DROP TRIGGER hold_retention');
+      await owner.deleteCrux(id);
+      expect(await owner.all('SELECT * FROM file_content_heads')).toEqual([]);
+      expect(await owner.all('SELECT * FROM edit_history')).toEqual([]);
+      expect(
+        await owner.get('SELECT key FROM settings WHERE key = ?', [
+          `cruxgarden:content-projection:${id}`,
+        ]),
+      ).toBeUndefined();
+    },
+  );
+
   it('retains conversation-only safety changes outside Growth and keeps them through private graph copy', async () => {
     const version = await owner.createGrowthSnapshot(request(), store);
     const messages = [{ role: 'user', content: 'Unmarked rough mix' }];
