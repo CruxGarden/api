@@ -125,6 +125,7 @@ export const graphImportSchema = z
     requestId: id,
     mode: z.enum(['copy', 'restore', 'replace']),
     replacementToken: fingerprint.optional(),
+    gardenId: id.optional(),
     destination: z.object({ authorId: id, homeId: id }).strict(),
     graph: privateGraphSchema,
   })

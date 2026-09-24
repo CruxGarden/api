@@ -1005,4 +1005,47 @@ describe('private selected graph transfer through the API owner', () => {
       ]))!.title,
     ).not.toBe('Mutated while queued');
   });
+  it('admits imported roots into the captured destination atomically and binds retries to that Garden', async () => {
+    const root = await target.enterLocalGarden();
+    const id = await source.createCrux({ slug: 'portable', ...sourceIdentity });
+    const graph = await source.exportPrivateGraph(
+      { roots: [id], includeMembers: false },
+      incoming,
+    );
+    const input: PrivateGraphImport = {
+      requestId: randomUUID(),
+      mode: 'copy',
+      destination: targetIdentity,
+      graph,
+      gardenId: root.id,
+    };
+    await target.run(
+      "CREATE TRIGGER refuse_member BEFORE INSERT ON dimensions WHEN NEW.kind='membership' BEGIN SELECT RAISE(ABORT,'refused'); END",
+    );
+    await expect(
+      target.importPrivateGraph(input, incoming, destination),
+    ).rejects.toThrow();
+    expect(await target.get('SELECT count(*) AS n FROM cruxes')).toEqual({
+      n: 1,
+    });
+    await target.run('DROP TRIGGER refuse_member');
+    const result = await target.importPrivateGraph(
+      input,
+      incoming,
+      destination,
+    );
+    expect(
+      (await target.listGardenMembers(root.id)).items.map((row) => row.id),
+    ).toEqual(result.roots);
+    expect(
+      await target.importPrivateGraph(input, incoming, destination),
+    ).toEqual(result);
+    await expect(
+      target.importPrivateGraph(
+        { ...input, gardenId: randomUUID() },
+        incoming,
+        destination,
+      ),
+    ).rejects.toThrow('different data');
+  });
 });

@@ -3,6 +3,7 @@ import { captureCruxUpdate, LocalCruxUpdate } from './crux-update';
 /** Local creation preserves desktop defaults; ownership is captured, never inferred from navigation. */
 export interface LocalCruxCreate {
   id?: string;
+  gardenId?: string;
   slug: string;
   authorId: string;
   homeId: string;
@@ -21,7 +22,12 @@ export type PrepareCruxFolder = (slug: string) => string | Promise<string>;
 export function captureCruxCreate(input: LocalCruxCreate): LocalCruxCreate {
   if (!input || typeof input !== 'object' || Array.isArray(input))
     throw new Error('Use a Crux creation object');
-  const { id, authorId, homeId, ...details } = input;
+  const { id, gardenId, authorId, homeId, ...details } = input;
+  if (
+    gardenId !== undefined &&
+    (typeof gardenId !== 'string' || !gardenId.trim())
+  )
+    throw new Error('Use a destination Garden identity');
   for (const [key, value] of Object.entries({ id, authorId, homeId })) {
     if (key === 'id' && value === undefined) continue;
     if (typeof value !== 'string' || !value.trim())
@@ -47,5 +53,5 @@ export function captureCruxCreate(input: LocalCruxCreate): LocalCruxCreate {
       !captured.meta.projectFolder.trim())
   )
     throw new Error('Use a Project Folder path');
-  return { ...captured, slug: captured.slug, id, authorId, homeId };
+  return { ...captured, slug: captured.slug, id, gardenId, authorId, homeId };
 }

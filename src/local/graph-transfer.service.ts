@@ -1,3 +1,4 @@
+import { GardenMembershipService } from './garden-membership.service';
 import { packPrivateGraph } from './private-graph-archive';
 import type { SelectedGraphCapture } from './selected-graph.service';
 import { isAbsolute, resolve } from 'path';
@@ -161,6 +162,7 @@ export class GraphTransferService {
   constructor(
     private readonly selected: SelectedGraphService,
     private readonly repository: GraphTransferRepository,
+    private readonly garden: GardenMembershipService,
   ) {}
 
   async exportPrivate(
@@ -497,6 +499,15 @@ export class GraphTransferService {
     }
     if (!isDeepStrictEqual(persisted, captured))
       throw new Error('Imported graph changed before commit');
+    if (input.gardenId) {
+      for (const memberId of result.roots)
+        await this.garden.add({
+          gardenId: input.gardenId,
+          memberId,
+          authorId: input.destination.authorId,
+          homeId: input.destination.homeId,
+        });
+    }
     return result;
   }
 }

@@ -845,7 +845,18 @@ export class LocalGraphRuntime {
   ): Promise<string> {
     const captured = captureCruxCreate(input);
     return this.executeChanged(
-      ({ lifecycle }) => lifecycle.create(captured, prepareFolder),
+      async ({ lifecycle, garden }) => {
+        const { gardenId, ...details } = captured;
+        const id = await lifecycle.create(details, prepareFolder);
+        if (gardenId)
+          await garden.add({
+            gardenId,
+            memberId: id,
+            authorId: details.authorId,
+            homeId: details.homeId,
+          });
+        return id;
+      },
       (id) => ({ entity: 'crux-lifecycle', operation: 'create', id }),
     );
   }

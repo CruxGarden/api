@@ -146,4 +146,42 @@ describe('explicit local Garden entry', () => {
       n: 0,
     });
   });
+  it('creates a member and its Garden edge atomically, and refuses a missing destination without an orphan', async () => {
+    const garden = await runtime.enterLocalGarden();
+    const identity = { authorId: randomUUID(), homeId: randomUUID() };
+    const input = { slug: 'member', gardenId: garden.id, ...identity };
+    const pending = runtime.createCrux(input);
+    input.gardenId = randomUUID();
+    const id = await pending;
+    expect(
+      (await runtime.listGardenMembers(garden.id)).items.map((row) => row.id),
+    ).toEqual([id]);
+    await expect(
+      runtime.createCrux({
+        slug: 'refused',
+        gardenId: randomUUID(),
+        ...identity,
+      }),
+    ).rejects.toThrow();
+    expect(
+      await runtime.get(
+        "SELECT count(*) AS n FROM cruxes WHERE slug = 'refused'",
+      ),
+    ).toEqual({ n: 0 });
+    await runtime.run(
+      "CREATE TRIGGER refuse_member BEFORE INSERT ON dimensions WHEN NEW.kind='membership' BEGIN SELECT RAISE(ABORT,'refused'); END",
+    );
+    await expect(
+      runtime.createCrux({
+        slug: 'rollback',
+        gardenId: garden.id,
+        ...identity,
+      }),
+    ).rejects.toThrow();
+    expect(
+      await runtime.get(
+        "SELECT count(*) AS n FROM cruxes WHERE slug = 'rollback'",
+      ),
+    ).toEqual({ n: 0 });
+  });
 });
