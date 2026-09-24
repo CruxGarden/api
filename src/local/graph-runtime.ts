@@ -642,7 +642,7 @@ export class LocalGraphRuntime {
       () => ({
         entity: 'crux',
         id: captured.safety.cruxId,
-        fields: ['growth', 'fileContent'],
+        fields: ['editHistory', 'fileContent'],
       }),
     );
   }

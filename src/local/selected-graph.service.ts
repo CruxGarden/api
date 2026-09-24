@@ -295,6 +295,28 @@ export class SelectedGraphService {
     for (const history of editHistory) {
       if (nodes.get(history.cruxId)?.kind === 'snapshot')
         throw new Error('Growth cannot own mutable edit history');
+      for (const checkpoint of history.checkpoints) {
+        const parentId = checkpoint.workspace?.parentId;
+        if (!parentId) continue;
+        const copy = workingCopies.find((item) => item.id === history.cruxId);
+        const parentOwner =
+          copy?.baseSnapshotId === parentId ? copy.cruxId : history.cruxId;
+        const parent = nodes.get(parentId);
+        if (
+          !parent ||
+          parent.kind !== 'snapshot' ||
+          parent.meta.contentOwnerId !== parentOwner ||
+          !dimensions.some(
+            (edge) =>
+              edge.type === 'growth' &&
+              edge.sourceId === parentOwner &&
+              edge.targetId === parentId,
+          )
+        )
+          throw new Error(
+            'Selected recovery has a missing or foreign Growth context',
+          );
+      }
     }
     const fingerprints = new Set<string>();
     const verifiedRoots = new Set<string>();

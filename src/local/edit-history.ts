@@ -1,14 +1,31 @@
 import { z } from 'zod';
 
 export const EDIT_HISTORY_LIMIT = 20;
+export interface EditWorkspaceContext {
+  parentId: string | null;
+  messages: unknown[];
+  entryFile: string | null;
+}
+export const editWorkspaceSchema = z
+  .object({
+    parentId: z.string().uuid().nullable(),
+    messages: z.array(z.unknown()),
+    entryFile: z.string().nullable(),
+  })
+  .strict();
 export const editCheckpointSchema = z
   .object({
     id: z.string().uuid(),
     root: z.string().regex(/^[a-f0-9]{64}$/),
     created: z.string().datetime(),
     reason: z.enum(['autosave', 'safety']),
+    workspace: editWorkspaceSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (row) => !row.workspace || row.reason === 'safety',
+    'Only safety copies retain workspace context',
+  );
 export const editHistorySchema = z
   .object({
     cruxId: z.string().uuid(),
@@ -39,6 +56,7 @@ export interface EditCheckpoint {
   root: string;
   created: string;
   reason: 'autosave' | 'safety';
+  workspace?: EditWorkspaceContext;
 }
 export interface EditHistory {
   cruxId: string;

@@ -85,6 +85,28 @@ function checkReferences(graph: PrivateGraph) {
       row.checkpoints.map((item) => item.id),
       'edit checkpoint',
     );
+    for (const checkpoint of row.checkpoints) {
+      const parentId = checkpoint.workspace?.parentId;
+      if (!parentId) continue;
+      const copy = graph.workingCopies.find((item) => item.id === row.cruxId);
+      const parentOwner =
+        copy?.baseSnapshotId === parentId ? copy.cruxId : row.cruxId;
+      const parent = graph.cruxes.find((item) => item.id === parentId);
+      if (
+        !parent ||
+        parent.kind !== 'snapshot' ||
+        parent.meta.contentOwnerId !== parentOwner ||
+        !graph.dimensions.some(
+          (edge) =>
+            edge.type === 'growth' &&
+            edge.sourceId === parentOwner &&
+            edge.targetId === parentId,
+        )
+      )
+        throw new Error(
+          'Private recovery has a missing or foreign Growth context',
+        );
+    }
   }
   for (const edge of graph.dimensions) {
     requireRef(edge.sourceId);
@@ -393,6 +415,20 @@ export class GraphTransferService {
       checkpoints: row.checkpoints.map((checkpoint) => ({
         ...checkpoint,
         id: mode === 'copy' ? randomUUID() : checkpoint.id,
+        ...(checkpoint.workspace
+          ? {
+              workspace: {
+                ...checkpoint.workspace,
+                parentId: checkpoint.workspace.parentId
+                  ? remap(checkpoint.workspace.parentId)
+                  : null,
+                messages: remapGraphMeta(
+                  { messages: checkpoint.workspace.messages },
+                  ids,
+                ).messages,
+              },
+            }
+          : {}),
       })),
     }));
     // These inserts are invisible until the outer transaction commits. Recapture

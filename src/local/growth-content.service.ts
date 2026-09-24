@@ -1,3 +1,5 @@
+import { captureMetadata } from './json-metadata';
+import { EditHistoryService } from './edit-history.service';
 import {
   ConflictException,
   Injectable,
@@ -30,7 +32,7 @@ export interface GrowthSnapshotCreate {
 }
 
 export interface GrowthContentRestore {
-  safety: GrowthSnapshotCreate;
+  safety: FileContentSelection;
   target: FileContentSelection;
   workspace?: { expectedMeta: Record<string, unknown>; messages: unknown[] };
 }
@@ -47,8 +49,15 @@ export function captureGrowthContentRestore(
     )
   )
     throw new Error('Use a Growth content restore request');
+  if (
+    !input.safety ||
+    Object.keys(input.safety).some(
+      (key) => key !== 'cruxId' && key !== 'expected',
+    )
+  )
+    throw new Error('Use the current content selection for restore safety');
   return {
-    safety: captureGrowthSnapshot(input.safety),
+    safety: captureFileContentSelection(input.safety),
     target: captureFileContentSelection(input.target),
     ...(input.workspace
       ? {
@@ -64,33 +73,6 @@ export function captureGrowthContentRestore(
         }
       : {}),
   };
-}
-
-function captureMetadata(value: unknown): Record<string, unknown> {
-  const seen = new Set<object>();
-  function check(item: unknown): void {
-    if (item === null || typeof item === 'string' || typeof item === 'boolean')
-      return;
-    if (typeof item === 'number' && Number.isFinite(item)) return;
-    if (
-      !item ||
-      typeof item !== 'object' ||
-      (!Array.isArray(item) &&
-        Object.getPrototypeOf(item) !== Object.prototype &&
-        Object.getPrototypeOf(item) !== null)
-    )
-      throw new Error('Use finite JSON metadata');
-    if (seen.has(item)) throw new Error('Use acyclic JSON metadata');
-    seen.add(item);
-    if (Array.isArray(item))
-      for (let i = 0; i < item.length; i++) check(item[i]);
-    else for (const entry of Object.values(item)) check(entry);
-    seen.delete(item);
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('Use a metadata object');
-  check(value);
-  return JSON.parse(JSON.stringify(value));
 }
 
 export function captureGrowthSnapshot(
@@ -151,6 +133,7 @@ export class GrowthContentService {
     private readonly content: FileContentService,
     private readonly repository: FileContentRepository,
     private readonly taskMerge: TaskMergeService,
+    private readonly history: EditHistoryService,
   ) {}
 
   /** The caller runs this entire operation in the API owner transaction.
@@ -182,9 +165,9 @@ export class GrowthContentService {
       throw new ConflictException(
         'Restore requires the selected retained snapshot of this Crux',
       );
-    // Validate the destination before creating even the temporary safety node.
+    // Verify the target before recording protected recovery; never create Growth for safety.
     await new FileManifest(store).verify(targetHead.root);
-    const safety = await this.create(input.safety, store);
+    const safety = await this.history.captureWorkspace(input.safety, store);
     const head = await this.content.commit(
       {
         cruxId: source.id,
@@ -205,16 +188,10 @@ export class GrowthContentService {
     // Publication must not alter either retained snapshot via a late database write.
     if (
       !isDeepStrictEqual(
-        await this.content.head(safety.snapshot.id),
-        safety.head,
-      ) ||
-      !isDeepStrictEqual(
-        await this.crux.findById(safety.snapshot.id),
-        safety.snapshot,
-      ) ||
-      !isDeepStrictEqual(
-        await this.dimension.findById(safety.growth.id),
-        safety.growth,
+        (await this.history.list(source.id)).checkpoints.find(
+          (item) => item.id === safety.id,
+        ),
+        safety,
       ) ||
       !isDeepStrictEqual(await this.content.head(target.id), targetHead) ||
       !isDeepStrictEqual(await this.crux.findById(target.id), target)

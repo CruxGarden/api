@@ -217,7 +217,7 @@ export class FileContentRepository {
     id: string,
     expectedMeta: Record<string, unknown>,
     messages: unknown[],
-    targetId: string,
+    targetId: string | null,
     entryFile: unknown,
     head: FileContentHead,
   ) {
@@ -230,7 +230,6 @@ export class FileContentRepository {
     const meta = {
       ...source.meta,
       messages,
-      growthCount: Number(source.meta?.growthCount ?? 0) + 1,
       settings: {
         ...source.meta?.settings,
         activeBranch: targetId,

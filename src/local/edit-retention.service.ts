@@ -1,7 +1,12 @@
+import { isDeepStrictEqual } from 'util';
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { EditHistoryRepository } from './edit-history.repository';
-import { EditCheckpoint, EDIT_HISTORY_LIMIT } from './edit-history';
+import {
+  EditCheckpoint,
+  EditWorkspaceContext,
+  EDIT_HISTORY_LIMIT,
+} from './edit-history';
 import { RepositoryResponse } from '../common/types/interfaces';
 const unwrap = <T>(result: RepositoryResponse<T>): T => {
   if (result.error)
@@ -18,12 +23,14 @@ export class EditRetentionService {
     root: string,
     reason: EditCheckpoint['reason'],
     coalesce = false,
+    workspace?: EditWorkspaceContext,
   ) {
     const previous = unwrap(await this.history.read(cruxId));
     const matches =
       previous?.checkpoints.filter((item) => item.reason === reason) ?? [];
     const latest = matches[matches.length - 1];
-    if (latest?.root === root) return latest;
+    if (latest?.root === root && isDeepStrictEqual(latest.workspace, workspace))
+      return latest;
     const now = Date.now();
     if (coalesce && latest && now - Date.parse(latest.created) < 60_000)
       return latest;
@@ -32,6 +39,7 @@ export class EditRetentionService {
       root,
       created: new Date(now).toISOString(),
       reason,
+      ...(workspace ? { workspace } : {}),
     };
     let automatic = 0;
     const checkpoints = [...(previous?.checkpoints ?? []), checkpoint]

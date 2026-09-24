@@ -43,6 +43,10 @@ describe('manifest-backed Growth commands', () => {
     },
     dimensionMeta: { label: 'A moment', appChanges: { runtime: false } },
   });
+  const selection = () => ({
+    cruxId: id,
+    expected: { root: head.root, revision: head.revision },
+  });
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'growth-content-'));
     objects = new Map();
@@ -134,7 +138,7 @@ describe('manifest-backed Growth commands', () => {
     const before = await owner.execute(({ crux }) => crux.findById(id));
     const restore = await owner.restoreGrowthContent(
       {
-        safety: request(),
+        safety: selection(),
         target: { cruxId: base.snapshot.id, expected: base.head },
         workspace: { expectedMeta: before.meta, messages: [] },
       } as any,
@@ -315,7 +319,7 @@ describe('manifest-backed Growth commands', () => {
       await expect(
         owner.restoreGrowthContent(
           {
-            safety: request(),
+            safety: selection(),
             target: { cruxId: base.snapshot.id, expected: base.head },
             workspace: {
               expectedMeta: failure === 'stale metadata' ? {} : before.meta,
@@ -350,7 +354,7 @@ describe('manifest-backed Growth commands', () => {
     const before = await owner.execute(({ crux }) => crux.findById(id));
     await owner.restoreGrowthContent(
       {
-        safety: request(),
+        safety: selection(),
         target: { cruxId: base.snapshot.id, expected: base.head },
         workspace: { expectedMeta: before.meta, messages: [] },
       },
@@ -449,6 +453,185 @@ describe('manifest-backed Growth commands', () => {
     ).rejects.toThrow();
   });
 
+  it('retains conversation-only safety changes outside Growth and keeps them through private graph copy', async () => {
+    const version = await owner.createGrowthSnapshot(request(), store);
+    const messages = [{ role: 'user', content: 'Unmarked rough mix' }];
+    await owner.updateCrux(id, {
+      meta: {
+        messages,
+        settings: { activeBranch: version.snapshot.id, entryFile: 'hello.txt' },
+      },
+    });
+    const first = await owner.restoreGrowthContent(
+      {
+        safety: selection(),
+        target: { cruxId: version.snapshot.id, expected: version.head },
+      },
+      store,
+    );
+    expect(first.safety).toMatchObject({
+      root: head.root,
+      reason: 'safety',
+      workspace: {
+        parentId: version.snapshot.id,
+        messages,
+        entryFile: 'hello.txt',
+      },
+    });
+    head = first.head;
+    await owner.updateCrux(id, {
+      meta: {
+        messages: [{ role: 'user', content: 'Another thought, same files' }],
+        settings: { activeBranch: version.snapshot.id, entryFile: 'hello.txt' },
+      },
+    });
+    const second = await owner.restoreGrowthContent(
+      {
+        safety: selection(),
+        target: { cruxId: version.snapshot.id, expected: version.head },
+      },
+      store,
+    );
+    expect(second.safety).not.toEqual(first.safety);
+    expect(
+      await owner.all("SELECT id FROM dimensions WHERE type='growth'"),
+    ).toHaveLength(1);
+    expect(
+      await owner.all("SELECT id FROM cruxes WHERE kind='snapshot'"),
+    ).toHaveLength(1);
+    head = second.head;
+    for (let index = 0; index < 25; index++) {
+      head = await owner.editFileContent(
+        { cruxId: id, expected: head, changes: [put(`Later edit ${index}`)] },
+        store,
+      );
+      await owner.createEditCheckpoint(selection(), store);
+    }
+    const graph = await owner.exportPrivateGraph(
+      { roots: [id], includeMembers: false },
+      store,
+    );
+    expect(
+      graph.editHistory?.[0].checkpoints.filter((p) => p.reason === 'safety'),
+    ).toHaveLength(2);
+    const destination = await LocalGraphRuntime.create(
+      join(dir, 'context-copy.db'),
+    );
+    try {
+      const copied = await destination.importPrivateGraph(
+        {
+          requestId: randomUUID(),
+          mode: 'copy',
+          destination: { authorId: randomUUID(), homeId: randomUUID() },
+          graph,
+        },
+        store,
+        store,
+      );
+      const retained = await destination.listEditHistory(copied.roots[0]);
+      const safety = retained.checkpoints.filter((p) => p.reason === 'safety');
+      expect(safety.map((p) => p.workspace?.parentId)).toEqual([
+        copied.ids[version.snapshot.id],
+        copied.ids[version.snapshot.id],
+      ]);
+      expect(safety[0].workspace?.messages).toEqual(messages);
+      expect(safety[0].id).not.toBe(first.safety.id);
+      const invalid = structuredClone(graph);
+      invalid.editHistory![0].checkpoints.find(
+        (p) => p.reason === 'safety',
+      )!.workspace!.parentId = randomUUID();
+      await expect(
+        destination.importPrivateGraph(
+          {
+            requestId: randomUUID(),
+            mode: 'copy',
+            destination: { authorId: randomUUID(), homeId: randomUUID() },
+            graph: invalid,
+          },
+          store,
+          store,
+        ),
+      ).rejects.toThrow('recovery');
+      expect(
+        await destination.all("SELECT id FROM cruxes WHERE kind='snapshot'"),
+      ).toHaveLength(1);
+    } finally {
+      await destination.close();
+    }
+  });
+
+  it('explicitly recovers unmarked files and conversation context while default recovery keeps current conversation', async () => {
+    const version = await owner.createGrowthSnapshot(request(), store);
+    head = await owner.editFileContent(
+      { cruxId: id, expected: head, changes: [put('Unmarked work')] },
+      store,
+    );
+    await owner.updateCrux(id, {
+      meta: {
+        messages: [{ role: 'user', content: 'Unmarked conversation' }],
+        settings: { activeBranch: version.snapshot.id, entryFile: 'rough.txt' },
+      },
+    });
+    const before = await owner.execute(({ crux }) => crux.findById(id));
+    const restored = await owner.restoreGrowthContent(
+      {
+        safety: selection(),
+        target: { cruxId: version.snapshot.id, expected: version.head },
+        workspace: { expectedMeta: before.meta, messages: [] },
+      },
+      store,
+    );
+    const current = await owner.execute(({ crux }) => crux.findById(id));
+    expect(current.meta.messages).toEqual([]);
+    const failedHistory = await owner.listEditHistory(id);
+    await expect(
+      owner.restoreEditCheckpoint(
+        {
+          cruxId: id,
+          expected: restored.head,
+          checkpointId: restored.safety.id,
+          workspace: { expectedMeta: { stale: true } },
+        },
+        store,
+      ),
+    ).rejects.toThrow('changed');
+    expect(await owner.fileContentHead(id)).toEqual(restored.head);
+    expect(await owner.listEditHistory(id)).toEqual(failedHistory);
+    const filesOnly = await owner.restoreEditCheckpoint(
+      { cruxId: id, expected: restored.head, checkpointId: restored.safety.id },
+      store,
+    );
+    expect(
+      (await owner.execute(({ crux }) => crux.findById(id))).meta.messages,
+    ).toEqual([]);
+    const recovered = await owner.restoreEditCheckpoint(
+      {
+        cruxId: id,
+        expected: filesOnly.head,
+        checkpointId: restored.safety.id,
+        workspace: { expectedMeta: current.meta },
+      },
+      store,
+    );
+    expect(recovered.head.root).toBe(head.root);
+    const final = await owner.execute(({ crux }) => crux.findById(id));
+    expect(final.meta.messages).toEqual(before.meta.messages);
+    expect(final.meta.settings).toEqual(before.meta.settings);
+    expect(
+      await owner.all("SELECT id FROM dimensions WHERE type='growth'"),
+    ).toHaveLength(1);
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    expect(
+      (await owner.execute(({ crux }) => crux.findById(id))).meta.messages,
+    ).toEqual(before.meta.messages);
+    expect(
+      (await owner.listEditHistory(id)).checkpoints.find(
+        (p) => p.id === restored.safety.id,
+      ),
+    ).toEqual(restored.safety);
+  });
+
   it('restores retained content and captures the previous root in the same transaction, without copying bytes', async () => {
     const target = await owner.createGrowthSnapshot(request(), store);
     head = await owner.editFileContent(
@@ -456,11 +639,7 @@ describe('manifest-backed Growth commands', () => {
       store,
     );
     const currentHead = head;
-    const safety = {
-      ...request(),
-      parentId: target.snapshot.id,
-      title: 'Before revert',
-    };
+    const safety = selection();
     const notices: LocalGraphChange[] = [];
     owner.onChange((change) => {
       notices.push(change);
@@ -478,21 +657,25 @@ describe('manifest-backed Growth commands', () => {
       root: target.head.root,
       revision: head.revision + 1,
     });
-    expect(result.safety.head).toEqual({
-      ...currentHead,
-      cruxId: safety.snapshotId,
-      revision: 1,
+    expect(result.safety).toMatchObject({
+      root: currentHead.root,
+      reason: 'safety',
+      workspace: {
+        messages: [],
+        parentId: target.snapshot.id,
+        entryFile: null,
+      },
     });
-    expect(result.safety.snapshot.meta.messages).toEqual(safety.meta.messages);
-    expect(result.safety.growth).toMatchObject({
-      sourceId: id,
-      targetId: safety.snapshotId,
-      type: 'growth',
-    });
+    expect(
+      await owner.all("SELECT id FROM dimensions WHERE type='growth'"),
+    ).toHaveLength(1);
     expect(write).not.toHaveBeenCalled();
     expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatchObject({ id, fields: ['growth', 'fileContent'] });
+    expect(notices[0]).toMatchObject({
+      id,
+      fields: ['editHistory', 'fileContent'],
+    });
     await owner.close();
     owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
     const read = async (cruxId: string, expected: FileContentHead) =>
@@ -503,20 +686,21 @@ describe('manifest-backed Growth commands', () => {
         ))!.bytes,
       ).toString();
     expect(await read(id, result.head)).toBe('First\0version');
-    expect(await read(safety.snapshotId, result.safety.head)).toBe(
-      'Current work',
-    );
+    expect(
+      (await owner.inspectEditCheckpoint(id, result.safety.id, store)).files[0]
+        .fingerprint,
+    ).toBe(put('Current work').put.fingerprint);
     expect(await read(target.snapshot.id, target.head)).toBe('First\0version');
   });
 
   it.each([
     [
-      'safety node',
-      "BEFORE INSERT ON cruxes WHEN NEW.kind = 'snapshot' BEGIN SELECT RAISE(ABORT, 'Safety refused'); END",
+      'safety copy',
+      "BEFORE UPDATE ON edit_history BEGIN SELECT RAISE(ABORT, 'Safety refused'); END",
     ],
     [
-      'safety edge',
-      'BEFORE INSERT ON dimensions BEGIN SELECT RAISE(IGNORE); END',
+      'ignored safety copy',
+      'BEFORE UPDATE ON edit_history BEGIN SELECT RAISE(IGNORE); END',
     ],
     [
       'live root',
@@ -524,7 +708,7 @@ describe('manifest-backed Growth commands', () => {
     ],
     [
       'late safety alteration',
-      "AFTER UPDATE ON file_content_heads BEGIN UPDATE cruxes SET meta = '{}' WHERE kind = 'snapshot'; END",
+      "AFTER UPDATE ON file_content_heads BEGIN UPDATE edit_history SET checkpoints = '[]'; END",
     ],
     [
       'late retained head alteration',
@@ -539,7 +723,7 @@ describe('manifest-backed Growth commands', () => {
         store,
       );
       const input = {
-        safety: request(),
+        safety: selection(),
         target: { cruxId: target.snapshot.id, expected: target.head },
       };
       const notices = jest.fn();
@@ -551,10 +735,8 @@ describe('manifest-backed Growth commands', () => {
         target.head,
       );
       expect(
-        await owner.get('SELECT id FROM cruxes WHERE id = ?', [
-          input.safety.snapshotId,
-        ]),
-      ).toBeUndefined();
+        await owner.all("SELECT id FROM cruxes WHERE kind='snapshot'"),
+      ).toHaveLength(1);
       expect(await owner.all('SELECT * FROM dimensions')).toHaveLength(1);
       expect(notices).not.toHaveBeenCalled();
       await owner.close();
@@ -563,7 +745,7 @@ describe('manifest-backed Growth commands', () => {
       await owner.run('DROP TRIGGER refuse_restore');
       const result = await owner.restoreGrowthContent(input, store);
       expect(result.head.root).toBe(target.head.root);
-      expect(result.safety.head.root).toBe(head.root);
+      expect(result.safety.root).toBe(head.root);
     },
   );
 
@@ -574,7 +756,7 @@ describe('manifest-backed Growth commands', () => {
       store,
     );
     const input = {
-      safety: request(),
+      safety: selection(),
       target: { cruxId: target.snapshot.id, expected: target.head },
     };
     const read = jest.spyOn(store, 'read');
@@ -642,10 +824,8 @@ describe('manifest-backed Growth commands', () => {
       await expect(owner.restoreGrowthContent(input, store)).rejects.toThrow();
       expect(await owner.fileContentHead(id)).toEqual(head);
       expect(
-        await owner.get('SELECT id FROM cruxes WHERE id = ?', [
-          input.safety.snapshotId,
-        ]),
-      ).toBeUndefined();
+        await owner.all("SELECT id FROM cruxes WHERE kind='snapshot'"),
+      ).toHaveLength(2);
       objects.set(fp, bytes);
     }
     await expect(
@@ -653,12 +833,16 @@ describe('manifest-backed Growth commands', () => {
     ).resolves.toMatchObject({ head: { root: target.head.root } });
   });
 
-  it('captures the queued restore selections, safety metadata and storage reader', async () => {
+  it('captures queued restore selections, workspace expectations and storage reader', async () => {
     const target = await owner.createGrowthSnapshot(request(), store);
     head = await owner.editFileContent(
       { cruxId: id, expected: head, changes: [put('Current work')] },
       store,
     );
+    await owner.updateCrux(id, {
+      meta: { messages: ['Unmarked before queue'] },
+    });
+    const current = await owner.execute(({ crux }) => crux.findById(id));
     let release!: () => void;
     const wait = new Promise<void>((resolve) => {
       release = resolve;
@@ -667,7 +851,8 @@ describe('manifest-backed Growth commands', () => {
       await wait;
     });
     const input = {
-      safety: request(),
+      safety: selection(),
+      workspace: { expectedMeta: current.meta, messages: [] as unknown[] },
       target: { cruxId: target.snapshot.id, expected: { ...target.head } },
     };
     const original = structuredClone(input);
@@ -675,7 +860,8 @@ describe('manifest-backed Growth commands', () => {
     input.target.cruxId = id;
     input.target.expected.root = '0'.repeat(64);
     input.safety.expected.revision = 100;
-    input.safety.meta.messages[0].content = 'Changed after submission';
+    input.workspace.expectedMeta.messages[0] = 'Changed after submission';
+    input.workspace.messages.push('Changed after submission');
     store.read = async () => {
       throw new Error('Reader replaced');
     };
@@ -683,9 +869,13 @@ describe('manifest-backed Growth commands', () => {
     await blocker;
     const result = await pending;
     expect(result.head.root).toBe(target.head.root);
-    expect(result.safety.snapshot.meta.messages).toEqual(
-      original.safety.meta.messages,
+    expect(result.safety.workspace?.messages).toEqual(
+      original.workspace.expectedMeta.messages,
     );
+    expect(
+      (await owner.execute(({ crux }) => crux.findById(id))).meta.messages,
+    ).toEqual([]);
+    expect(result.head.root).toBe(original.target.expected.root);
   });
 
   it('keeps explicit branches under the same owner and rejects a foreign parent', async () => {
