@@ -1,7 +1,10 @@
+import type { FileContentChange } from './file-content.service';
 import { captureCruxUpdate, LocalCruxUpdate } from './crux-update';
 
 /** Local creation preserves desktop defaults; ownership is captured, never inferred from navigation. */
 export interface LocalCruxCreate {
+  /** Optional first content, committed with identity and placement by the runtime. */
+  initialFiles?: FileContentChange[];
   id?: string;
   gardenId?: string;
   slug: string;

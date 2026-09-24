@@ -902,12 +902,32 @@ export class LocalGraphRuntime {
   async createCrux(
     input: LocalCruxCreate,
     prepareFolder?: PrepareCruxFolder,
+    store?: DesktopContentStore,
   ): Promise<string> {
-    const captured = captureCruxCreate(input);
+    const { initialFiles, ...metadata } = input;
+    const captured = captureCruxCreate(metadata);
+    const content =
+      initialFiles === undefined
+        ? null
+        : captureFileContentEdit({
+            cruxId: captured.id ?? 'new-crux',
+            expected: null,
+            changes: initialFiles,
+          });
+    if (content && !store)
+      throw new Error('Initial files require the API content store');
+    const capturedStore = store
+      ? { read: store.read.bind(store), write: store.write.bind(store) }
+      : null;
     return this.executeChanged(
-      async ({ lifecycle, garden }) => {
+      async ({ lifecycle, garden, fileContent }) => {
         const { gardenId, ...details } = captured;
         const id = await lifecycle.create(details, prepareFolder);
+        if (content)
+          await fileContent.initialize(
+            { ...content, cruxId: id },
+            capturedStore!,
+          );
         if (gardenId)
           await garden.add({
             gardenId,

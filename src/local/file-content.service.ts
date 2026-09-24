@@ -307,6 +307,17 @@ export class FileContentService {
     await new FileManifest(store).verify(input.root);
     return this.publish(input, before);
   }
+  /** Creation alone owns this path: its identity and first head commit together. */
+  async initialize(
+    input: CapturedFileContentEdit,
+    store: DesktopContentStore,
+  ): Promise<FileContentHead> {
+    if (input.expected !== null)
+      throw new Error('Initial content requires an empty head');
+    const head = await this.edit(input, store);
+    await this.repository.queueProjection(input.cruxId, head);
+    return head;
+  }
   async edit(
     input: CapturedFileContentEdit,
     store: DesktopContentStore,
