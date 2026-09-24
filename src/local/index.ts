@@ -11,6 +11,10 @@ export type { DesktopRecoveryInspection } from './desktop-recovery';
 export { LocalGraphRuntime } from './graph-runtime';
 export type { GraphOperations, LocalGraphChange } from './graph-runtime';
 export type { AddGardenMember } from './garden-membership.service';
+export type {
+  GraphSelection,
+  SelectedGraphCapture,
+} from './selected-graph.service';
 export {
   CruxKind,
   CruxType,

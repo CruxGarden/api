@@ -5,6 +5,12 @@ import {
   GrowthContentRestore,
   captureGrowthContentRestore,
 } from './growth-content.service';
+import { SelectedGraphRepository } from './selected-graph.repository';
+import {
+  SelectedGraphService,
+  GraphSelection,
+  captureGraphSelection,
+} from './selected-graph.service';
 import { FileContentRepository } from './file-content.repository';
 import {
   FileContentService,
@@ -101,6 +107,8 @@ class LocalGraphModule {
         FileContentRepository,
         FileContentService,
         GrowthContentService,
+        SelectedGraphRepository,
+        SelectedGraphService,
       ],
     };
   }
@@ -115,6 +123,7 @@ export interface GraphOperations {
   taskMerge: TaskMergeService;
   fileContent: FileContentService;
   growthContent: GrowthContentService;
+  selectedGraph: SelectedGraphService;
 }
 
 /** Ephemeral invalidation for named commands, never a content payload or durable log.
@@ -181,6 +190,7 @@ export class LocalGraphRuntime {
       taskMerge: context.get(TaskMergeService),
       fileContent: context.get(FileContentService),
       growthContent: context.get(GrowthContentService),
+      selectedGraph: context.get(SelectedGraphService),
     });
   }
 
@@ -348,6 +358,26 @@ export class LocalGraphRuntime {
       this.notify(change(result));
       return result;
     });
+  }
+
+  /** Host-only coherent source capture for the selected-transfer coordinator.
+   * Private installation fields are retained; this is not a shareable envelope. */
+  async captureSelectedGraph(
+    selection: GraphSelection,
+    store: Pick<DesktopContentStore, 'read'>,
+  ) {
+    const captured = captureGraphSelection(selection);
+    if (typeof store?.read !== 'function')
+      throw new Error('Use the host content store');
+    const reader = {
+      read: store.read.bind(store),
+      write: async () => {
+        throw new Error('Graph capture cannot write content');
+      },
+    };
+    return this.execute(({ selectedGraph }) =>
+      selectedGraph.capture(captured, reader),
+    );
   }
 
   /** Internal staged-content admission. No normal schema or renderer adoption yet. */
