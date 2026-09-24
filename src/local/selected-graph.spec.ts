@@ -27,8 +27,15 @@ describe('API-owned selected graph capture', () => {
       meta,
     });
   const member = (gardenId: string, memberId: string) =>
-    owner.execute(({ garden }) =>
-      garden.add({ ...identity, gardenId, memberId }),
+    // Source capture preserves unrestricted existing graphs, independent of app placement policy.
+    owner.execute(({ dimension }) =>
+      dimension.create({
+        ...identity,
+        sourceId: gardenId,
+        targetId: memberId,
+        type: DimensionType.GARDEN,
+        kind: 'membership',
+      }),
     );
   const connect = (
     sourceId: string,

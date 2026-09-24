@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DbService } from '../common/services/db.service';
 import { success, failure } from '../common/helpers/repository-helpers';
 import DimensionRaw from '../dimension/entities/dimension-raw.entity';
+import { LOCAL_GARDEN_ID } from './garden-entry.repository';
 
 export const GARDEN_MEMBERSHIP = 'membership';
 
@@ -17,6 +18,19 @@ export class GardenMembershipRepository {
       .whereNull('deleted');
   }
 
+  async isRoot(id: string) {
+    try {
+      return success(
+        !!(await this.db
+          .query()('settings')
+          .where({ key: LOCAL_GARDEN_ID, value: id })
+          .first('key')),
+      );
+    } catch (error) {
+      return failure<boolean>(error);
+    }
+  }
+
   async find(gardenId: string, memberId: string) {
     try {
       return success<DimensionRaw>(
@@ -27,6 +41,64 @@ export class GardenMembershipRepository {
       );
     } catch (error) {
       return failure<DimensionRaw>(error);
+    }
+  }
+
+  /** Arrays deliberately survive lifting the v1 application policy. */
+  async parents(memberId: string) {
+    try {
+      return success<DimensionRaw[]>(
+        await this.edges().where({ target_id: memberId }).orderBy('id'),
+      );
+    } catch (error) {
+      return failure<DimensionRaw[]>(error);
+    }
+  }
+
+  async parentIdentities(memberId: string) {
+    try {
+      const rows = await this.db
+        .query()('dimensions as d')
+        .join('cruxes as c', 'c.id', 'd.source_id')
+        .where({
+          'd.target_id': memberId,
+          'd.type': 'garden',
+          'd.kind': GARDEN_MEMBERSHIP,
+        })
+        .whereNull('d.deleted')
+        .select(
+          'c.id',
+          'c.title',
+          'c.slug',
+          'c.kind',
+          'c.deleted',
+          'd.id as edgeId',
+        )
+        .orderBy('c.id');
+      return success(
+        rows.map(({ deleted, ...row }) => ({
+          ...row,
+          available: deleted == null,
+        })) as {
+          id: string;
+          title: string;
+          slug: string;
+          kind: string | null;
+          edgeId: string;
+          available: boolean;
+        }[],
+      );
+    } catch (error) {
+      return failure<
+        {
+          id: string;
+          title: string;
+          slug: string;
+          kind: string | null;
+          edgeId: string;
+          available: boolean;
+        }[]
+      >(error);
     }
   }
 

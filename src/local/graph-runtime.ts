@@ -87,6 +87,7 @@ import { GardenMembershipRepository } from './garden-membership.repository';
 import {
   GardenMembershipService,
   AddGardenMember,
+  MoveGardenMember,
 } from './garden-membership.service';
 
 // A failed close leaves connection ownership uncertain: never admit another owner.
@@ -923,6 +924,27 @@ export class LocalGraphRuntime {
   ) {
     const captured = { ...options };
     return this.execute(({ garden }) => garden.list(gardenId, captured));
+  }
+
+  gardenParents(memberId: string) {
+    return this.execute(({ garden }) => garden.parents(memberId));
+  }
+
+  moveGardenMember(input: MoveGardenMember) {
+    const captured = {
+      ...input,
+      expectedParents: Array.isArray(input.expectedParents)
+        ? [...input.expectedParents]
+        : input.expectedParents,
+    };
+    return this.executeChanged(
+      ({ garden }) => garden.move(captured),
+      () => ({
+        entity: 'garden-membership',
+        id: captured.gardenId,
+        cruxId: captured.memberId,
+      }),
+    );
   }
 
   private async withConnection<T>(

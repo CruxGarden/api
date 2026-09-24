@@ -44,7 +44,7 @@ describe('local Garden membership domain operations', () => {
     rmSync(scratch, { recursive: true, force: true });
   });
 
-  it('stores nested Gardens and multiply linked creations without copying their identity', async () => {
+  it('gives nested Gardens and creative Cruxes one location while lateral Grafts stay out of contents', async () => {
     const root = await create();
     const child = await create();
     const sibling = await create();
@@ -52,7 +52,16 @@ describe('local Garden membership domain operations', () => {
     await add(root.id, child.id);
     await add(root.id, sibling.id);
     const edge = await add(child.id, work.id);
-    await add(sibling.id, work.id);
+    await expect(add(sibling.id, work.id)).rejects.toThrow('already planted');
+    await runtime.execute(({ dimension }) =>
+      dimension.create({
+        sourceId: sibling.id,
+        targetId: work.id,
+        type: DimensionType.GRAFT,
+        authorId,
+        homeId,
+      }),
+    );
     expect(edge).toMatchObject({
       sourceId: child.id,
       targetId: work.id,
@@ -62,9 +71,7 @@ describe('local Garden membership domain operations', () => {
     expect((await runtime.listGardenMembers(child.id)).items).toEqual([
       { id: work.id, slug: work.slug, title: work.title, kind: work.kind },
     ]);
-    expect((await runtime.listGardenMembers(sibling.id)).items[0].id).toBe(
-      work.id,
-    );
+    expect((await runtime.listGardenMembers(sibling.id)).items).toEqual([]);
     expect(await runtime.all('SELECT id FROM cruxes')).toHaveLength(4);
   });
 
@@ -76,6 +83,139 @@ describe('local Garden membership domain operations', () => {
     );
     expect(new Set(edges.map((edge) => edge.id)).size).toBe(1);
     expect(await runtime.all('SELECT id FROM dimensions')).toHaveLength(1);
+  });
+
+  it('keeps the installation root parentless', async () => {
+    const root = await runtime.enterLocalGarden();
+    const other = await create();
+    await expect(add(other.id, root.id)).rejects.toThrow('root');
+    expect(await runtime.gardenParents(root.id)).toEqual([]);
+  });
+
+  it('refuses a move without inspected parents and preserves its placement', async () => {
+    const a = await create();
+    const b = await create();
+    const work = await create(CruxKind.NOTES);
+    await add(a.id, work.id);
+    await expect(
+      runtime.moveGardenMember({
+        gardenId: b.id,
+        memberId: work.id,
+        authorId,
+        homeId,
+        expectedParents: undefined as unknown as string[],
+      }),
+    ).rejects.toThrow('Inspect');
+    expect((await runtime.gardenParents(work.id)).map((row) => row.id)).toEqual(
+      [a.id],
+    );
+  });
+
+  it('projects Gates as parent arrays and moves one placement atomically with stale-parent refusal', async () => {
+    const a = await create();
+    const b = await create();
+    const work = await create(CruxKind.NOTES);
+    const original = await add(a.id, work.id);
+    expect(await runtime.gardenParents(work.id)).toEqual([
+      {
+        id: a.id,
+        title: a.title,
+        slug: a.slug,
+        kind: a.kind,
+        edgeId: original.id,
+        available: true,
+      },
+    ]);
+    await runtime.run(`CREATE TRIGGER refuse_move BEFORE INSERT ON dimensions
+      WHEN NEW.source_id = '${b.id}' BEGIN SELECT RAISE(ABORT, 'refused move'); END`);
+    const move = {
+      gardenId: b.id,
+      memberId: work.id,
+      expectedParents: [a.id],
+      authorId,
+      homeId,
+    };
+    await expect(runtime.moveGardenMember(move)).rejects.toThrow(
+      'refused move',
+    );
+    expect((await runtime.listGardenMembers(a.id)).items[0].id).toBe(work.id);
+    await runtime.run('DROP TRIGGER refuse_move');
+    const moved = await runtime.moveGardenMember(move);
+    expect(moved.targetId).toBe(work.id);
+    expect((await runtime.listGardenMembers(a.id)).items).toEqual([]);
+    expect((await runtime.gardenParents(work.id)).map((row) => row.id)).toEqual(
+      [b.id],
+    );
+    await expect(runtime.moveGardenMember(move)).rejects.toThrow(
+      'location changed',
+    );
+    await runtime.close();
+    runtime = await LocalGraphRuntime.open(filename);
+    expect((await runtime.gardenParents(work.id)).map((row) => row.id)).toEqual(
+      [b.id],
+    );
+    expect(await runtime.all('SELECT id FROM cruxes')).toHaveLength(3);
+  });
+
+  it('refuses an ignored placement removal without falsely reporting a successful move', async () => {
+    const a = await create();
+    const b = await create();
+    const work = await create(CruxKind.NOTES);
+    await add(a.id, work.id);
+    await runtime.execute(({ dimension }) =>
+      dimension.create({
+        sourceId: b.id,
+        targetId: work.id,
+        type: DimensionType.GARDEN,
+        kind: 'membership',
+        authorId,
+        homeId,
+      }),
+    );
+    await runtime.run(`CREATE TRIGGER ignore_move BEFORE UPDATE ON dimensions
+      BEGIN SELECT RAISE(IGNORE); END`);
+    await expect(
+      runtime.moveGardenMember({
+        gardenId: b.id,
+        memberId: work.id,
+        expectedParents: [a.id, b.id],
+        authorId,
+        homeId,
+      }),
+    ).rejects.toThrow();
+    expect(
+      (await runtime.gardenParents(work.id)).map((row) => row.id).sort(),
+    ).toEqual([a.id, b.id].sort());
+  });
+
+  it('keeps unrestricted shared data readable and lets an explicit move settle its location', async () => {
+    const a = await create();
+    const b = await create();
+    const work = await create(CruxKind.NOTES);
+    await add(a.id, work.id);
+    await runtime.execute(({ dimension }) =>
+      dimension.create({
+        sourceId: b.id,
+        targetId: work.id,
+        type: DimensionType.GARDEN,
+        kind: 'membership',
+        authorId,
+        homeId,
+      }),
+    );
+    expect(
+      (await runtime.gardenParents(work.id)).map((row) => row.id).sort(),
+    ).toEqual([a.id, b.id].sort());
+    await runtime.moveGardenMember({
+      gardenId: b.id,
+      memberId: work.id,
+      expectedParents: [a.id, b.id],
+      authorId,
+      homeId,
+    });
+    expect((await runtime.gardenParents(work.id)).map((row) => row.id)).toEqual(
+      [b.id],
+    );
   });
 
   it('captures a queued command’s owner before navigation changes the caller’s input', async () => {
@@ -120,7 +260,7 @@ describe('local Garden membership domain operations', () => {
     expect(await runtime.all('SELECT id FROM dimensions')).toHaveLength(3);
   });
 
-  it('terminates cycle checks even when legacy generic edges already form a cycle', async () => {
+  it('terminates cycle checks even when unrestricted graph edges already form a cycle', async () => {
     const a = await create();
     const b = await create();
     const root = await create();
@@ -138,7 +278,17 @@ describe('local Garden membership domain operations', () => {
           homeId,
         }),
       );
-    await add(root.id, a.id);
+    await expect(add(root.id, a.id)).rejects.toThrow('already planted');
+    await runtime.execute(({ dimension }) =>
+      dimension.create({
+        sourceId: root.id,
+        targetId: a.id,
+        type: DimensionType.GARDEN,
+        kind: 'membership',
+        authorId,
+        homeId,
+      }),
+    );
     await expect(add(b.id, root.id)).rejects.toThrow('cycle');
   });
 
@@ -147,7 +297,17 @@ describe('local Garden membership domain operations', () => {
     const b = await create();
     const work = await create(CruxKind.WEBAPP);
     const edge = await add(a.id, work.id);
-    await add(b.id, work.id);
+    // Generic graph storage remains unrestricted; existing shared data stays removable.
+    await runtime.execute(({ dimension }) =>
+      dimension.create({
+        sourceId: b.id,
+        targetId: work.id,
+        type: DimensionType.GARDEN,
+        kind: 'membership',
+        authorId,
+        homeId,
+      }),
+    );
     const derivation = await runtime.execute(({ dimension }) =>
       dimension.create({
         sourceId: a.id,
@@ -195,7 +355,9 @@ describe('local Garden membership domain operations', () => {
         work.id,
       ]),
     ).toEqual([{ path: 'keep.txt' }]);
-    // Re-add creates a new live edge; the prior removal remains a tombstone.
+    await expect(add(a.id, work.id)).rejects.toThrow('already planted');
+    await runtime.removeGardenMember(b.id, work.id);
+    // Re-add creates a new live edge; prior removal remains a tombstone.
     expect((await add(a.id, work.id)).id).not.toBe(edge.id);
   });
 

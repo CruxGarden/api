@@ -1,4 +1,7 @@
-import { GardenMembershipService } from './garden-membership.service';
+import {
+  GardenMembershipService,
+  assertSinglePlacement,
+} from './garden-membership.service';
 import { packPrivateGraph } from './private-graph-archive';
 import type { SelectedGraphCapture } from './selected-graph.service';
 import { isAbsolute, resolve } from 'path';
@@ -211,6 +214,14 @@ export class GraphTransferService {
         throw new Error('This import request ID belongs to different data');
       return receipt.result;
     }
+    assertSinglePlacement(
+      graph.dimensions
+        .filter((edge) => edge.type === 'garden' && edge.kind === 'membership')
+        .map((edge) => ({
+          sourceId: edge.sourceId!,
+          targetId: edge.targetId!,
+        })),
+    );
     const ids = Object.fromEntries(
       identities.map((id) => [id, mode === 'copy' ? randomUUID() : id]),
     );

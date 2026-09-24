@@ -87,12 +87,19 @@ describe('private selected graph transfer through the API owner', () => {
     });
     for (const [gardenId, memberId] of [
       [garden, child],
-      [garden, work],
       [child, work],
     ])
       await source.execute(({ garden: service }) =>
         service.add({ ...sourceIdentity, gardenId, memberId }),
       );
+    await source.execute(({ dimension }) =>
+      dimension.create({
+        ...sourceIdentity,
+        sourceId: garden,
+        targetId: work,
+        type: DimensionType.GRAFT,
+      }),
+    );
     await source.execute(({ dimension }) =>
       dimension.create({
         ...sourceIdentity,
@@ -251,7 +258,24 @@ describe('private selected graph transfer through the API owner', () => {
       expect(await target.all(`SELECT * FROM ${table}`)).toEqual([]);
   }
 
-  it('copies shared Gardens, Main/Task/Growth and opaque bytes; excludes device state and leaves outside edges unresolved', async () => {
+  it('refuses a second placement in incoming graph content without committing any destination state', async () => {
+    const f = await fixture();
+    const before = await target.all('SELECT id FROM cruxes');
+    f.request.graph.dimensions.push({
+      ...f.request.graph.dimensions.find((edge) => edge.kind === 'membership')!,
+      id: randomUUID(),
+      sourceId: f.garden,
+      targetId: f.work,
+    });
+    await expect(
+      target.importPrivateGraph(f.request, incoming, destination),
+    ).rejects.toThrow('already planted');
+    expect(await target.all('SELECT id FROM cruxes')).toEqual(before);
+    expect(await target.all('SELECT id FROM dimensions')).toEqual([]);
+    expect(targetObjects.size).toBe(0);
+  });
+
+  it('copies nested Gardens, lateral Grafts, Main/Task/Growth and opaque bytes; excludes device state and leaves outside edges unresolved', async () => {
     const f = await fixture();
     const json = JSON.stringify(f.request.graph);
     for (const privateValue of [
@@ -882,8 +906,15 @@ describe('private selected graph transfer through the API owner', () => {
       slug: 'another-garden',
       kind: CruxKind.GARDEN,
     });
-    await target.execute(({ garden }) =>
-      garden.add({ ...targetIdentity, gardenId: outsider, memberId: f.work }),
+    // A general graph can still contain shared data; replacement must preserve it.
+    await target.execute(({ dimension }) =>
+      dimension.create({
+        ...targetIdentity,
+        sourceId: outsider,
+        targetId: f.work,
+        type: DimensionType.GARDEN,
+        kind: 'membership',
+      }),
     );
     request.replacementToken = await target.privateGraphReplacementToken(
       {
