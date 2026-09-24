@@ -1,8 +1,6 @@
 import { isDeepStrictEqual } from 'util';
-import { CruxGraphService } from '../crux/crux-graph.service';
-import { DimensionType } from '../common/types/enums';
 import { captureMetadata } from './json-metadata';
-import { editWorkspaceSchema, EditWorkspaceContext } from './edit-history';
+import { WorkspaceStateService } from './workspace-state.service';
 import { EditRetentionService } from './edit-retention.service';
 import {
   Injectable,
@@ -74,7 +72,7 @@ export class EditHistoryService {
     private readonly content: FileContentService,
     private readonly files: FileContentRepository,
     private readonly retention: EditRetentionService,
-    private readonly crux: CruxGraphService,
+    private readonly workspaces: WorkspaceStateService,
   ) {}
   async list(cruxId: string) {
     if (!isUUID(cruxId)) throw new Error('Use a content owner identity');
@@ -104,75 +102,14 @@ export class EditHistoryService {
     input: FileContentSelection,
     store: DesktopContentStore,
   ) {
-    const head = await this.content.admit(input);
-    if (!head)
-      throw new ConflictException(
-        'Workspace recovery requires committed content',
-      );
-    const owner = await this.content.owner(input.cruxId);
-    const edges = await this.crux.getDimensionsQuery(
-      input.cruxId,
-      DimensionType.GROWTH,
-      false,
-      false,
-    );
-    const latest = [...edges].sort(
-      (a, b) => Number(b.weight ?? 0) - Number(a.weight ?? 0),
-    )[0];
-    const workspace = editWorkspaceSchema.parse(
-      captureMetadata({
-        parentId: Object.prototype.hasOwnProperty.call(
-          owner.meta?.settings ?? {},
-          'activeBranch',
-        )
-          ? owner.meta.settings.activeBranch
-          : (latest?.target_id ?? null),
-        messages: owner.meta?.messages ?? [],
-        entryFile: owner.meta?.settings?.entryFile ?? null,
-      }),
-    ) as EditWorkspaceContext;
-    await this.assertWorkspace(input.cruxId, workspace);
-    await new FileManifest(store).verify(head.root);
+    const { root, workspace } = await this.workspaces.read(input, store);
     return this.retention.record(
       input.cruxId,
-      head.root,
+      root,
       'safety',
       false,
       workspace,
     );
-  }
-  private async assertWorkspace(
-    cruxId: string,
-    workspace: EditWorkspaceContext,
-  ) {
-    if (!workspace.parentId) return;
-    const parentOwner = await this.files.parentOwner(
-      cruxId,
-      workspace.parentId,
-    );
-    const parent = await this.crux.findById(workspace.parentId);
-    const source = await this.content.owner(cruxId);
-    const head = await this.content.head(parent.id);
-    const edges = await this.crux.getDimensionsQuery(
-      parentOwner,
-      DimensionType.GROWTH,
-      false,
-      false,
-    );
-    if (
-      !head ||
-      head.revision !== 1 ||
-      head.formatVersion !== 1 ||
-      parent.kind !== 'snapshot' ||
-      parent.deleted ||
-      parent.meta?.contentOwnerId !== parentOwner ||
-      parent.authorId !== source.authorId ||
-      parent.homeId !== source.homeId ||
-      !edges.some((edge) => edge.target_id === parent.id)
-    )
-      throw new ConflictException(
-        'Recovery context requires retained Growth of this workspace',
-      );
   }
 
   async inspect(
@@ -203,7 +140,7 @@ export class EditHistoryService {
     if (input.workspace && !checkpoint.workspace)
       throw new ConflictException('This recovery copy contains files only');
     if (input.workspace)
-      await this.assertWorkspace(input.cruxId, checkpoint.workspace!);
+      await this.workspaces.assertContext(input.cruxId, checkpoint.workspace!);
     const safety = input.workspace
       ? await this.captureWorkspace(input, store)
       : await this.capture(input, store, 'safety');

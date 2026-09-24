@@ -1,3 +1,4 @@
+import { WorkspaceStateService } from './workspace-state.service';
 import { EditRetentionService } from './edit-retention.service';
 import { EditHistoryRepository } from './edit-history.repository';
 import {
@@ -127,6 +128,7 @@ class LocalGraphModule {
         TaskMergeService,
         EditHistoryRepository,
         EditHistoryService,
+        WorkspaceStateService,
         EditRetentionService,
         FileContentRepository,
         FileContentService,
@@ -149,6 +151,7 @@ export interface GraphOperations {
   lifecycle: CruxLifecycleService;
   taskMerge: TaskMergeService;
   editHistory: EditHistoryService;
+  workspaceState: WorkspaceStateService;
   fileContent: FileContentService;
   growthContent: GrowthContentService;
   selectedGraph: SelectedGraphService;
@@ -219,6 +222,7 @@ export class LocalGraphRuntime {
       lifecycle: context.get(CruxLifecycleService),
       taskMerge: context.get(TaskMergeService),
       editHistory: context.get(EditHistoryService),
+      workspaceState: context.get(WorkspaceStateService),
       fileContent: context.get(FileContentService),
       growthContent: context.get(GrowthContentService),
       selectedGraph: context.get(SelectedGraphService),

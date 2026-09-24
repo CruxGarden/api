@@ -73,6 +73,48 @@ describe('manifest-backed Growth commands', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('reads an unmarked workspace state without Growth or recovery writes, and refuses a changed conversation', async () => {
+    await owner.createGrowthSnapshot(request(), store);
+    const meta = {
+      messages: [{ role: 'user', content: 'Unmarked direction' }],
+      settings: { activeBranch: null, entryFile: 'hello.txt' },
+    };
+    await owner.updateCrux(id, { meta });
+    const bytesBefore = objects.size;
+    const state = await owner.execute(({ workspaceState }) =>
+      workspaceState.read(selection(), store, meta),
+    );
+    expect(state).toEqual({
+      root: head.root,
+      workspace: {
+        parentId: null,
+        messages: meta.messages,
+        entryFile: 'hello.txt',
+      },
+    });
+    (state.workspace.messages[0] as any).content = 'Mutated returned value';
+    const again = await owner.execute(({ workspaceState }) =>
+      workspaceState.read(selection(), store, meta),
+    );
+    expect(again.workspace.messages).toEqual(meta.messages);
+    expect(objects.size).toBe(bytesBefore);
+    expect((await owner.listEditHistory(id)).checkpoints).toEqual([]);
+    expect(
+      await owner.all("SELECT id FROM dimensions WHERE type = 'growth'"),
+    ).toHaveLength(1);
+    await owner.updateCrux(id, {
+      meta: {
+        ...meta,
+        messages: [...meta.messages, { role: 'user', content: 'New thought' }],
+      },
+    });
+    await expect(
+      owner.execute(({ workspaceState }) =>
+        workspaceState.read(selection(), store, meta),
+      ),
+    ).rejects.toThrow('workspace changed');
+  });
+
   it('retains a Task base, edits and snapshots its independent content, and reopens both owners', async () => {
     const base = await owner.createGrowthSnapshot(request(), store);
     const taskId = randomUUID();
