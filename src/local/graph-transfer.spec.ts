@@ -610,6 +610,128 @@ describe('private selected graph transfer through the API owner', () => {
     ).resolves.toBeDefined();
   });
 
+  it('binds only fresh verified workspace folders, marks active Tasks ready, and never creates a folder for Growth', async () => {
+    const f = await fixture();
+    const calls: Array<{ id: string; role: string; files: string[] }> = [];
+    const prepare = async (
+      workspace: import('./import-workspace').PrepareImportedWorkspace extends (
+        input: infer T,
+      ) => unknown
+        ? T
+        : never,
+    ) => {
+      calls.push({
+        id: workspace.id,
+        role: workspace.role,
+        files: workspace.files.map((file) => file.path),
+      });
+      if (workspace.head)
+        expect(targetObjects.has(workspace.head.root)).toBe(true);
+      return join(dir, workspace.id);
+    };
+    const result = await target.importPrivateGraph(
+      f.request,
+      incoming,
+      destination,
+      prepare,
+    );
+    expect(calls).toHaveLength(5);
+    expect(calls.map((call) => call.id)).not.toContain(result.ids[f.growth]);
+    expect(calls.map((call) => call.id)).not.toContain(
+      result.ids[f.taskGrowth],
+    );
+    expect(calls.find((call) => call.id === result.ids[f.task])).toMatchObject({
+      role: 'task',
+      files: ['nested/file.bin'],
+    });
+    const work = await target.get('SELECT meta FROM cruxes WHERE id = ?', [
+      result.ids[f.work],
+    ]);
+    expect(JSON.parse(work!.meta as string).projectFolder).toBe(
+      join(dir, result.ids[f.work]),
+    );
+    const task = await target.get(
+      'SELECT project_folder, phase FROM working_copies WHERE id = ?',
+      [result.ids[f.task]],
+    );
+    expect(task).toEqual({
+      project_folder: join(dir, result.ids[f.task]),
+      phase: 'ready',
+    });
+    expect(
+      await target.importPrivateGraph(
+        f.request,
+        incoming,
+        destination,
+        prepare,
+      ),
+    ).toEqual(result);
+    expect(calls).toHaveLength(5);
+    await expect(
+      target.importPrivateGraph(f.request, incoming, destination),
+    ).rejects.toThrow('different data');
+  });
+
+  it('rolls back folder preparation/refused binding and retries without deleting host-prepared files', async () => {
+    const f = await fixture();
+    const prepared: string[] = [];
+    await expect(
+      target.importPrivateGraph(
+        f.request,
+        incoming,
+        destination,
+        async (workspace) => {
+          prepared.push(workspace.id);
+          if (prepared.length === 2)
+            throw new Error('Host materialization refused');
+          return join(dir, workspace.id);
+        },
+      ),
+    ).rejects.toThrow('Host materialization refused');
+    expect(prepared).toHaveLength(2);
+    await emptyTarget();
+    await target.run(
+      'CREATE TRIGGER refuse_folder BEFORE UPDATE ON cruxes BEGIN SELECT RAISE(IGNORE); END',
+    );
+    await expect(
+      target.importPrivateGraph(
+        f.request,
+        incoming,
+        destination,
+        async (workspace) => join(dir, workspace.id),
+      ),
+    ).rejects.toThrow('folder');
+    await emptyTarget();
+    await target.run('DROP TRIGGER refuse_folder');
+    await expect(
+      target.importPrivateGraph(
+        f.request,
+        incoming,
+        destination,
+        async (workspace) => join(dir, workspace.id),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('refuses aliased or non-absolute returned folder bindings', async () => {
+    const f = await fixture();
+    await expect(
+      target.importPrivateGraph(
+        f.request,
+        incoming,
+        destination,
+        async () => 'relative',
+      ),
+    ).rejects.toThrow('folder');
+    await emptyTarget();
+    await expect(
+      target.importPrivateGraph(f.request, incoming, destination, async () =>
+        join(dir, 'shared'),
+      ),
+    ).rejects.toThrow('folder');
+    await emptyTarget();
+  });
+
   it('captures metadata and callback bindings before waiting behind another command', async () => {
     const f = await fixture();
     let release!: () => void;

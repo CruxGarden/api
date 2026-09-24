@@ -65,3 +65,5 @@ export {
   packPrivateGraph,
   openPrivateGraphArchive,
 } from './private-graph-archive';
+
+export type { PrepareImportedWorkspace } from './import-workspace';

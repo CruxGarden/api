@@ -1,3 +1,4 @@
+import type { PrepareImportedWorkspace } from './import-workspace';
 import { GraphTransferService } from './graph-transfer.service';
 import { GraphTransferRepository } from './graph-transfer.repository';
 import {
@@ -407,7 +408,10 @@ export class LocalGraphRuntime {
     input: PrivateGraphImport,
     incoming: Pick<DesktopContentStore, 'read'>,
     destination: DesktopContentStore,
+    prepare?: PrepareImportedWorkspace,
   ) {
+    if (prepare !== undefined && typeof prepare !== 'function')
+      throw new Error('Use the trusted workspace preparation host');
     const captured = capturePrivateGraphImport(input);
     const reader = this.transferReader(incoming);
     if (
@@ -421,7 +425,7 @@ export class LocalGraphRuntime {
     };
     return this.executeChanged(
       ({ graphTransfer }) =>
-        graphTransfer.importPrivate(captured, reader, writer),
+        graphTransfer.importPrivate(captured, reader, writer, prepare),
       () => ({ entity: 'database' }),
     );
   }

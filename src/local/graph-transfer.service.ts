@@ -1,3 +1,6 @@
+import { isAbsolute, resolve } from 'path';
+import { FileManifest } from './file-manifest';
+import type { PrepareImportedWorkspace } from './import-workspace';
 import { Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { isDeepStrictEqual } from 'util';
@@ -182,10 +185,11 @@ export class GraphTransferService {
     input: PrivateGraphImport,
     incoming: DesktopContentStore,
     destination: DesktopContentStore,
+    prepare?: PrepareImportedWorkspace,
   ): Promise<PrivateGraphImportResult> {
     const { graph, mode } = input;
     const identities = checkReferences(graph);
-    const digest = hash(canonical(input));
+    const digest = hash(canonical({ input, folders: !!prepare }));
     const receipt = unwrap(await this.repository.receipt(input.requestId));
     if (receipt) {
       if (receipt.digest !== digest)
@@ -331,6 +335,48 @@ export class GraphTransferService {
       const persisted = await destination.read(fp);
       if (!(persisted instanceof Uint8Array) || hash(persisted) !== fp)
         throw new Error(`Imported private content did not persist: ${fp}`);
+    }
+    if (prepare) {
+      const manifest = new FileManifest(destination);
+      const folders = new Set<string>();
+      for (const workspace of [
+        ...captured.cruxes.filter((row) => row.kind !== 'snapshot'),
+        ...captured.workingCopies,
+      ]) {
+        const isCopy = captured.workingCopies.some(
+          (row) => row.id === workspace.id,
+        );
+        const head =
+          captured.contentHeads.find((row) => row.cruxId === workspace.id) ??
+          null;
+        const folder = await prepare(
+          JSON.parse(
+            JSON.stringify({
+              id: workspace.id,
+              slug: isCopy ? `task-${workspace.id}` : workspace.slug,
+              kind: isCopy ? null : workspace.kind,
+              role: isCopy ? workspace.role : 'main',
+              head,
+              files: head ? await manifest.entries(head.root) : [],
+            }),
+          ),
+        );
+        if (
+          typeof folder !== 'string' ||
+          !isAbsolute(folder) ||
+          folders.has(resolve(folder))
+        )
+          throw new Error(
+            'Imported workspaces require separate absolute Project folder paths',
+          );
+        const resolved = resolve(folder);
+        folders.add(resolved);
+        if (isCopy) {
+          workspace.projectFolder = resolved;
+          if (workspace.phase === 'preparing') workspace.phase = 'ready';
+        } else workspace.meta = { ...workspace.meta, projectFolder: resolved };
+        unwrap(await this.repository.bindFolder(workspace, isCopy));
+      }
     }
     const result = {
       roots: graph.selection.roots.map(remap),

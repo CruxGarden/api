@@ -109,6 +109,33 @@ export class GraphTransferRepository {
       return failure<boolean>(error);
     }
   }
+  async bindFolder(workspace: Record<string, any>, copy: boolean) {
+    try {
+      const db = this.db.query();
+      const folder = copy
+        ? workspace.projectFolder
+        : workspace.meta.projectFolder;
+      if (
+        (await db('cruxes')
+          .whereRaw("json_extract(meta, '$.projectFolder') = ?", [folder])
+          .first('id')) ||
+        (await db('working_copies')
+          .where({ project_folder: folder })
+          .first('id'))
+      )
+        throw new Error('Imported Project folder is already registered');
+      const table = copy ? 'working_copies' : 'cruxes';
+      const patch = copy
+        ? { project_folder: folder, phase: workspace.phase }
+        : { meta: workspace.meta };
+      if ((await db(table).where({ id: workspace.id }).update(patch)) !== 1)
+        throw new Error('Imported Project folder binding did not persist');
+      return success(true);
+    } catch (error) {
+      return failure<boolean>(error);
+    }
+  }
+
   /** The owning service validates graph meaning; the repository verifies exact
    * writes too, so ignored/altered inserts cannot produce a partial success. */
   async insert(table: Table, rows: Record<string, any>[]) {
