@@ -88,22 +88,15 @@ export class TaskMergeRepository {
       return failure<{ saved: boolean }>(error);
     }
   }
-  async admissionContext(cruxId: string, copyId: string) {
+  async admissionContext(cruxId: string) {
     try {
       const db = this.db.query();
       const pending = await db('task_merges')
         .where({ crux_id: cruxId, phase: 'applying' })
         .first('id');
-      const growths = await db('dimensions as d')
-        .join('cruxes as c', 'c.id', 'd.target_id')
-        .whereIn('d.source_id', [cruxId, copyId])
-        .where({ 'd.type': 'growth', 'c.kind': 'snapshot' })
-        .whereNull('d.deleted')
-        .whereNull('c.deleted')
-        .select('d.source_id', 'd.target_id', 'd.weight', 'c.meta');
-      return success({ pending: !!pending, growths });
+      return success({ pending: !!pending });
     } catch (error) {
-      return failure<{ pending: boolean; growths: any[] }>(error);
+      return failure<{ pending: boolean }>(error);
     }
   }
   async begin(state: MergeState, data: Record<string, unknown>) {

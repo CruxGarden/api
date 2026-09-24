@@ -212,10 +212,7 @@ export class TaskMergeService {
         'This review changed. Prepare or check it again before merging.',
       );
     this.assertVerified(data);
-    const inspected = await this.repository.admissionContext(
-      merge.crux_id,
-      copy.id,
-    );
+    const inspected = await this.repository.admissionContext(merge.crux_id);
     if (inspected.error)
       throw new InternalServerErrorException(inspected.error.message);
     const { pending } = inspected.data!;
