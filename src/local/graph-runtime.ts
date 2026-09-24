@@ -1,3 +1,9 @@
+import { GraphTransferService } from './graph-transfer.service';
+import { GraphTransferRepository } from './graph-transfer.repository';
+import {
+  capturePrivateGraphImport,
+  PrivateGraphImport,
+} from './portable-graph';
 import {
   GrowthContentService,
   GrowthSnapshotCreate,
@@ -109,6 +115,8 @@ class LocalGraphModule {
         GrowthContentService,
         SelectedGraphRepository,
         SelectedGraphService,
+        GraphTransferRepository,
+        GraphTransferService,
       ],
     };
   }
@@ -124,6 +132,7 @@ export interface GraphOperations {
   fileContent: FileContentService;
   growthContent: GrowthContentService;
   selectedGraph: SelectedGraphService;
+  graphTransfer: GraphTransferService;
 }
 
 /** Ephemeral invalidation for named commands, never a content payload or durable log.
@@ -191,6 +200,7 @@ export class LocalGraphRuntime {
       fileContent: context.get(FileContentService),
       growthContent: context.get(GrowthContentService),
       selectedGraph: context.get(SelectedGraphService),
+      graphTransfer: context.get(GraphTransferService),
     });
   }
 
@@ -378,6 +388,55 @@ export class LocalGraphRuntime {
     return this.execute(({ selectedGraph }) =>
       selectedGraph.capture(captured, reader),
     );
+  }
+
+  /** Host-only private backup. Never route this projection into public publishing. */
+  async exportPrivateGraph(
+    selection: GraphSelection,
+    store: Pick<DesktopContentStore, 'read'>,
+  ) {
+    const captured = captureGraphSelection(selection);
+    const reader = this.transferReader(store);
+    return this.execute(({ graphTransfer }) =>
+      graphTransfer.exportPrivate(captured, reader),
+    );
+  }
+
+  /** Identity/author binding must come from the authenticated destination host. */
+  async importPrivateGraph(
+    input: PrivateGraphImport,
+    incoming: Pick<DesktopContentStore, 'read'>,
+    destination: DesktopContentStore,
+  ) {
+    const captured = capturePrivateGraphImport(input);
+    const reader = this.transferReader(incoming);
+    if (
+      typeof destination?.write !== 'function' ||
+      typeof destination?.read !== 'function'
+    )
+      throw new Error('Use the destination host content store');
+    const writer = {
+      read: destination.read.bind(destination),
+      write: destination.write.bind(destination),
+    };
+    return this.executeChanged(
+      ({ graphTransfer }) =>
+        graphTransfer.importPrivate(captured, reader, writer),
+      () => ({ entity: 'database' }),
+    );
+  }
+
+  private transferReader(
+    store: Pick<DesktopContentStore, 'read'>,
+  ): DesktopContentStore {
+    if (typeof store?.read !== 'function')
+      throw new Error('Use a private archive content reader');
+    return {
+      read: store.read.bind(store),
+      write: async () => {
+        throw new Error('Private archive reader cannot write');
+      },
+    };
   }
 
   /** Internal staged-content admission. No normal schema or renderer adoption yet. */

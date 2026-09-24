@@ -54,3 +54,14 @@ export type {
   GrowthSnapshotCreate,
   GrowthContentRestore,
 } from './growth-content.service';
+
+export type {
+  PrivateGraph,
+  PrivateGraphImport,
+  PrivateGraphImportResult,
+} from './portable-graph';
+
+export {
+  packPrivateGraph,
+  openPrivateGraphArchive,
+} from './private-graph-archive';
