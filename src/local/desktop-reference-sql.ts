@@ -6,6 +6,9 @@ export function desktopReferenceSql(tables: ReadonlySet<string>): string {
     'SELECT fingerprint FROM artifacts',
     "SELECT json_extract(meta, '$.avatarFingerprint') AS fingerprint FROM authors",
   ];
+  refs.push(
+    "SELECT json_extract(value, '$.result.safetyArchive') AS fingerprint FROM settings WHERE key LIKE 'cruxgarden:graph-import:%'",
+  );
   const owners = ['SELECT meta AS data FROM cruxes'];
   if (tables.has('working_copies'))
     owners.push('SELECT meta AS data FROM working_copies');

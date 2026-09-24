@@ -1,3 +1,4 @@
+import { inspectDesktopManifestRecovery } from './desktop-recovery';
 import JSZip = require('jszip');
 import {
   packPrivateGraph,
@@ -730,6 +731,249 @@ describe('private selected graph transfer through the API owner', () => {
       ),
     ).rejects.toThrow('folder');
     await emptyTarget();
+  });
+
+  it('replaces only a captured selection, keeps external root links, invalidates stale file handles and retains a recoverable safety archive', async () => {
+    const f = await fixture();
+    const initial = await target.importPrivateGraph(
+      { ...f.request, mode: 'restore' },
+      incoming,
+      destination,
+    );
+    const before = await target.captureSelectedGraph(
+      {
+        roots: f.request.graph.selection.roots!,
+        includeMembers: f.request.graph.selection.includeMembers!,
+      },
+      destination,
+    );
+    const outsider = await target.createCrux({
+      ...targetIdentity,
+      slug: 'local-connection',
+      kind: CruxKind.GARDEN,
+    });
+    await target.execute(({ dimension }) =>
+      dimension.create({
+        ...targetIdentity,
+        sourceId: outsider,
+        targetId: f.garden,
+        type: DimensionType.GARDEN,
+        kind: 'membership',
+      }),
+    );
+    const outgoing = await target.execute(({ dimension }) =>
+      dimension.create({
+        ...targetIdentity,
+        sourceId: f.work,
+        targetId: outsider,
+        type: DimensionType.GRAFT,
+        meta: { privateLocal: 'retained' },
+      }),
+    );
+    const expected = (await target.fileContentHead(f.work))!;
+    await target.updateCrux(f.work, { title: 'Newer local work' });
+    const replacement = {
+      ...f.request,
+      requestId: randomUUID(),
+      mode: 'replace' as const,
+      replacementToken: await target.privateGraphReplacementToken(
+        {
+          roots: f.request.graph.selection.roots!,
+          includeMembers: f.request.graph.selection.includeMembers!,
+        },
+        destination,
+      ),
+    };
+    const replaced = await target.importPrivateGraph(
+      replacement,
+      incoming,
+      destination,
+    );
+    expect(replaced.roots).toEqual(initial.roots);
+    expect(
+      (await target.get('SELECT title FROM cruxes WHERE id = ?', [f.work]))!
+        .title,
+    ).toBe('');
+    expect(
+      await target.get('SELECT id FROM cruxes WHERE id = ?', [outsider]),
+    ).toBeDefined();
+    expect(
+      await target.get('SELECT id FROM dimensions WHERE id = ?', [outgoing.id]),
+    ).toBeDefined();
+    expect(
+      await target.all(
+        'SELECT id FROM dimensions WHERE source_id = ? AND target_id = ?',
+        [outsider, f.garden],
+      ),
+    ).toHaveLength(1);
+    await expect(
+      target.readFileContent(
+        { cruxId: f.work, expected, path: 'nested/file.bin' },
+        destination,
+      ),
+    ).rejects.toThrow();
+    const archiveBytes = targetObjects.get(replaced.safetyArchive!)!;
+    const safety = await openPrivateGraphArchive(archiveBytes);
+    expect(safety.graph.cruxes.find((row) => row.id === f.work)!.title).toBe(
+      'Newer local work',
+    );
+    expect(safety.graph.contentHeads).toEqual(before.contentHeads);
+    const recovery = await inspectDesktopManifestRecovery(
+      await target.exportDatabase(),
+      destination,
+    );
+    expect(recovery.fingerprints).toContain(replaced.safetyArchive);
+    await target.close();
+    target = await LocalGraphRuntime.open(join(dir, 'target.db'));
+    expect(
+      await target.importPrivateGraph(
+        {
+          ...replacement,
+          replacementToken: await target.privateGraphReplacementToken(
+            {
+              roots: f.request.graph.selection.roots!,
+              includeMembers: f.request.graph.selection.includeMembers!,
+            },
+            destination,
+          ),
+        },
+        incoming,
+        destination,
+      ),
+    ).toEqual(replaced);
+    const portable = await target.exportPrivateGraph(
+      {
+        roots: f.request.graph.selection.roots!,
+        includeMembers: f.request.graph.selection.includeMembers!,
+      },
+      destination,
+    );
+    expect(portable.boundary.some((edge) => edge.id === outgoing.id)).toBe(
+      true,
+    );
+    expect(portable.boundary).toHaveLength(2);
+  });
+
+  it('refuses stale replacement tokens and shared non-root members without affecting local work', async () => {
+    const f = await fixture();
+    await target.importPrivateGraph(
+      { ...f.request, mode: 'restore' },
+      incoming,
+      destination,
+    );
+    const request = {
+      ...f.request,
+      mode: 'replace' as const,
+      requestId: randomUUID(),
+      replacementToken: await target.privateGraphReplacementToken(
+        {
+          roots: f.request.graph.selection.roots!,
+          includeMembers: f.request.graph.selection.includeMembers!,
+        },
+        destination,
+      ),
+    };
+    await target.updateCrux(f.work, { title: 'Changed after review' });
+    await expect(
+      target.importPrivateGraph(request, incoming, destination),
+    ).rejects.toThrow('changed while preparing');
+    const outsider = await target.createCrux({
+      ...targetIdentity,
+      slug: 'another-garden',
+      kind: CruxKind.GARDEN,
+    });
+    await target.execute(({ garden }) =>
+      garden.add({ ...targetIdentity, gardenId: outsider, memberId: f.work }),
+    );
+    request.replacementToken = await target.privateGraphReplacementToken(
+      {
+        roots: f.request.graph.selection.roots!,
+        includeMembers: f.request.graph.selection.includeMembers!,
+      },
+      destination,
+    );
+    const before = await target.captureSelectedGraph(
+      {
+        roots: f.request.graph.selection.roots!,
+        includeMembers: f.request.graph.selection.includeMembers!,
+      },
+      destination,
+    );
+    await expect(
+      target.importPrivateGraph(request, incoming, destination),
+    ).rejects.toThrow('shares members');
+    expect(
+      await target.captureSelectedGraph(
+        {
+          roots: f.request.graph.selection.roots!,
+          includeMembers: f.request.graph.selection.includeMembers!,
+        },
+        destination,
+      ),
+    ).toEqual(before);
+  });
+
+  it('replacement failure after removal rolls back the original graph and retries safely', async () => {
+    const f = await fixture();
+    await target.importPrivateGraph(
+      { ...f.request, mode: 'restore' },
+      incoming,
+      destination,
+    );
+    await target.updateCrux(f.work, { title: 'Keep on failure' });
+    const before = await target.captureSelectedGraph(
+      {
+        roots: f.request.graph.selection.roots!,
+        includeMembers: f.request.graph.selection.includeMembers!,
+      },
+      destination,
+    );
+    const request = {
+      ...f.request,
+      mode: 'replace' as const,
+      requestId: randomUUID(),
+      replacementToken: await target.privateGraphReplacementToken(
+        {
+          roots: f.request.graph.selection.roots!,
+          includeMembers: f.request.graph.selection.includeMembers!,
+        },
+        destination,
+      ),
+    };
+    await target.run(
+      'CREATE TRIGGER reject_replacement BEFORE INSERT ON file_content_heads BEGIN SELECT RAISE(IGNORE); END',
+    );
+    await expect(
+      target.importPrivateGraph(request, incoming, destination),
+    ).rejects.toThrow('did not persist');
+    expect(
+      await target.captureSelectedGraph(
+        {
+          roots: f.request.graph.selection.roots!,
+          includeMembers: f.request.graph.selection.includeMembers!,
+        },
+        destination,
+      ),
+    ).toEqual(before);
+    await target.run('DROP TRIGGER reject_replacement');
+    const saved = objects.get(f.fingerprint)!;
+    objects.delete(f.fingerprint);
+    await expect(
+      target.importPrivateGraph(request, incoming, destination),
+    ).rejects.toThrow('Missing content');
+    expect(
+      await target.captureSelectedGraph(
+        {
+          roots: f.request.graph.selection.roots!,
+          includeMembers: f.request.graph.selection.includeMembers!,
+        },
+        destination,
+      ),
+    ).toEqual(before);
+    objects.set(f.fingerprint, saved);
+    await expect(
+      target.importPrivateGraph(request, incoming, destination),
+    ).resolves.toHaveProperty('safetyArchive');
   });
 
   it('captures metadata and callback bindings before waiting behind another command', async () => {

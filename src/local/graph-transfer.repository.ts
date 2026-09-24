@@ -1,3 +1,4 @@
+import type { SelectedGraphCapture } from './selected-graph.service';
 import { Injectable } from '@nestjs/common';
 import { isDeepStrictEqual } from 'util';
 import { DbService } from '../common/services/db.service';
@@ -109,6 +110,76 @@ export class GraphTransferRepository {
       return failure<boolean>(error);
     }
   }
+  async replacementBoundary(
+    capture: SelectedGraphCapture,
+    retained: Set<string>,
+  ) {
+    try {
+      const owners = [...capture.cruxes, ...capture.workingCopies].map(
+        (row) => row.id,
+      );
+      const selected = new Set(owners);
+      const roots = new Set(capture.selection.roots);
+      const external: Record<string, any>[] = [];
+      const db = this.db.query();
+      for (let start = 0; start < owners.length; start += 200) {
+        const batch = owners.slice(start, start + 200);
+        const incoming = await db('dimensions')
+          .whereIn('target_id', batch)
+          .whereNull('deleted');
+        if (
+          incoming.some(
+            (row) => !selected.has(row.source_id) && !roots.has(row.target_id),
+          )
+        )
+          throw new Error(
+            'This selection shares members or history with other work. Import a copy instead.',
+          );
+        const outgoing = await db('dimensions')
+          .whereIn('source_id', batch)
+          .whereNull('deleted');
+        for (const row of outgoing)
+          if (!selected.has(row.target_id) && retained.has(row.source_id))
+            external.push(JSON.parse(JSON.stringify(toEntityFields(row))));
+      }
+      return success(external);
+    } catch (error) {
+      return failure<Record<string, any>[]>(error);
+    }
+  }
+
+  /** Scoped archive restoration, not lifecycle deletion. The caller retains a
+   * verified safety archive first and owns the encompassing rollback transaction. */
+  async replaceSelection(capture: SelectedGraphCapture) {
+    try {
+      const db = this.db.query();
+      const owners = [...capture.cruxes, ...capture.workingCopies].map(
+        (row) => row.id,
+      );
+      for (let start = 0; start < owners.length; start += 200) {
+        const batch = owners.slice(start, start + 200);
+        for (const [table, column] of [
+          ['file_content_heads', 'crux_id'],
+          ['store', 'crux_id'],
+          ['task_merges', 'crux_id'],
+          ['dimensions', 'source_id'],
+          ['working_copies', 'id'],
+          ['cruxes', 'id'],
+        ]) {
+          await db(table).whereIn(column, batch).delete();
+          if (await db(table).whereIn(column, batch).first())
+            throw new Error(
+              'The selected archive replacement did not clear its records',
+            );
+        }
+        await db('settings').whereIn('key', batch.map(boundaryKey)).delete();
+      }
+      return success(true);
+    } catch (error) {
+      return failure<boolean>(error);
+    }
+  }
+
   async bindFolder(workspace: Record<string, any>, copy: boolean) {
     try {
       const db = this.db.query();

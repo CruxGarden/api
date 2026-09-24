@@ -123,7 +123,8 @@ export type GraphBoundary = PrivateGraph['boundary'];
 export const graphImportSchema = z
   .object({
     requestId: id,
-    mode: z.enum(['copy', 'restore']),
+    mode: z.enum(['copy', 'restore', 'replace']),
+    replacementToken: fingerprint.optional(),
     destination: z.object({ authorId: id, homeId: id }).strict(),
     graph: privateGraphSchema,
   })
@@ -133,6 +134,7 @@ export interface PrivateGraphImportResult {
   roots: string[];
   ids: Record<string, string>;
   boundary: GraphBoundary;
+  safetyArchive?: string;
 }
 
 /** Removes only application-owned execution/installation fields. Opaque private
@@ -212,6 +214,8 @@ export function projectPrivateGraph(
 /** Capture JSON before queueing and reject rather than silently stripping fields. */
 export function capturePrivateGraphImport(input: PrivateGraphImport) {
   const result = graphImportSchema.parse(JSON.parse(JSON.stringify(input)));
+  if ((result.mode === 'replace') !== !!result.replacementToken)
+    throw new Error('Replacement requires an exact current graph token');
   for (const row of [...result.graph.cruxes, ...result.graph.workingCopies])
     if (!isDeepStrictEqual(row.meta, portableGraphMeta(row.meta)))
       throw new Error(

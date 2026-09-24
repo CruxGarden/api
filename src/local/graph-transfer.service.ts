@@ -1,3 +1,5 @@
+import { packPrivateGraph } from './private-graph-archive';
+import type { SelectedGraphCapture } from './selected-graph.service';
 import { isAbsolute, resolve } from 'path';
 import { FileManifest } from './file-manifest';
 import type { PrepareImportedWorkspace } from './import-workspace';
@@ -179,6 +181,13 @@ export class GraphTransferService {
     return graph;
   }
 
+  async replacementToken(
+    selection: GraphSelection,
+    store: DesktopContentStore,
+  ) {
+    return hash(canonical(await this.selected.capture(selection, store)));
+  }
+
   /** Called only inside the existing API transaction. Incoming reads are bound
    * to the archive; destination cache cannot hide an incomplete backup. */
   async importPrivate(
@@ -189,7 +198,11 @@ export class GraphTransferService {
   ): Promise<PrivateGraphImportResult> {
     const { graph, mode } = input;
     const identities = checkReferences(graph);
-    const digest = hash(canonical({ input, folders: !!prepare }));
+    // The token guards first admission; a retry may obtain a fresh token after
+    // the original request committed. Identity still binds the exact archive.
+    const operation = { ...input };
+    delete operation.replacementToken;
+    const digest = hash(canonical({ input: operation, folders: !!prepare }));
     const receipt = unwrap(await this.repository.receipt(input.requestId));
     if (receipt) {
       if (receipt.digest !== digest)
@@ -199,6 +212,57 @@ export class GraphTransferService {
     const ids = Object.fromEntries(
       identities.map((id) => [id, mode === 'copy' ? randomUUID() : id]),
     );
+    let previous: SelectedGraphCapture | undefined;
+    let safetyArchive: string | undefined;
+    let external: Record<string, any>[] = [];
+    if (mode === 'replace') {
+      previous = await this.selected.capture(
+        {
+          roots: graph.selection.roots,
+          includeMembers: graph.selection.includeMembers,
+        },
+        destination,
+      );
+      if (hash(canonical(previous)) !== input.replacementToken)
+        throw new Error(
+          'This Crux changed while preparing replacement. Reopen and retry.',
+        );
+      const retained = new Set(
+        [...graph.cruxes, ...graph.workingCopies].map((row) => row.id),
+      );
+      external = unwrap(
+        await this.repository.replacementBoundary(previous, retained),
+      );
+      for (const edge of external) {
+        const descriptor = graph.boundary.find((row) => row.id === edge.id);
+        if (
+          identities.includes(edge.id) &&
+          (!descriptor ||
+            ['sourceId', 'targetId', 'type', 'kind'].some(
+              (key) => descriptor[key] !== edge[key],
+            ))
+        )
+          throw new Error(
+            'Replacement conflicts with an existing external connection',
+          );
+      }
+      const backup = await packPrivateGraph(
+        await this.exportPrivate(
+          {
+            roots: graph.selection.roots,
+            includeMembers: graph.selection.includeMembers,
+          },
+          destination,
+        ),
+        destination,
+      );
+      safetyArchive = hash(backup);
+      await destination.write(safetyArchive, backup);
+      const saved = await destination.read(safetyArchive);
+      if (!(saved instanceof Uint8Array) || hash(saved) !== safetyArchive)
+        throw new Error('The replacement safety archive did not persist');
+      unwrap(await this.repository.replaceSelection(previous));
+    }
     unwrap(await this.repository.available(Object.values(ids)));
     const remap = (id: string) => ids[id];
     const cruxes = graph.cruxes.map((row) => ({
@@ -235,7 +299,11 @@ export class GraphTransferService {
       baseSnapshotId: remap(row.baseSnapshotId),
       meta: remapGraphMeta(row.meta, ids),
       projectFolder: null,
-      revision: 0,
+      revision:
+        mode === 'replace'
+          ? (previous?.workingCopies.find((copy) => copy.id === row.id)
+              ?.revision ?? -1) + 1
+          : 0,
       // A new host must prepare an editable folder before declaring setup ready.
       phase: ['merged', 'archived'].includes(row.phase)
         ? row.phase
@@ -274,6 +342,15 @@ export class GraphTransferService {
     const heads = graph.contentHeads.map((row) => ({
       ...row,
       cruxId: remap(row.cruxId),
+      revision:
+        mode === 'replace' &&
+        graph.cruxes.find((node) => node.id === row.cruxId)?.kind !== 'snapshot'
+          ? Math.max(
+              row.revision,
+              previous?.contentHeads.find((head) => head.cruxId === row.cruxId)
+                ?.revision ?? 0,
+            ) + 1
+          : row.revision,
     }));
     // These inserts are invisible until the outer transaction commits. Recapture
     // exercises exactly the same graph/Task/Growth/content invariants as export.
@@ -338,7 +415,12 @@ export class GraphTransferService {
     }
     if (prepare) {
       const manifest = new FileManifest(destination);
-      const folders = new Set<string>();
+      const folders = new Set<string>(
+        [...(previous?.cruxes ?? []), ...(previous?.workingCopies ?? [])]
+          .map((row) => row.projectFolder ?? row.meta?.projectFolder)
+          .filter((folder): folder is string => typeof folder === 'string')
+          .map((folder) => resolve(folder)),
+      );
       for (const workspace of [
         ...captured.cruxes.filter((row) => row.kind !== 'snapshot'),
         ...captured.workingCopies,
@@ -381,12 +463,22 @@ export class GraphTransferService {
     const result = {
       roots: graph.selection.roots.map(remap),
       ids,
-      boundary: graph.boundary.map((edge) => ({
-        ...edge,
-        id: remap(edge.id),
-        sourceId: remap(edge.sourceId),
-      })),
+      ...(safetyArchive ? { safetyArchive } : {}),
+      boundary: graph.boundary
+        .filter((edge) => !external.some((local) => local.id === edge.id))
+        .map((edge) => ({
+          ...edge,
+          id: remap(edge.id),
+          sourceId: remap(edge.sourceId),
+        })),
     };
+    if (external.length) {
+      unwrap(await this.repository.insert('dimensions', external));
+      const boundaryIds = new Set(external.map((row) => row.id));
+      captured.boundary = previous!.boundary.filter((row) =>
+        boundaryIds.has(row.id),
+      );
+    }
     unwrap(await this.repository.keepBoundaries(result.boundary));
     unwrap(await this.repository.remember(input.requestId, digest, result));
     const persisted = await this.selected.capture(
@@ -396,6 +488,13 @@ export class GraphTransferService {
       },
       destination,
     );
+    if (safetyArchive) {
+      const bytes = await destination.read(safetyArchive);
+      if (!(bytes instanceof Uint8Array) || hash(bytes) !== safetyArchive)
+        throw new Error(
+          'The replacement safety archive was lost before commit',
+        );
+    }
     if (!isDeepStrictEqual(persisted, captured))
       throw new Error('Imported graph changed before commit');
     return result;

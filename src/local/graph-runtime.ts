@@ -403,6 +403,17 @@ export class LocalGraphRuntime {
     );
   }
 
+  async privateGraphReplacementToken(
+    selection: GraphSelection,
+    store: Pick<DesktopContentStore, 'read'>,
+  ) {
+    const captured = captureGraphSelection(selection);
+    const reader = this.transferReader(store);
+    return this.execute(({ graphTransfer }) =>
+      graphTransfer.replacementToken(captured, reader),
+    );
+  }
+
   /** Identity/author binding must come from the authenticated destination host. */
   async importPrivateGraph(
     input: PrivateGraphImport,
