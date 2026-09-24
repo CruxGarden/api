@@ -173,7 +173,9 @@ describe('persistent local billing simulation', () => {
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
     );
-    await app.init();
+    // Keep one owned listener for the journey instead of letting Supertest
+    // repeatedly open/close an ephemeral port between HTTP assertions.
+    await app.listen(0, '127.0.0.1');
     try {
       const server = app.getHttpServer();
       await request(server)
