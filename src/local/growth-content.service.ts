@@ -19,7 +19,6 @@ import {
 } from './file-content.service';
 import { FileContentRepository } from './file-content.repository';
 import { FileManifest } from './file-manifest';
-import { TaskMergeService } from './task-merge.service';
 
 export interface GrowthSnapshotCreate {
   cruxId: string;
@@ -132,7 +131,6 @@ export class GrowthContentService {
     private readonly dimension: DimensionService,
     private readonly content: FileContentService,
     private readonly repository: FileContentRepository,
-    private readonly taskMerge: TaskMergeService,
     private readonly history: EditHistoryService,
   ) {}
 
@@ -203,10 +201,7 @@ export class GrowthContentService {
   }
 
   async create(input: GrowthSnapshotCreate, store: DesktopContentStore) {
-    const mergeId = input.meta?.merge
-      ? await this.taskMerge.admitSnapshot(input, store)
-      : undefined;
-    const sourceHead = await this.content.admit(input, mergeId);
+    const sourceHead = await this.content.admit(input);
     if (!sourceHead)
       throw new ConflictException('Growth requires committed file content');
     const source = await this.content.owner(input.cruxId);

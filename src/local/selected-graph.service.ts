@@ -1,4 +1,8 @@
-import { parseEditHistory, EditHistory } from './edit-history';
+import {
+  retainedWorkspaceSchema,
+  parseEditHistory,
+  EditHistory,
+} from './edit-history';
 import { createHash } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import { isUUID } from 'class-validator';
@@ -227,6 +231,7 @@ export class SelectedGraphService {
       throw new Error(
         'Recover the selected Task merge before capturing its graph',
       );
+    const resultRoots: string[] = [];
     for (const merge of taskMerges) {
       if (
         copies.get(merge.copyId)?.cruxId !== merge.cruxId ||
@@ -249,6 +254,21 @@ export class SelectedGraphService {
         throw new Error(
           'Selected Task review identity or phase is inconsistent',
         );
+      if (data.resultState !== undefined) {
+        const result = retainedWorkspaceSchema.parse(data.resultState);
+        if (merge.phase !== 'merged' || data.resultHead !== undefined)
+          throw new Error('Selected Task result has inconsistent retention');
+        const parent =
+          result.workspace.parentId && nodes.get(result.workspace.parentId);
+        if (
+          result.workspace.parentId &&
+          (!parent ||
+            parent.kind !== 'snapshot' ||
+            parent.meta.contentOwnerId !== merge.cruxId)
+        )
+          throw new Error('Selected Task result has foreign Growth context');
+        resultRoots.push(result.root);
+      }
       for (const [key, contentOwner] of [
         ['sourceHead', merge.copyId],
         ['targetHead', merge.cruxId],
@@ -341,6 +361,11 @@ export class SelectedGraphService {
             fingerprints.add(fp);
           verifiedRoots.add(checkpoint.root);
         }
+      }
+    for (const root of resultRoots)
+      if (!verifiedRoots.has(root)) {
+        for (const fp of await manifest.verify(root)) fingerprints.add(fp);
+        verifiedRoots.add(root);
       }
     const assets = new Set<string>();
     const add = (value: unknown) => {

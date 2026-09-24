@@ -8,6 +8,7 @@ interface CopyRow {
   role: string;
   phase: string;
   revision: number;
+  title: string;
   meta: Record<string, any>;
 }
 export interface MergeRow {
@@ -23,7 +24,6 @@ export interface MergeState {
   merge?: MergeRow;
   copy?: CopyRow;
   candidate?: CopyRow;
-  result?: { id: string; kind: string; meta: Record<string, any> };
   linked: boolean;
 }
 @Injectable()
@@ -138,7 +138,7 @@ export class TaskMergeRepository {
       return failure<{ admitted: boolean }>(error);
     }
   }
-  async inspect(id: string, resultHead?: string, draft?: MergeRow) {
+  async inspect(id: string, draft?: MergeRow) {
     try {
       const db = this.db.query();
       const stored = await db('task_merges').where({ id }).first();
@@ -150,29 +150,12 @@ export class TaskMergeRepository {
       const candidate = await db('working_copies')
         .where({ id: merge.candidate_id })
         .first();
-      const result = resultHead
-        ? await db('cruxes')
-            .where({ id: resultHead })
-            .whereNull('deleted')
-            .first()
-        : undefined;
-      const linked =
-        !!resultHead &&
-        !!(await db('dimensions')
-          .where({
-            source_id: merge.crux_id,
-            target_id: resultHead,
-            type: 'growth',
-          })
-          .whereNull('deleted')
-          .first('id'));
       return success<MergeState>({
         present: !!stored,
         merge,
         copy,
         candidate,
-        result,
-        linked,
+        linked: false,
       });
     } catch (error) {
       return failure<MergeState>(error);

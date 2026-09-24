@@ -232,115 +232,287 @@ describe('manifest-backed Growth commands', () => {
     ).toBe(restore.head.revision + 1);
   });
 
-  it('admits only the reviewed Task files and retains a recoverable merge through restart', async () => {
-    const base = await owner.createGrowthSnapshot(request(), store);
-    const copies: string[] = [];
-    const taskFile = put('Reviewed work');
-    for (const role of ['task', 'review'] as const) {
-      const copyId = randomUUID();
-      copies.push(copyId);
-      await owner.createWorkingCopy({
-        id: copyId,
-        cruxId: id,
-        taskId: randomUUID(),
-        title: role,
-        baseSnapshotId: base.snapshot.id,
-        role,
-        meta: {},
-      });
-      await owner.prepareWorkingCopyFolder(copyId, 0, () => `/owned/${copyId}`);
-      await owner.finishWorkingCopySetup(copyId, 1, 'ready');
-      await owner.editFileContent(
+  it.each([
+    'none',
+    'journal abort',
+    'journal ignore',
+    'reverse metadata',
+    'reverse task',
+    'foreign copy',
+    'changed conversation',
+    'corrupt result',
+  ])(
+    'retains a Task result outside Growth with restart and %s',
+    async (failure) => {
+      const base = await owner.createGrowthSnapshot(request(), store);
+      const copies: string[] = [];
+      const taskFile = put('Reviewed work');
+      for (const role of ['task', 'review'] as const) {
+        const copyId = randomUUID();
+        copies.push(copyId);
+        await owner.createWorkingCopy({
+          id: copyId,
+          cruxId: id,
+          taskId: randomUUID(),
+          title: role,
+          baseSnapshotId: base.snapshot.id,
+          role,
+          meta: {},
+        });
+        await owner.prepareWorkingCopyFolder(
+          copyId,
+          0,
+          () => `/owned/${copyId}`,
+        );
+        await owner.finishWorkingCopySetup(copyId, 1, 'ready');
+        await owner.editFileContent(
+          {
+            cruxId: copyId,
+            expected: await owner.fileContentHead(copyId),
+            changes: [taskFile],
+          },
+          store,
+        );
+      }
+      const [copyId, candidateId] = copies;
+      const task = await owner.createGrowthSnapshot(
         {
+          ...request(),
           cruxId: copyId,
-          expected: await owner.fileContentHead(copyId),
-          changes: [taskFile],
+          expected: (await owner.fileContentHead(copyId))!,
+          parentId: base.snapshot.id,
         },
         store,
       );
-    }
-    const [copyId, candidateId] = copies;
-    const task = await owner.createGrowthSnapshot(
-      {
-        ...request(),
-        cruxId: copyId,
-        expected: (await owner.fileContentHead(copyId))!,
-        parentId: base.snapshot.id,
-      },
-      store,
-    );
-    const asManifest = (text: string) => {
-      const { fingerprint, mode, encoding, mimeType, size } = put(text).put;
-      return { 'hello.txt': { fingerprint, mode, encoding, mimeType, size } };
-    };
-    const mergeId = randomUUID();
-    const review = {
-      id: mergeId,
-      cruxId: id,
-      copyId,
-      candidateId,
-      phase: 'review',
-      sourceHead: task.snapshot.id,
-      targetHead: base.snapshot.id,
-      base: asManifest('First\0version'),
-      main: asManifest('First\0version'),
-      task: asManifest('Reviewed work'),
-      manifest: asManifest('Reviewed work'),
-      conflicts: [],
-      resolutions: {},
-      verifiedKey: JSON.stringify([
-        ['hello.txt', taskFile.put.fingerprint, 0o644],
-      ]),
-    };
-    await owner.updateCrux(id, { meta: { projectFolder: '/owned/main' } });
-    await owner.saveTaskReview(JSON.stringify(review));
-    await (owner.beginTaskMerge as any)(mergeId, JSON.stringify(review), store);
-    const mergedHead = (await owner.fileContentHead(id))!;
-    expect(mergedHead.root).toBe(
-      (await owner.fileContentHead(candidateId))!.root,
-    );
-    await expect(
-      owner.editFileContent(
-        { cruxId: id, expected: mergedHead, changes: [put('Not reviewed')] },
+      const asManifest = (text: string) => {
+        const { fingerprint, mode, encoding, mimeType, size } = put(text).put;
+        return { 'hello.txt': { fingerprint, mode, encoding, mimeType, size } };
+      };
+      const mergeId = randomUUID();
+      const review = {
+        id: mergeId,
+        cruxId: id,
+        copyId,
+        candidateId,
+        phase: 'review',
+        sourceHead: task.snapshot.id,
+        targetHead: base.snapshot.id,
+        base: asManifest('First\0version'),
+        main: asManifest('First\0version'),
+        task: asManifest('Reviewed work'),
+        manifest: asManifest('Reviewed work'),
+        conflicts: [],
+        resolutions: {},
+        verifiedKey: JSON.stringify([
+          ['hello.txt', taskFile.put.fingerprint, 0o644],
+        ]),
+      };
+      const instructions = put('Private Main guidance');
+      instructions.put.path = 'AGENTS.md';
+      instructions.put.id = 'main-guidance';
+      head = await owner.editFileContent(
+        { cruxId: id, expected: head, changes: [instructions] },
         store,
-      ),
-    ).rejects.toThrow();
-    await owner.close();
-    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
-    const apply = jest.fn(async (folder, entries) => {
-      expect(folder).toBe('/owned/main');
-      expect(entries).toEqual([taskFile.put]);
-    });
-    await owner.finishContentProjection(id, store, apply);
-    expect(apply).toHaveBeenCalledTimes(1);
-    const merge = {
-      id: mergeId,
-      copyId,
-      sourceHead: task.snapshot.id,
-      targetHead: base.snapshot.id,
-      verifiedKey: review.verifiedKey,
-      resolutions: {},
-    };
-    const result = await owner.createGrowthSnapshot(
-      {
-        ...request(),
-        expected: mergedHead,
-        parentId: base.snapshot.id,
-        meta: { merge },
-      },
-      store,
-    );
-    await owner.completeTaskMerge(mergeId, result.snapshot.id);
-    expect(
-      (
-        await owner.get<any>('SELECT phase FROM working_copies WHERE id = ?', [
-          copyId,
-        ])
-      ).phase,
-    ).toBe('merged');
-    expect(await owner.fileContentHead(base.snapshot.id)).toEqual(base.head);
-    expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
-  });
+      );
+      await owner.updateCrux(id, { meta: { projectFolder: '/owned/main' } });
+      await owner.saveTaskReview(JSON.stringify(review));
+      await (owner.beginTaskMerge as any)(
+        mergeId,
+        JSON.stringify(review),
+        store,
+      );
+      const mergedHead = (await owner.fileContentHead(id))!;
+      expect(mergedHead.root).not.toBe(
+        (await owner.fileContentHead(candidateId))!.root,
+      );
+      await expect(
+        owner.editFileContent(
+          { cruxId: id, expected: mergedHead, changes: [put('Not reviewed')] },
+          store,
+        ),
+      ).rejects.toThrow();
+      await owner.close();
+      owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+      const apply = jest.fn(async (folder, entries) => {
+        expect(folder).toBe('/owned/main');
+        expect(entries).toEqual([instructions.put, taskFile.put]);
+      });
+      await owner.finishContentProjection(id, store, apply);
+      expect(apply).toHaveBeenCalledTimes(1);
+      const growthBefore = await owner.all(
+        "SELECT * FROM dimensions WHERE type = 'growth'",
+      );
+      const state = async () => ({
+        main: await owner.get<any>('SELECT * FROM cruxes WHERE id = ?', [id]),
+        copies: await owner.all('SELECT * FROM working_copies ORDER BY id'),
+        journal: await owner.get<any>(
+          'SELECT * FROM task_merges WHERE id = ?',
+          [mergeId],
+        ),
+      });
+      const before = await state();
+      let repair = async () => {};
+      if (failure === 'journal abort' || failure === 'journal ignore') {
+        const action =
+          failure === 'journal abort' ? "ABORT, 'Journal refused'" : 'IGNORE';
+        await owner.run(
+          `CREATE TRIGGER refuse_finish BEFORE UPDATE ON task_merges WHEN NEW.phase = 'merged' BEGIN SELECT RAISE(${action}); END`,
+        );
+        repair = async () => {
+          await owner.run('DROP TRIGGER refuse_finish');
+        };
+      } else if (failure === 'reverse metadata') {
+        await owner.run(
+          `CREATE TRIGGER reverse_meta AFTER UPDATE ON task_merges WHEN NEW.phase = 'merged' BEGIN UPDATE cruxes SET meta = '{}' WHERE id = '${id}'; END`,
+        );
+        repair = async () => {
+          await owner.run('DROP TRIGGER reverse_meta');
+        };
+      } else if (failure === 'reverse task') {
+        await owner.run(
+          `CREATE TRIGGER reverse_task AFTER UPDATE ON task_merges WHEN NEW.phase = 'merged' BEGIN UPDATE working_copies SET phase = 'ready' WHERE id = '${copyId}'; END`,
+        );
+        repair = async () => {
+          await owner.run('DROP TRIGGER reverse_task');
+        };
+      } else if (failure === 'foreign copy') {
+        await owner.run('UPDATE working_copies SET crux_id = ? WHERE id = ?', [
+          randomUUID(),
+          candidateId,
+        ]);
+        repair = async () => {
+          await owner.run(
+            'UPDATE working_copies SET crux_id = ? WHERE id = ?',
+            [id, candidateId],
+          );
+        };
+      } else if (failure === 'changed conversation') {
+        await owner.run('UPDATE cruxes SET meta = ? WHERE id = ?', [
+          JSON.stringify({
+            ...JSON.parse(before.main.meta),
+            messages: [{ role: 'user', content: 'Keep this unexpected edit' }],
+          }),
+          id,
+        ]);
+        repair = async () => {
+          await owner.run('UPDATE cruxes SET meta = ? WHERE id = ?', [
+            before.main.meta,
+            id,
+          ]);
+        };
+      } else if (failure === 'corrupt result') {
+        const bytes = objects.get(taskFile.put.fingerprint)!;
+        objects.delete(taskFile.put.fingerprint);
+        repair = async () => {
+          objects.set(taskFile.put.fingerprint, bytes);
+        };
+      }
+      if (failure !== 'none') {
+        const refused = await state();
+        await expect(owner.completeTaskMerge(mergeId, store)).rejects.toThrow();
+        expect(await state()).toEqual(refused);
+        await repair();
+        expect(await state()).toEqual(before);
+      }
+      await owner.close();
+      owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+      await owner.completeTaskMerge(mergeId, store);
+      const completed = await state();
+      const journal = JSON.parse(completed.journal.data);
+      expect(journal.resultState).toMatchObject({
+        root: mergedHead.root,
+        workspace: { parentId: base.snapshot.id },
+      });
+      expect(
+        journal.resultState.workspace.messages.filter(
+          (m: any) => m.taskMergeId === mergeId,
+        ),
+      ).toHaveLength(1);
+      expect(journal).not.toHaveProperty('resultHead');
+      expect(
+        await owner.all("SELECT * FROM dimensions WHERE type = 'growth'"),
+      ).toEqual(growthBefore);
+      await owner.completeTaskMerge(mergeId, store);
+      await owner.releaseTaskReview(mergeId);
+      expect(await state()).toEqual(completed);
+      // Later Main work must not mutate or be overwritten by a lost-response retry.
+      const after = await owner.editFileContent(
+        { cruxId: id, expected: mergedHead, changes: [put('Later Main')] },
+        store,
+      );
+      await owner.completeTaskMerge(mergeId, store);
+      expect(await owner.fileContentHead(id)).toEqual(after);
+      expect((await state()).journal).toEqual(completed.journal);
+      // Evict the ordinary recovery ring; the journal alone still retains the result tree.
+      await owner.run('DELETE FROM edit_history WHERE crux_id = ?', [id]);
+      expect(
+        await owner.all(
+          'SELECT crux_id FROM file_content_heads WHERE root = ?',
+          [mergedHead.root],
+        ),
+      ).toEqual([]);
+      const graph = await owner.exportPrivateGraph(
+        { roots: [id], includeMembers: false },
+        store,
+      );
+      expect(
+        graph.taskMerges.find((m: any) => m.id === mergeId)?.data.resultState,
+      ).toEqual(journal.resultState);
+      expect(graph.fingerprints).toContain(mergedHead.root);
+      const destinationObjects = new Map<string, Uint8Array>();
+      const destinationStore = {
+        read: async (fp: string) => destinationObjects.get(fp) ?? null,
+        write: async (fp: string, bytes: Uint8Array) => {
+          destinationObjects.set(fp, Uint8Array.from(bytes));
+        },
+      };
+      const destination = await LocalGraphRuntime.create(
+        join(dir, 'destination.db'),
+      );
+      try {
+        const cloned = await destination.importPrivateGraph(
+          {
+            requestId: randomUUID(),
+            mode: 'copy',
+            destination: { authorId: randomUUID(), homeId: randomUUID() },
+            graph,
+          },
+          store,
+          destinationStore,
+        );
+        const roundtrip = await destination.exportPrivateGraph(
+          { roots: cloned.roots, includeMembers: false },
+          destinationStore,
+        );
+        const copiedResult = roundtrip.taskMerges.find(
+          (row: any) => row.id === cloned.ids[mergeId],
+        )!.data.resultState as any;
+        expect(copiedResult.root).toBe(mergedHead.root);
+        expect(copiedResult.workspace.parentId).toBe(
+          cloned.ids[base.snapshot.id],
+        );
+        expect(
+          copiedResult.workspace.messages.find((m: any) => m.taskMergeId)
+            ?.taskMergeId,
+        ).toBe(cloned.ids[mergeId]);
+      } finally {
+        await destination.close();
+      }
+      const backup = await owner.exportDatabase();
+      const recovered = await inspectDesktopManifestRecovery(backup, store);
+      expect(recovered.fingerprints).toContain(mergedHead.root);
+      expect(
+        (
+          await owner.get<any>(
+            'SELECT phase FROM working_copies WHERE id = ?',
+            [copyId],
+          )
+        ).phase,
+      ).toBe('merged');
+      expect(await owner.fileContentHead(base.snapshot.id)).toEqual(base.head);
+      expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
+    },
+  );
 
   it.each(['stale metadata', 'refused projection intent'])(
     'keeps both content and conversation when restore meets %s',

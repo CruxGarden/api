@@ -824,16 +824,23 @@ export class LocalGraphRuntime {
     );
   }
 
-  async completeTaskMerge(id: string, resultHead: string): Promise<void> {
+  async completeTaskMerge(
+    id: string,
+    store: DesktopContentStore,
+  ): Promise<void> {
     if (
       typeof id !== 'string' ||
       !id ||
-      typeof resultHead !== 'string' ||
-      !resultHead
+      typeof store?.read !== 'function' ||
+      typeof store?.write !== 'function'
     )
-      throw new Error('Use a merge identity and result snapshot');
+      throw new Error('Use a merge identity and the host content store');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
     await this.executeChanged(
-      ({ taskMerge }) => taskMerge.complete(id, resultHead),
+      ({ taskMerge }) => taskMerge.complete(id, capturedStore),
       (copy) => ({ entity: 'working-copy', ...copy, fields: ['phase'] }),
     );
   }

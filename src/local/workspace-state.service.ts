@@ -32,11 +32,12 @@ export class WorkspaceStateService {
     input: FileContentSelection,
     store: DesktopContentStore,
     expectedMeta?: Record<string, unknown>,
+    mergeId?: string,
   ): Promise<RetainedWorkspaceState> {
     const selected = captureFileContentSelection(input);
     const expected =
       expectedMeta === undefined ? undefined : captureMetadata(expectedMeta);
-    const head = await this.content.admit(selected);
+    const head = await this.content.admit(selected, mergeId);
     if (!head)
       throw new ConflictException(
         'Workspace recovery requires committed content',

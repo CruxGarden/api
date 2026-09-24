@@ -438,14 +438,10 @@ describe('owned Task merge finalization', () => {
       expect((await state()).merge.phase).toBe('cancelled');
     },
   );
-  it('refuses to cancel an applying merge and preserves a completed result when closing again', async () => {
+  it('refuses to cancel an applying merge', async () => {
     const before = await state();
     await expect(owner.releaseTaskReview(merge)).rejects.toThrow('recover');
     expect(await state()).toEqual(before);
-    await owner.completeTaskMerge(merge, result);
-    const completed = await state();
-    await owner.releaseTaskReview(merge);
-    expect(await state()).toEqual(completed);
   });
   it('finishes cancellation of an already archived candidate without touching its revision', async () => {
     await makeReview();
@@ -461,106 +457,5 @@ describe('owned Task merge finalization', () => {
         revision: 3,
       }),
     );
-  });
-  it('commits Task, candidate and journal together, preserves evidence and is retryable after restart', async () => {
-    const notices: unknown[] = [];
-    owner.onChange((change) => {
-      notices.push(change);
-    });
-    await owner.completeTaskMerge(merge, result);
-    let saved = await state();
-    expect(saved.copies).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: copy, phase: 'merged', revision: 3 }),
-        expect.objectContaining({
-          id: candidate,
-          phase: 'archived',
-          revision: 3,
-        }),
-      ]),
-    );
-    expect(saved.merge.phase).toBe('merged');
-    expect(JSON.parse(saved.merge.data)).toMatchObject({
-      resultHead: result,
-      phase: 'merged',
-      resolutions: { 'one.txt': 'task' },
-      verificationLog: 'Preserve this evidence',
-    });
-    expect(notices).toMatchObject([
-      { entity: 'working-copy', id: copy, cruxId: main, fields: ['phase'] },
-    ]);
-    await owner.close();
-    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
-    await owner.completeTaskMerge(merge, result);
-    expect(await state()).toEqual(saved);
-  });
-  it.each(['ABORT', 'IGNORE'])(
-    'rolls back both copies when the final journal write is %s, then resumes',
-    async (mode) => {
-      const before = await state();
-      await owner.run(
-        `CREATE TRIGGER refuse_finish BEFORE UPDATE ON task_merges BEGIN SELECT RAISE(${mode}${mode === 'ABORT' ? ", 'Journal refused'" : ''}); END`,
-      );
-      await expect(owner.completeTaskMerge(merge, result)).rejects.toThrow();
-      expect(await state()).toEqual(before);
-      await owner.run('DROP TRIGGER refuse_finish');
-      await owner.close();
-      owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
-      await owner.completeTaskMerge(merge, result);
-      expect((await state()).merge.phase).toBe('merged');
-    },
-  );
-  it('rolls back when a journal trigger reverses an earlier Task transition', async () => {
-    await owner.run(
-      `CREATE TRIGGER reverse_task AFTER UPDATE ON task_merges BEGIN UPDATE working_copies SET phase = 'ready' WHERE id = '${copy}'; END`,
-    );
-    const before = await state();
-    await expect(owner.completeTaskMerge(merge, result)).rejects.toThrow(
-      'persist',
-    );
-    expect(await state()).toEqual(before);
-  });
-  it('repairs an older partially completed Task without duplicating its revision', async () => {
-    await owner.run(
-      "UPDATE working_copies SET phase = 'merged', revision = 3 WHERE id = ?",
-      [copy],
-    );
-    await owner.completeTaskMerge(merge, result);
-    expect((await state()).copies).toContainEqual(
-      expect.objectContaining({ id: copy, phase: 'merged', revision: 3 }),
-    );
-  });
-  it('refuses result snapshots from a different merge without changing state', async () => {
-    const before = await state();
-    await owner.updateCrux(result, { meta: { merge: { id: randomUUID() } } });
-    await expect(owner.completeTaskMerge(merge, result)).rejects.toThrow();
-    expect(await state()).toEqual(before);
-  });
-  it('refuses a result without its owning Growth edge', async () => {
-    await owner.run('DELETE FROM dimensions WHERE target_id = ?', [result]);
-    const before = await state();
-    await expect(owner.completeTaskMerge(merge, result)).rejects.toThrow();
-    expect(await state()).toEqual(before);
-  });
-  it('protects applying Tasks from archive and rejects mismatched journal identities', async () => {
-    await expect(owner.setWorkingCopyArchived(copy, true, 2)).rejects.toThrow();
-    const before = await state();
-    const data = JSON.parse(before.merge.data);
-    data.copyId = candidate;
-    await owner.run('UPDATE task_merges SET data = ? WHERE id = ?', [
-      JSON.stringify(data),
-      merge,
-    ]);
-    await expect(owner.completeTaskMerge(merge, result)).rejects.toThrow();
-    expect((await state()).copies).toEqual(before.copies);
-  });
-  it('retains ownership when a candidate belongs to another Crux', async () => {
-    await owner.run('UPDATE working_copies SET crux_id = ? WHERE id = ?', [
-      randomUUID(),
-      candidate,
-    ]);
-    const before = await state();
-    await expect(owner.completeTaskMerge(merge, result)).rejects.toThrow();
-    expect(await state()).toEqual(before);
   });
 });

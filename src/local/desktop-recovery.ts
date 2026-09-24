@@ -1,4 +1,4 @@
-import { editHistorySchema } from './edit-history';
+import { retainedWorkspaceSchema, editHistorySchema } from './edit-history';
 import { createHash } from 'crypto';
 import { FileManifest } from './file-manifest';
 import type { DesktopContentStore } from './desktop-content';
@@ -190,6 +190,14 @@ export async function inspectDesktopManifestRecovery(
           checkpoints: JSON.parse(row.checkpoints),
         });
         roots.push(...history.checkpoints.map((checkpoint) => checkpoint.root));
+      }
+      roots = [...new Set(roots)];
+    }
+    if (tables.has('task_merges')) {
+      for (const row of db.prepare('SELECT data FROM task_merges').all()) {
+        const data = JSON.parse(row.data);
+        if (data.resultState !== undefined)
+          roots.push(retainedWorkspaceSchema.parse(data.resultState).root);
       }
       roots = [...new Set(roots)];
     }

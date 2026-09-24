@@ -1,3 +1,4 @@
+import { retainedWorkspaceSchema, editWorkspaceSchema } from './edit-history';
 import {
   GardenMembershipService,
   assertSinglePlacement,
@@ -193,6 +194,22 @@ function checkReferences(graph: PrivateGraph) {
     ])
       if (value != null) requireRef(value, allIds);
   }
+  for (const merge of graph.taskMerges) {
+    for (const workspace of [
+      merge.data.resultState === undefined
+        ? undefined
+        : retainedWorkspaceSchema.parse(merge.data.resultState).workspace,
+      merge.data.targetWorkspace === undefined
+        ? undefined
+        : editWorkspaceSchema.parse(merge.data.targetWorkspace),
+    ]) {
+      if (!workspace) continue;
+      if (workspace.parentId) requireRef(workspace.parentId);
+      for (const message of workspace.messages as Record<string, unknown>[])
+        if (message?.taskMergeId !== undefined)
+          requireRef(message.taskMergeId, allIds);
+    }
+  }
   return identities;
 }
 
@@ -374,6 +391,34 @@ export class GraphTransferService {
             throw new Error('Private review has a missing typed reference');
           data[key] = remap(data[key] as string);
         }
+      if (data.resultState !== undefined) {
+        const result = retainedWorkspaceSchema.parse(data.resultState);
+        if (result.workspace.parentId && !ids[result.workspace.parentId])
+          throw new Error('Private Task result has a missing parent');
+        data.resultState = {
+          ...result,
+          workspace: {
+            ...result.workspace,
+            parentId: result.workspace.parentId
+              ? remap(result.workspace.parentId)
+              : null,
+            messages: remapGraphMeta(
+              { messages: result.workspace.messages },
+              ids,
+            ).messages,
+          },
+        };
+      }
+      if (data.targetWorkspace !== undefined) {
+        const target = editWorkspaceSchema.parse(data.targetWorkspace);
+        if (target.parentId && !ids[target.parentId])
+          throw new Error('Private Task target has a missing parent');
+        data.targetWorkspace = {
+          ...target,
+          parentId: target.parentId ? remap(target.parentId) : null,
+          messages: remapGraphMeta({ messages: target.messages }, ids).messages,
+        };
+      }
       return {
         ...row,
         id: remap(row.id),

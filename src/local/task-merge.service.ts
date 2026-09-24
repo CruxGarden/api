@@ -13,7 +13,12 @@ import { FileContentRepository } from './file-content.repository';
 import { DesktopContentStore } from './desktop-content';
 import { isTaskContent, assertTaskContent } from './task-content';
 import { isDeepStrictEqual } from 'util';
-import type { GrowthSnapshotCreate } from './growth-content.service';
+import {
+  WorkspaceStateService,
+  RetainedWorkspaceState,
+} from './workspace-state.service';
+import { editWorkspaceSchema, retainedWorkspaceSchema } from './edit-history';
+import { FileManifest } from './file-manifest';
 
 /** Durable review closure/finalization. Host file projection and Growth capture remain recoverable earlier steps. */
 @Injectable()
@@ -23,16 +28,13 @@ export class TaskMergeService {
     private readonly crux: CruxGraphService,
     private readonly content: FileContentService,
     private readonly contentRepository: FileContentRepository,
+    private readonly workspace: WorkspaceStateService,
   ) {}
   private async ownedState(
     id: string,
-    options: { resultHead?: string; closing?: boolean; draft?: MergeRow } = {},
+    options: { closing?: boolean; draft?: MergeRow } = {},
   ) {
-    const inspected = await this.repository.inspect(
-      id,
-      options.resultHead,
-      options.draft,
-    );
+    const inspected = await this.repository.inspect(id, options.draft);
     if (inspected.error)
       throw new InternalServerErrorException(inspected.error.message);
     const state = inspected.data!;
@@ -98,7 +100,9 @@ export class TaskMergeService {
           Array.isArray(next[key]),
       ) ||
       !Array.isArray(next.conflicts) ||
-      next.resultHead !== undefined
+      next.resultHead !== undefined ||
+      next.resultState !== undefined ||
+      next.targetWorkspace !== undefined
     )
       throw new ConflictException('Use a complete unapplied Task review.');
     const draft: MergeRow = {
@@ -212,9 +216,20 @@ export class TaskMergeService {
           'Growth changed after review. Prepare a new review.',
         );
     }
+    const head = await this.content.head(merge.crux_id);
+    const targetWorkspace =
+      head && store
+        ? (
+            await this.workspace.read(
+              { cruxId: merge.crux_id, expected: head },
+              store,
+            )
+          ).workspace
+        : undefined;
     const saved = await this.repository.begin(state, {
       ...data,
       phase: 'applying',
+      ...(targetWorkspace ? { targetWorkspace } : {}),
     });
     if (saved.error)
       throw new InternalServerErrorException(saved.error.message);
@@ -270,43 +285,6 @@ export class TaskMergeService {
       await this.contentRepository.queueProjection(merge.crux_id, head);
     }
     return { id: copy.id, cruxId: merge.crux_id };
-  }
-
-  /** The only snapshot admitted during application is the checked merge result. */
-  async admitSnapshot(
-    input: GrowthSnapshotCreate,
-    store: DesktopContentStore,
-  ): Promise<string> {
-    const evidence = input.meta?.merge as Record<string, unknown> | undefined;
-    if (typeof evidence?.id !== 'string')
-      throw new Error('Use the checked Task merge identity');
-    const { merge, data, copy, candidate } = await this.ownedState(evidence.id);
-    if (
-      merge.phase !== 'applying' ||
-      copy.phase !== 'ready' ||
-      candidate.phase !== 'ready' ||
-      input.cruxId !== merge.crux_id ||
-      input.parentId !== data.targetHead ||
-      evidence.copyId !== copy.id ||
-      evidence.sourceHead !== data.sourceHead ||
-      evidence.targetHead !== data.targetHead ||
-      evidence.verifiedKey !== data.verifiedKey ||
-      !isDeepStrictEqual(evidence.resolutions, data.resolutions)
-    )
-      throw new ConflictException(
-        'The snapshot must describe the checked Task merge',
-      );
-    this.assertVerified(data);
-    assertTaskContent(
-      (
-        await this.content.list(
-          { cruxId: input.cruxId, expected: input.expected },
-          store,
-        )
-      ).entries,
-      data.manifest,
-    );
-    return merge.id;
   }
 
   private assertVerified(data: Record<string, any>) {
@@ -368,51 +346,112 @@ export class TaskMergeService {
     return { id: candidate.id, cruxId: merge.crux_id };
   }
 
-  async complete(id: string, resultHead: string) {
-    const { state, merge, copy, candidate, data } = await this.ownedState(id, {
-      resultHead,
-    });
-    const { result, linked } = state;
-    if (!['ready', 'merged'].includes(copy.phase))
-      throw new ConflictException('The source Task is not awaiting a merge');
-    if (
-      !linked ||
-      result?.kind !== 'snapshot' ||
-      result.meta?.merge?.id !== id ||
-      result.meta?.merge?.copyId !== copy.id ||
-      (result.meta.contentOwnerId !== undefined &&
-        result.meta.contentOwnerId !== merge.crux_id)
-    )
-      throw new ConflictException(
-        'The merge result must be preserved in this Crux’s Growth',
-      );
+  async complete(id: string, store: DesktopContentStore) {
+    const { state, merge, copy, candidate, data, crux } =
+      await this.ownedState(id);
     if (merge.phase === 'merged') {
-      if (
-        data.resultHead !== resultHead ||
-        copy.phase !== 'merged' ||
-        candidate.phase !== 'archived'
-      )
+      const result = retainedWorkspaceSchema.parse(
+        data.resultState,
+      ) as RetainedWorkspaceState;
+      if (copy.phase !== 'merged' || candidate.phase !== 'archived')
         throw new ConflictException(
           'The completed merge has inconsistent state',
         );
-    } else {
-      if (
-        merge.phase !== 'applying' ||
-        (data.resultHead && data.resultHead !== resultHead)
-      )
-        throw new ConflictException('This merge is not awaiting completion');
-      const saved = await this.repository.transition(
-        state,
-        {
-          ...data,
-          phase: 'merged',
-          resultHead,
-        },
-        true,
-      );
-      if (saved.error)
-        throw new InternalServerErrorException(saved.error.message);
+      await this.workspace.assertContext(merge.crux_id, result.workspace);
+      await new FileManifest(store).verify(result.root);
+      return { id: copy.id, cruxId: merge.crux_id };
     }
+    if (
+      merge.phase !== 'applying' ||
+      copy.phase !== 'ready' ||
+      candidate.phase !== 'ready'
+    )
+      throw new ConflictException('This merge is not awaiting completion');
+    this.assertVerified(data);
+    const head = await this.content.head(merge.crux_id);
+    if (!head) throw new ConflictException('The merge has no retained content');
+    // Admission checks the pending projection and permits only this applying journal.
+    const before = await this.workspace.read(
+      { cruxId: merge.crux_id, expected: head },
+      store,
+      crux.meta,
+      id,
+    );
+    if (
+      !isDeepStrictEqual(
+        before.workspace,
+        editWorkspaceSchema.parse(data.targetWorkspace),
+      )
+    )
+      throw new ConflictException(
+        'Main’s conversation changed during the merge. Keep it safe before resuming.',
+      );
+    assertTaskContent(
+      await new FileManifest(store).entries(before.root),
+      data.manifest,
+    );
+    const segments: any[][] = [];
+    const seen = new Set<string>();
+    let tip = data.sourceHead;
+    while (tip) {
+      if (seen.has(tip))
+        throw new ConflictException('Task conversation has cyclic ancestry');
+      seen.add(tip);
+      const node = await this.crux.findById(tip);
+      if (node.meta?.contentOwnerId !== copy.id) {
+        if (tip === data.sourceHead)
+          throw new ConflictException(
+            'The reviewed conversation belongs to another Task',
+          );
+        break;
+      }
+      if (node.kind !== 'snapshot' || !Array.isArray(node.meta.messages ?? []))
+        throw new ConflictException('Task conversation is unavailable');
+      segments.unshift(node.meta.messages ?? []);
+      tip = node.meta.parentCruxId;
+    }
+    const collaboration = segments
+      .flat()
+      .map(
+        (message) =>
+          `**${message.role === 'user' ? 'You' : 'Collaborator'}**\n\n${message.content ?? ''}`,
+      )
+      .join('\n\n');
+    const summary = {
+      role: 'assistant',
+      taskMergeId: id,
+      content: `Merged task: ${copy.title ?? 'Task'}.\n\n${collaboration ? `Task Collaboration\n\n${collaboration}` : 'Its Collaboration is preserved in the Task.'}`,
+      timestamp: new Date().toISOString(),
+    };
+    const meta = {
+      ...crux.meta,
+      messages: [...before.workspace.messages, summary],
+    };
+    await this.crux.update(merge.crux_id, { meta });
+    const resultState = await this.workspace.read(
+      { cruxId: merge.crux_id, expected: head },
+      store,
+      meta,
+      id,
+    );
+    const saved = await this.repository.transition(
+      state,
+      { ...data, phase: 'merged', resultState },
+      true,
+    );
+    if (saved.error)
+      throw new InternalServerErrorException(saved.error.message);
+    // A journal/copy trigger must not undo the already-written Collaboration or content.
+    if (
+      !isDeepStrictEqual(
+        (await this.crux.findById(merge.crux_id)).meta,
+        meta,
+      ) ||
+      !isDeepStrictEqual(await this.content.head(merge.crux_id), head)
+    )
+      throw new InternalServerErrorException(
+        'The merge result did not persist',
+      );
     return { id: copy.id, cruxId: merge.crux_id };
   }
 }

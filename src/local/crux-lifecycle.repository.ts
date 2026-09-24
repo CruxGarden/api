@@ -16,7 +16,14 @@ const historyReferences = [
   "SELECT h.crux_id, json_extract(p.value, '$.workspace.parentId') FROM edit_history h, json_each(h.checkpoints) p",
   'SELECT id, base_snapshot_id FROM working_copies',
   'SELECT crux_id, candidate_id FROM task_merges',
-  ...['sourceHead', 'targetHead', 'resultHead', 'baseId'].map(
+  ...[
+    'sourceHead',
+    'targetHead',
+    'resultHead',
+    'baseId',
+    'resultState.workspace.parentId',
+    'targetWorkspace.parentId',
+  ].map(
     (path) =>
       `SELECT crux_id, json_extract(data, '$.${path}') FROM task_merges`,
   ),
@@ -91,6 +98,8 @@ export class CruxLifecycleRepository {
       UNION SELECT json_extract(data, '$.sourceHead') FROM task_merges
       UNION SELECT json_extract(data, '$.targetHead') FROM task_merges
       UNION SELECT json_extract(data, '$.resultHead') FROM task_merges
+      UNION SELECT json_extract(data, '$.resultState.workspace.parentId') FROM task_merges
+      UNION SELECT json_extract(data, '$.targetWorkspace.parentId') FROM task_merges
       UNION SELECT json_extract(data, '$.baseId') FROM task_merges
     ), links(parent, child) AS (
       SELECT json_extract(meta, '$.parentCruxId'), id FROM cruxes

@@ -13,6 +13,12 @@ export const editWorkspaceSchema = z
     entryFile: z.string().nullable(),
   })
   .strict();
+export const retainedWorkspaceSchema = z
+  .object({
+    root: z.string().regex(/^[a-f0-9]{64}$/),
+    workspace: editWorkspaceSchema,
+  })
+  .strict();
 export const editCheckpointSchema = z
   .object({
     id: z.string().uuid(),
