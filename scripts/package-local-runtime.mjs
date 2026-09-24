@@ -119,7 +119,8 @@ const artifactHash = createHash('sha256')
   .digest('hex');
 const manifest = {
   name: '@cruxgarden/local-api',
-  version: `0.0.0-unification.${sourceRevision.slice(0, 12)}.${artifactHash.slice(0, 8)}`,
+  // Prefix hashes: an all-numeric hash beginning with zero is not a SemVer identifier.
+  version: `0.0.0-unification.r${sourceRevision.slice(0, 12)}.h${artifactHash.slice(0, 8)}`,
   private: true,
   description:
     'Internal Crux Garden API deployment over the desktop working database',
