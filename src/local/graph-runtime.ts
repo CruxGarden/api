@@ -1,3 +1,10 @@
+import { EditRetentionService } from './edit-retention.service';
+import { EditHistoryRepository } from './edit-history.repository';
+import {
+  EditHistoryService,
+  EditCheckpointRestore,
+  captureEditCheckpointRestore,
+} from './edit-history.service';
 import { GardenEntryRepository } from './garden-entry.repository';
 import { GardenEntryService } from './garden-entry.service';
 import type { PrepareImportedWorkspace } from './import-workspace';
@@ -116,6 +123,9 @@ class LocalGraphModule {
         CruxLifecycleService,
         TaskMergeRepository,
         TaskMergeService,
+        EditHistoryRepository,
+        EditHistoryService,
+        EditRetentionService,
         FileContentRepository,
         FileContentService,
         GrowthContentService,
@@ -136,6 +146,7 @@ export interface GraphOperations {
   workingCopy: WorkingCopyService;
   lifecycle: CruxLifecycleService;
   taskMerge: TaskMergeService;
+  editHistory: EditHistoryService;
   fileContent: FileContentService;
   growthContent: GrowthContentService;
   selectedGraph: SelectedGraphService;
@@ -205,6 +216,7 @@ export class LocalGraphRuntime {
       workingCopy: context.get(WorkingCopyService),
       lifecycle: context.get(CruxLifecycleService),
       taskMerge: context.get(TaskMergeService),
+      editHistory: context.get(EditHistoryService),
       fileContent: context.get(FileContentService),
       growthContent: context.get(GrowthContentService),
       selectedGraph: context.get(SelectedGraphService),
@@ -926,6 +938,63 @@ export class LocalGraphRuntime {
     return this.execute(({ garden }) => garden.list(gardenId, captured));
   }
 
+  listEditHistory(cruxId: string) {
+    return this.execute(({ editHistory }) => editHistory.list(cruxId));
+  }
+  inspectEditCheckpoint(
+    cruxId: string,
+    checkpointId: string,
+    store: Pick<DesktopContentStore, 'read'>,
+  ) {
+    const content = {
+      read: store.read.bind(store),
+      write: async () => {
+        throw new Error('History inspection is read-only');
+      },
+    };
+    return this.execute(({ editHistory }) =>
+      editHistory.inspect(cruxId, checkpointId, content),
+    );
+  }
+  createEditCheckpoint(
+    input: FileContentSelection,
+    store: DesktopContentStore,
+  ) {
+    const captured = captureFileContentSelection(input);
+    const content = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
+    return this.executeChanged(
+      ({ editHistory }) => editHistory.capture(captured, content),
+      () => ({
+        entity: 'crux',
+        fields: ['editHistory'],
+        id: captured.cruxId,
+        cruxId: captured.cruxId,
+      }),
+    );
+  }
+  restoreEditCheckpoint(
+    input: EditCheckpointRestore,
+    store: DesktopContentStore,
+  ) {
+    const captured = captureEditCheckpointRestore(input);
+    const content = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
+    return this.executeChanged(
+      ({ editHistory }) => editHistory.restore(captured, content),
+      () => ({
+        entity: 'crux',
+        fields: ['editHistory', 'fileContent'],
+        id: captured.cruxId,
+        cruxId: captured.cruxId,
+      }),
+    );
+  }
+
   gardenParents(memberId: string) {
     return this.execute(({ garden }) => garden.parents(memberId));
   }
@@ -1084,7 +1153,7 @@ export class LocalGraphRuntime {
     }
     const inspect = async (image: ArrayBuffer) => {
       const result = await inspectDesktopManifestRecovery(image, reader);
-      if (result.schemaVersion !== 5)
+      if (result.schemaVersion < 5)
         throw new Error('Use a current-format database image');
       return result.database;
     };

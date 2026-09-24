@@ -64,6 +64,10 @@ function checkReferences(graph: PrivateGraph) {
     graph.contentHeads.map((row) => row.cruxId),
     'content owner',
   );
+  unique(
+    (graph.editHistory ?? []).map((row) => row.cruxId),
+    'edit history owner',
+  );
   unique(graph.fingerprints, 'content fingerprint');
   const requireRef = (value: unknown, available = owners) => {
     if (typeof value !== 'string' || !available.has(value))
@@ -72,6 +76,16 @@ function checkReferences(graph: PrivateGraph) {
   for (const root of graph.selection.roots) requireRef(root, live);
   for (const row of [...graph.store, ...graph.contentHeads])
     requireRef(row.cruxId);
+  for (const row of graph.editHistory ?? []) {
+    requireRef(
+      row.cruxId,
+      new Set([...live, ...graph.workingCopies.map((copy) => copy.id)]),
+    );
+    unique(
+      row.checkpoints.map((item) => item.id),
+      'edit checkpoint',
+    );
+  }
   for (const edge of graph.dimensions) {
     requireRef(edge.sourceId);
     requireRef(edge.targetId);
@@ -365,6 +379,22 @@ export class GraphTransferService {
             ) + 1
           : row.revision,
     }));
+    const editHistory = (graph.editHistory ?? []).map((row) => ({
+      ...row,
+      cruxId: remap(row.cruxId),
+      revision:
+        mode === 'replace'
+          ? Math.max(
+              row.revision,
+              previous?.editHistory.find((item) => item.cruxId === row.cruxId)
+                ?.revision ?? 0,
+            ) + 1
+          : row.revision,
+      checkpoints: row.checkpoints.map((checkpoint) => ({
+        ...checkpoint,
+        id: mode === 'copy' ? randomUUID() : checkpoint.id,
+      })),
+    }));
     // These inserts are invisible until the outer transaction commits. Recapture
     // exercises exactly the same graph/Task/Growth/content invariants as export.
     for (const [table, rows] of [
@@ -374,6 +404,13 @@ export class GraphTransferService {
       ['task_merges', merges],
       ['store', store],
       ['file_content_heads', heads],
+      [
+        'edit_history',
+        editHistory.map((row) => ({
+          ...row,
+          checkpoints: JSON.stringify(row.checkpoints),
+        })),
+      ],
     ] as const)
       unwrap(await this.repository.insert(table, rows));
     const captured = await this.selected.capture(
@@ -400,6 +437,13 @@ export class GraphTransferService {
           if (!isDeepStrictEqual(indexed.get(row.id)?.[key], value))
             throw new Error('Private graph changed during admission');
     }
+    if (
+      !isDeepStrictEqual(
+        captured.editHistory,
+        [...editHistory].sort((a, b) => a.cruxId.localeCompare(b.cruxId)),
+      )
+    )
+      throw new Error('Edit history changed during admission');
     if (
       !isDeepStrictEqual(
         captured.contentHeads,

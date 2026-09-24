@@ -1,3 +1,4 @@
+import { editHistorySchema } from './edit-history';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'util';
 import type { SelectedGraphCapture } from './selected-graph.service';
@@ -113,6 +114,7 @@ export const privateGraphSchema = z
         })
         .strict(),
     ),
+    editHistory: z.array(editHistorySchema).optional(),
     boundary: z.array(boundary),
     fingerprints: z.array(fingerprint),
   })
@@ -207,6 +209,7 @@ export function projectPrivateGraph(
     })),
     store: capture.store,
     contentHeads: capture.contentHeads,
+    ...(capture.editHistory.length ? { editHistory: capture.editHistory } : {}),
     boundary: capture.boundary,
     fingerprints: capture.fingerprints,
   });

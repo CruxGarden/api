@@ -1,3 +1,4 @@
+import { EDIT_HISTORY_SCHEMA } from './edit-history';
 import type { Knex } from 'knex';
 import {
   DesktopContentStore,
@@ -26,6 +27,12 @@ export async function migrateDesktopDatabase(
         await externalizeDesktopContent(connection, contentStore);
       if (!needsDesktopMigration(connection)) return;
       const version = inspectDesktopSchema(connection);
+      if (version === 5) {
+        connection.exec(
+          `${EDIT_HISTORY_SCHEMA}; UPDATE schema_version SET version = 6;`,
+        );
+        return;
+      }
       connection.exec(DESKTOP_SCHEMA_SQL);
       if (
         !connection

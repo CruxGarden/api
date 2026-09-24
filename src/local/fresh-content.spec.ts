@@ -26,7 +26,7 @@ describe('fresh API file-content schema', () => {
     };
     try {
       expect(await owner.get('SELECT version FROM schema_version')).toEqual({
-        version: 5,
+        version: 6,
       });
       const id = await owner.createCrux({
         title: 'Fresh',

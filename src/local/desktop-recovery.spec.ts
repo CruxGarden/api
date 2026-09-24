@@ -190,7 +190,7 @@ describe('detached desktop recovery inspection', () => {
     },
   );
 
-  it.each([[6], [-1], [2, 4]])(
+  it.each([[7], [-1], [2, 4]])(
     'refuses unsupported or ambiguous version markers %j',
     (...versions) => {
       expect(() =>

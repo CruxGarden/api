@@ -12,7 +12,8 @@ type Table =
   | 'working_copies'
   | 'task_merges'
   | 'store'
-  | 'file_content_heads';
+  | 'file_content_heads'
+  | 'edit_history';
 const receiptKey = (id: string) => `cruxgarden:graph-import:${id}`;
 const boundaryKey = (id: string) => `cruxgarden:graph-boundary:${id}`;
 
@@ -160,6 +161,7 @@ export class GraphTransferRepository {
         const batch = owners.slice(start, start + 200);
         for (const [table, column] of [
           ['file_content_heads', 'crux_id'],
+          ['edit_history', 'crux_id'],
           ['store', 'crux_id'],
           ['task_merges', 'crux_id'],
           ['dimensions', 'source_id'],
@@ -214,7 +216,7 @@ export class GraphTransferRepository {
       for (const row of rows) {
         await this.db.query()(table).insert(toTableFields(row));
         const key =
-          table === 'file_content_heads'
+          table === 'file_content_heads' || table === 'edit_history'
             ? { crux_id: row.cruxId }
             : { id: row.id };
         const saved = await this.db.query()(table).where(key).first();

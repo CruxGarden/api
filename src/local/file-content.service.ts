@@ -1,3 +1,4 @@
+import { EditRetentionService } from './edit-retention.service';
 import { createHash } from 'crypto';
 import {
   ConflictException,
@@ -169,7 +170,10 @@ export function captureFileContentEdit(
 /** Called only inside the local API owner's transaction. No renderer/remote transport yet. */
 @Injectable()
 export class FileContentService {
-  constructor(private readonly repository: FileContentRepository) {}
+  constructor(
+    private readonly repository: FileContentRepository,
+    private readonly retention: EditRetentionService,
+  ) {}
   private unwrap<T>(result: RepositoryResponse<T>): T {
     if (result.error)
       throw new InternalServerErrorException(result.error.message);
@@ -337,6 +341,8 @@ export class FileContentService {
     before: FileContentHead | null,
   ): Promise<FileContentHead> {
     if (before?.root === input.root) return before;
+    if (before)
+      await this.retention.record(input.cruxId, before.root, 'autosave', true);
     return this.unwrap(
       await this.repository.publish(
         {

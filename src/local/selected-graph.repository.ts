@@ -39,7 +39,8 @@ export class SelectedGraphRepository {
       | 'working_copies'
       | 'task_merges'
       | 'store'
-      | 'file_content_heads',
+      | 'file_content_heads'
+      | 'edit_history',
     ids: string[],
   ) {
     try {

@@ -1,3 +1,4 @@
+import { editHistorySchema, EditHistory } from './edit-history';
 import { createHash } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import { isUUID } from 'class-validator';
@@ -27,6 +28,7 @@ export interface SelectedGraphCapture {
   taskMerges: CapturedRecord[];
   store: CapturedRecord[];
   contentHeads: FileContentHead[];
+  editHistory: EditHistory[];
   boundary: {
     id: string;
     sourceId: string;
@@ -278,6 +280,22 @@ export class SelectedGraphService {
           'Selected history or Task has no retained content head',
         );
     }
+    const editHistory = unwrap(
+      await this.repository.rows('edit_history', [...selected]),
+    ).map((row) =>
+      editHistorySchema.parse({
+        cruxId: row.cruxId,
+        revision: row.revision,
+        checkpoints:
+          typeof row.checkpoints === 'string'
+            ? JSON.parse(row.checkpoints)
+            : row.checkpoints,
+      }),
+    );
+    for (const history of editHistory) {
+      if (nodes.get(history.cruxId)?.kind === 'snapshot')
+        throw new Error('Growth cannot own mutable edit history');
+    }
     const fingerprints = new Set<string>();
     const verifiedRoots = new Set<string>();
     const manifest = new FileManifest(store);
@@ -294,6 +312,14 @@ export class SelectedGraphService {
         verifiedRoots.add(head.root);
       }
     }
+    for (const history of editHistory)
+      for (const checkpoint of history.checkpoints) {
+        if (!verifiedRoots.has(checkpoint.root)) {
+          for (const fp of await manifest.verify(checkpoint.root))
+            fingerprints.add(fp);
+          verifiedRoots.add(checkpoint.root);
+        }
+      }
     const assets = new Set<string>();
     const add = (value: unknown) => {
       if (value == null) return;
@@ -343,6 +369,7 @@ export class SelectedGraphService {
         taskMerges,
         store: unwrap(await this.repository.rows('store', [...selected])),
         contentHeads,
+        editHistory,
         boundary,
         fingerprints: [...fingerprints].sort(),
       }),

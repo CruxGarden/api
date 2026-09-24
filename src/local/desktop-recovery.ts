@@ -1,3 +1,4 @@
+import { editHistorySchema } from './edit-history';
 import { createHash } from 'crypto';
 import { FileManifest } from './file-manifest';
 import type { DesktopContentStore } from './desktop-content';
@@ -64,7 +65,7 @@ export function openDesktopRecovery(
       versions.length > 1 ||
       !Number.isInteger(schemaVersion) ||
       schemaVersion < 0 ||
-      schemaVersion > 5
+      schemaVersion > 6
     )
       throw new Error('Unsupported recovery schema version');
     inspectDesktopSchema(db, allowInlineContent);
@@ -100,6 +101,11 @@ export function desktopRecoveryFingerprints(db: any): string[] {
       .all()
       .map((row: { name: string }) => row.name),
   );
+  if (
+    tables.has('edit_history') &&
+    db.prepare('SELECT 1 FROM edit_history LIMIT 1').get()
+  )
+    throw new Error('Edit history requires manifest-aware recovery');
   // This legacy scanner cannot enumerate transitive manifest objects/files.
   // Refuse rather than return a successful, incomplete archive inventory.
   if (
@@ -173,6 +179,20 @@ export async function inspectDesktopManifestRecovery(
     roots = [
       ...new Set<string>(heads.map((head: { root: string }) => head.root)),
     ];
+    if (tables.has('edit_history')) {
+      const rows = db
+        .prepare('SELECT crux_id, revision, checkpoints FROM edit_history')
+        .all();
+      for (const row of rows) {
+        const history = editHistorySchema.parse({
+          cruxId: row.crux_id,
+          revision: row.revision,
+          checkpoints: JSON.parse(row.checkpoints),
+        });
+        roots.push(...history.checkpoints.map((checkpoint) => checkpoint.root));
+      }
+      roots = [...new Set(roots)];
+    }
     legacy = legacyRecoveryFingerprints(db, tables);
     database = Uint8Array.from(db.serialize()).buffer;
   } finally {
