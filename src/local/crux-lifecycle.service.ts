@@ -68,6 +68,10 @@ export class CruxLifecycleService {
   }
   private async assertUnreferenced(id: string): Promise<void> {
     const refs = this.unwrap(await this.repository.references(id));
+    if (refs.mood)
+      throw new ConflictException(
+        'This Mood is selected by a Garden. Change that selection before deleting it.',
+      );
     if (refs.history)
       throw new ConflictException(
         'This snapshot is used by a task, merge or recovery copy.',

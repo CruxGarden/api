@@ -129,12 +129,26 @@ export class CruxLifecycleRepository {
     )`,
         [id],
       );
+      const mood = await this.db
+        .query()('dimensions as d')
+        .join('cruxes as c', 'c.id', 'd.source_id')
+        .where({
+          'd.target_id': id,
+          'd.type': 'graft',
+          'd.kind': 'mood',
+          'c.kind': 'garden',
+        })
+        .whereNull('d.deleted')
+        .first('d.id');
       return success({
+        mood: !!mood,
         history: history.length > 0,
         shared: shared.length > 0,
       });
     } catch (error) {
-      return failure<{ history: boolean; shared: boolean }>(error);
+      return failure<{ history: boolean; shared: boolean; mood: boolean }>(
+        error,
+      );
     }
   }
   async plan(id: string) {

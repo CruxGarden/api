@@ -1,3 +1,5 @@
+import { gardenMoodMode, type GardenMoodMode } from './garden-mood-policy';
+export type { GardenMoodMode } from './garden-mood-policy';
 import {
   BadRequestException,
   ConflictException,
@@ -14,7 +16,6 @@ import {
   MOOD_ASSOCIATION,
 } from './garden-mood.repository';
 
-export type GardenMoodMode = 'inherit' | 'own' | 'none';
 export interface GardenMoodSelection {
   mode: GardenMoodMode;
   edgeId: string | null;
@@ -60,12 +61,7 @@ export class GardenMoodService {
     const garden = await this.graph.findById(gardenId);
     if (garden.kind !== CruxKind.GARDEN || garden.deleted)
       throw new BadRequestException('This Garden is unavailable');
-    const policy = garden.meta?.moodSelection as
-      | { version?: number; mode?: unknown }
-      | undefined;
-    if (policy !== undefined && (!policy || policy.version !== 1))
-      throw new BadRequestException('This Garden’s Mood policy is unsupported');
-    const mode = policy === undefined ? 'inherit' : this.mode(policy.mode);
+    const mode = gardenMoodMode(garden.meta?.moodSelection);
     const rows = await this.links.list(gardenId);
     if (rows.error)
       throw new InternalServerErrorException(

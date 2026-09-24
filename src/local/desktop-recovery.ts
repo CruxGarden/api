@@ -1,3 +1,4 @@
+import { assertGardenMoodAssociations } from './garden-mood-policy';
 import {
   WorkingCopyBase,
   CopySource,
@@ -75,6 +76,37 @@ export function openDesktopRecovery(
     )
       throw new Error('Unsupported recovery schema version');
     inspectDesktopSchema(db, allowInlineContent);
+    // Mood selection belongs to the current graph schema, after additive preparation.
+    if (schemaVersion === 7)
+      assertGardenMoodAssociations(
+        db
+          .prepare(
+            "SELECT id,kind,deleted,json_extract(meta,'$.moodSelection') AS selection,json_type(meta,'$.moodSelection') AS selectionType FROM cruxes WHERE kind IN ('garden','mood')",
+          )
+          .all()
+          .map(
+            (row: {
+              id: string;
+              kind: string;
+              deleted: unknown;
+              selection: string | null;
+              selectionType: string | null;
+            }) => ({
+              id: row.id,
+              kind: row.kind,
+              deleted: row.deleted,
+              meta:
+                row.selectionType === null
+                  ? {}
+                  : { moodSelection: JSON.parse(row.selection ?? 'null') },
+            }),
+          ),
+        db
+          .prepare(
+            "SELECT source_id AS sourceId,target_id AS targetId,type,kind FROM dimensions WHERE type = 'graft' AND kind = 'mood' AND deleted IS NULL",
+          )
+          .all(),
+      );
     return db;
   } catch (error) {
     db.close();

@@ -1,3 +1,4 @@
+import { assertGardenMoodAssociations } from './garden-mood-policy';
 import {
   copySourceChain,
   copyParentOwner,
@@ -49,6 +50,7 @@ function unique(values: string[], name: string) {
     throw new Error(`Duplicate ${name} in private graph`);
 }
 function checkReferences(graph: PrivateGraph) {
+  assertGardenMoodAssociations(graph.cruxes, graph.dimensions);
   const owners = new Set(
     [...graph.cruxes, ...graph.workingCopies].map((row) => row.id),
   );

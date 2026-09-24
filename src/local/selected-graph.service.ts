@@ -1,3 +1,5 @@
+import { GardenMoodService } from './garden-mood.service';
+import { assertGardenMoodAssociations } from './garden-mood-policy';
 import {
   workingCopyBaseSchema,
   copySourceChain,
@@ -85,7 +87,10 @@ const object = (value: unknown): Record<string, any> => {
 
 @Injectable()
 export class SelectedGraphService {
-  constructor(private readonly repository: SelectedGraphRepository) {}
+  constructor(
+    private readonly repository: SelectedGraphRepository,
+    private readonly gardenMood: GardenMoodService,
+  ) {}
 
   async capture(
     selection: GraphSelection,
@@ -108,6 +113,15 @@ export class SelectedGraphService {
       live.add(id);
       const outgoing = unwrap(await this.repository.rows('dimensions', [id]));
       for (const edge of outgoing) edges.set(edge.id, edge);
+      if (node.kind === 'garden') {
+        const { selection: mood } = await this.gardenMood.read(id);
+        if (mood.moodId) {
+          const dependency = unwrap(await this.repository.node(mood.moodId));
+          if (!dependency || dependency.kind !== 'mood' || dependency.deleted)
+            throw new Error('The Garden’s selected Mood is unavailable');
+          await visit(mood.moodId, new Set());
+        }
+      }
       if (!selection.includeMembers) return;
       const members = outgoing.filter(
         (edge) => edge.type === 'garden' && edge.kind === 'membership',
@@ -240,6 +254,7 @@ export class SelectedGraphService {
         });
       }
     }
+    assertGardenMoodAssociations([...nodes.values()], dimensions);
     const taskMerges = unwrap(
       await this.repository.rows('task_merges', [...live]),
     );
