@@ -146,6 +146,14 @@ class LocalGraphModule {
   }
 }
 
+import * as commands from './installation-commands';
+import type {
+  AuthorCreate,
+  AuthorUpdate,
+  Connection,
+  DimensionCreate,
+  StoreEntry,
+} from './installation-commands';
 export interface GraphOperations {
   crux: CruxGraphService;
   dimension: DimensionService;
@@ -1151,6 +1159,116 @@ export class LocalGraphRuntime {
         const result = connection.prepare(sql)[method](...bindings);
         return (method === 'run' ? { changes: result.changes } : result) as T;
       }),
+    );
+  }
+
+  /** The installation's settings (secrets never enter this table). */
+  listSettings(): Promise<{ key: string; value: string }[]> {
+    return this.enqueue(() =>
+      this.withConnection(
+        (connection) =>
+          connection
+            .prepare('SELECT key, value FROM settings ORDER BY key')
+            .all() as { key: string; value: string }[],
+      ),
+    );
+  }
+
+  /** Write one setting; the value is captured at admission. */
+  putSetting(key: string, value: string): Promise<void> {
+    if (typeof key !== 'string' || !key || typeof value !== 'string')
+      return Promise.reject(new Error('Use a setting key and a text value'));
+    const captured = { key, value };
+    return this.enqueue(() =>
+      this.withConnection((connection) => {
+        connection
+          .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+          .run(captured.key, captured.value);
+      }),
+    );
+  }
+
+  /** Remove one setting; removing an absent one is not an error. */
+  removeSetting(key: string): Promise<void> {
+    if (typeof key !== 'string' || !key)
+      return Promise.reject(new Error('Use a setting key'));
+    return this.enqueue(() =>
+      this.withConnection((connection) => {
+        connection.prepare('DELETE FROM settings WHERE key = ?').run(key);
+      }),
+    );
+  }
+
+  /** One named installation command on the owner's connection, in admission order. */
+  private installation<T>(
+    operation: (connection: Connection) => T,
+  ): Promise<T> {
+    return this.enqueue(() => this.withConnection(operation));
+  }
+
+  createAuthor(input: AuthorCreate) {
+    const captured = structuredClone(input);
+    return this.installation((c) => commands.createAuthor(c, captured));
+  }
+
+  updateAuthor(id: string, patch: AuthorUpdate) {
+    const captured = structuredClone(patch);
+    return this.installation((c) => commands.updateAuthor(c, id, captured));
+  }
+
+  rekeyLocalAuthor(input: { oldId: string; newId: string; accountId: string }) {
+    const captured = { ...input };
+    return this.installation((c) => commands.rekeyLocalAuthor(c, captured));
+  }
+
+  createDimension(input: DimensionCreate) {
+    const captured = structuredClone(input);
+    return this.installation((c) => commands.createDimension(c, captured));
+  }
+
+  updateDimension(
+    id: string,
+    patch: Parameters<typeof commands.updateDimension>[2],
+  ) {
+    const captured = structuredClone(patch);
+    return this.installation((c) => commands.updateDimension(c, id, captured));
+  }
+
+  deleteDimension(id: string) {
+    return this.installation((c) => commands.deleteDimension(c, id));
+  }
+
+  storeSet(entry: StoreEntry) {
+    const captured = { ...entry };
+    return this.installation((c) => commands.storeSet(c, captured));
+  }
+
+  storeDelete(input: {
+    cruxId: string;
+    key: string;
+    visitorId?: string | null;
+  }) {
+    const captured = { ...input };
+    return this.installation((c) => commands.storeDelete(c, captured));
+  }
+
+  storeClear(cruxId: string) {
+    return this.installation((c) => commands.storeClear(c, cruxId));
+  }
+
+  /** Empty the Garden's records; the host removes content bytes and caches. */
+  wipeGarden() {
+    return this.installation((c) => commands.wipeGarden(c));
+  }
+
+  /** Drop another machine's handles after a whole-Garden image was admitted. */
+  sanitizeImportedGarden() {
+    return this.installation((c) => commands.sanitizeImportedGarden(c));
+  }
+
+  setWorkingCopyFolder(id: string, folder: string) {
+    return this.installation((c) =>
+      commands.setWorkingCopyFolder(c, id, folder),
     );
   }
 
