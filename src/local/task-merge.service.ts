@@ -20,7 +20,7 @@ import {
   RetainedWorkspaceState,
 } from './workspace-state.service';
 import { retainedWorkspaceSchema } from './edit-history';
-import { FileManifest } from './file-manifest';
+import { FileManifest, FileEntry } from './file-manifest';
 
 /** Durable review closure/finalization. Host file projection and Growth capture remain recoverable earlier steps. */
 @Injectable()
@@ -248,21 +248,25 @@ export class TaskMergeService {
       );
     if (!store)
       throw new Error('Use the host content store to admit a file merge');
-    for (const [cruxId, retained] of [
-      [copy.id, data.sourceState],
-      [targetId, data.targetState],
+    for (const [label, cruxId, retained] of [
+      ['Task', copy.id, data.sourceState],
+      ['destination', targetId, data.targetState],
     ] as const) {
       const expectedState = retainedWorkspaceSchema.parse(retained);
       const head = await this.content.head(cruxId);
-      if (
-        !head ||
-        !isDeepStrictEqual(
-          await this.workspace.read({ cruxId, expected: head }, store),
-          expectedState,
-        )
-      )
+      if (!head)
         throw new ConflictException(
-          'The workspace changed after review. Prepare a new review.',
+          `The ${label} workspace has no retained content after review. Prepare a new review.`,
+        );
+      const live = await this.workspace.read({ cruxId, expected: head }, store);
+      const drift = describeWorkspaceDrift(
+        expectedState,
+        live,
+        await this.taskContentDrift(expectedState.root, live.root, store),
+      );
+      if (drift)
+        throw new ConflictException(
+          `The ${label} workspace changed after review (${drift}). Prepare a new review.`,
         );
     }
     const saved = await this.repository.begin(state, {
@@ -320,6 +324,25 @@ export class TaskMergeService {
       await this.contentRepository.queueProjection(targetId, head);
     }
     return { id: copy.id, cruxId: merge.crux_id };
+  }
+
+  /** The review covers Task content only. Housekeeping the review excludes by design
+   * (the thumbnail, a toolchain install, `.crux`, AGENTS.md) may move the head root
+   * after the check without changing what merges; name the reviewed files that did. */
+  private async taskContentDrift(
+    expectedRoot: string,
+    liveRoot: string,
+    store: DesktopContentStore,
+  ): Promise<string> {
+    if (expectedRoot === liveRoot) return '';
+    const manifest = new FileManifest(store);
+    const changed = changedTaskContent(
+      await manifest.entries(expectedRoot),
+      await manifest.entries(liveRoot),
+    );
+    if (!changed.length) return '';
+    const shown = changed.slice(0, 3).join(', ');
+    return `files differ: ${shown}${changed.length > 3 ? ` and ${changed.length - 3} more` : ''}`;
   }
 
   private assertVerified(data: Record<string, any>) {
@@ -413,14 +436,13 @@ export class TaskMergeService {
       target.meta,
       id,
     );
-    if (
-      !isDeepStrictEqual(
-        before.workspace,
-        retainedWorkspaceSchema.parse(data.targetState).workspace,
-      )
-    )
+    const drift = describeWorkspaceDrift(
+      { workspace: retainedWorkspaceSchema.parse(data.targetState).workspace },
+      { workspace: before.workspace },
+    );
+    if (drift)
       throw new ConflictException(
-        'The destination’s conversation changed during the merge. Keep it safe before resuming.',
+        `The destination’s conversation changed during the merge (${drift}). Keep it safe before resuming.`,
       );
     assertTaskContent(
       await new FileManifest(store).entries(before.root),
@@ -499,4 +521,75 @@ export class TaskMergeService {
       );
     return { id: copy.id, cruxId: merge.crux_id };
   }
+}
+
+/** Paths whose reviewed content (not row timestamps) differs between two file states. */
+export function changedTaskContent(
+  before: FileEntry[],
+  after: FileEntry[],
+): string[] {
+  const same = (a: FileEntry, b: FileEntry) =>
+    a.fingerprint === b.fingerprint &&
+    a.mode === b.mode &&
+    a.encoding === b.encoding &&
+    a.mimeType === b.mimeType &&
+    a.size === b.size;
+  const was = new Map(
+    before.filter((e) => isTaskContent(e.path)).map((e) => [e.path, e]),
+  );
+  const now = new Map(
+    after.filter((e) => isTaskContent(e.path)).map((e) => [e.path, e]),
+  );
+  return [...new Set([...was.keys(), ...now.keys()])]
+    .filter((path) => {
+      const a = was.get(path),
+        b = now.get(path);
+      return !a || !b || !same(a, b);
+    })
+    .sort();
+}
+
+type WorkspaceDriftInput = {
+  workspace?: {
+    parentId?: string | null;
+    messages?: unknown[];
+    entryFile?: string | null;
+  };
+};
+
+/** Name what moved between the retained review state and the live workspace, or '' when nothing did. */
+export function describeWorkspaceDrift(
+  expected: WorkspaceDriftInput,
+  actual: WorkspaceDriftInput,
+  files = '',
+): string {
+  const drift: string[] = [];
+  const show = (value: unknown) =>
+    value === null || value === undefined ? 'none' : String(value);
+  if (files) drift.push(files);
+  const was = expected.workspace ?? {};
+  const now = actual.workspace ?? {};
+  if ((was.parentId ?? null) !== (now.parentId ?? null))
+    drift.push(
+      `Growth tip differs (${show(was.parentId)} → ${show(now.parentId)})`,
+    );
+  if ((was.entryFile ?? null) !== (now.entryFile ?? null))
+    drift.push(
+      `entry file differs (${show(was.entryFile)} → ${show(now.entryFile)})`,
+    );
+  const before = was.messages ?? [];
+  const after = now.messages ?? [];
+  if (!isDeepStrictEqual(before, after)) {
+    if (before.length !== after.length)
+      drift.push(
+        `messages differ (${before.length} → ${after.length} entries)`,
+      );
+    else {
+      const index = before.findIndex(
+        (message, i) => !isDeepStrictEqual(message, after[i]),
+      );
+      drift.push(`messages differ (entry ${index + 1} of ${before.length})`);
+    }
+  }
+  return drift.join('; ');
 }

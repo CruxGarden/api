@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -347,7 +347,73 @@ describe('owned Task merge finalization', () => {
       merge,
     ]);
     const before = await state();
-    await expect(begin(merge, JSON.stringify(review))).rejects.toThrow();
+    const refusal = {
+      'changed-head':
+        /destination workspace changed after review \(Growth tip differs \(.+ → none\)\)/,
+      'changed-conversation':
+        /Task workspace changed after review \(messages differ \(0 → 1 entries\)\)/,
+    }[fault];
+    await expect(begin(merge, JSON.stringify(review))).rejects.toThrow(refusal);
+    expect(await state()).toEqual(before);
+  });
+  const fileEntry = async (
+    path: string,
+    updated: string,
+    mimeType = 'text/plain',
+  ) => {
+    const bytes = Buffer.from('x');
+    const fingerprint = createHash('sha256').update(bytes).digest('hex');
+    await store.write(fingerprint, bytes);
+    return {
+      id: randomUUID(),
+      path,
+      fingerprint,
+      size: bytes.length,
+      mimeType,
+      encoding: 'utf8',
+      mode: 420,
+      attributes: { updated },
+    };
+  };
+  it('admits a Task whose only drift is housekeeping the review excludes (thumbnail, toolchain)', async () => {
+    const review = await verifiedReview();
+    const manifest = new FileManifest(store);
+    const root = await manifest.apply(null, [
+      {
+        put: await fileEntry(
+          'preview.jpg',
+          '2026-01-01T00:00:00.000Z',
+          'image/jpeg',
+        ),
+      },
+      {
+        put: await fileEntry(
+          'node_modules/dep/index.js',
+          '2026-01-01T00:00:00.000Z',
+        ),
+      },
+    ]);
+    await owner.run(
+      'UPDATE file_content_heads SET root = ?, revision = 2 WHERE crux_id = ?',
+      [root, copy],
+    );
+    await begin(merge, JSON.stringify(review));
+    expect((await state()).merge.phase).toBe('applying');
+  });
+  it('refuses a Task whose reviewed files changed and names them', async () => {
+    const review = await verifiedReview();
+    const root = await new FileManifest(store).apply(null, [
+      { put: await fileEntry('one.txt', '2026-01-01T00:00:00.000Z') },
+      { put: await fileEntry('two.txt', '2026-01-01T00:00:00.000Z') },
+    ]);
+    await owner.run(
+      'UPDATE file_content_heads SET root = ?, revision = 2 WHERE crux_id = ?',
+      [root, copy],
+    );
+    const before = await state();
+    await expect(begin(merge, JSON.stringify(review))).rejects.toThrow(
+      'The Task workspace changed after review (files differ: one.txt, two.txt). Prepare a new review.',
+    );
     expect(await state()).toEqual(before);
   });
   it.each(['ABORT', 'IGNORE'])(
