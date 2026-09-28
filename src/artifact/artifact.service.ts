@@ -60,7 +60,11 @@ export class ArtifactService {
       id,
     );
 
-    if (error || !artifact) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Artifact', {
+        cause: error,
+      });
+    if (!artifact) {
       throw new NotFoundException('Artifact not found');
     }
 
@@ -77,9 +81,9 @@ export class ArtifactService {
     );
 
     if (error) {
-      throw new InternalServerErrorException(
-        `Error fetching artifacts: ${error}`,
-      );
+      throw new InternalServerErrorException('Error fetching artifacts', {
+        cause: error,
+      });
     }
 
     return this.asArtifacts(data || []);
@@ -90,9 +94,9 @@ export class ArtifactService {
 
     const created = await this.artifactRepository.create(createArtifactDto);
     if (created.error)
-      throw new InternalServerErrorException(
-        `Artifact creation error: ${created.error}`,
-      );
+      throw new InternalServerErrorException('Artifact creation error', {
+        cause: created.error,
+      });
 
     return this.asArtifact(created.data);
   }
@@ -110,9 +114,9 @@ export class ArtifactService {
       updateDto,
     );
     if (updated.error)
-      throw new InternalServerErrorException(
-        `Artifact update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Artifact update error', {
+        cause: updated.error,
+      });
 
     return this.asArtifact(updated.data);
   }
@@ -125,9 +129,9 @@ export class ArtifactService {
       artifactToDelete.id,
     );
     if (deleteError) {
-      throw new InternalServerErrorException(
-        `Artifact deletion error: ${deleteError}`,
-      );
+      throw new InternalServerErrorException('Artifact deletion error', {
+        cause: deleteError,
+      });
     }
 
     return null;
@@ -226,9 +230,9 @@ export class ArtifactService {
       } catch (cleanupError) {
         this.logger.error(`Storage cleanup failed: ${cleanupError.message}`);
       }
-      throw new InternalServerErrorException(
-        `Artifact creation error: ${created.error}`,
-      );
+      throw new InternalServerErrorException('Artifact creation error', {
+        cause: created.error,
+      });
     }
 
     return this.asArtifact(created.data);
@@ -291,9 +295,9 @@ export class ArtifactService {
       changes,
     );
     if (updated.error) {
-      throw new InternalServerErrorException(
-        `Artifact update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Artifact update error', {
+        cause: updated.error,
+      });
     }
 
     return this.asArtifact(updated.data);
@@ -319,9 +323,9 @@ export class ArtifactService {
       artifactToDelete.id,
     );
     if (deleteError) {
-      throw new InternalServerErrorException(
-        `Artifact deletion error: ${deleteError}`,
-      );
+      throw new InternalServerErrorException('Artifact deletion error', {
+        cause: deleteError,
+      });
     }
 
     return null;
@@ -339,9 +343,9 @@ export class ArtifactService {
     );
 
     if (error) {
-      throw new InternalServerErrorException(
-        `Error fetching artifacts: ${error}`,
-      );
+      throw new InternalServerErrorException('Error fetching artifacts', {
+        cause: error,
+      });
     }
 
     return this.asArtifacts(data || []);
@@ -393,7 +397,8 @@ export class ArtifactService {
         this.logger.error(`Snapshot cleanup failed: ${cleanupError.message}`);
       }
       throw new InternalServerErrorException(
-        `Snapshot artifact creation error: ${created.error}`,
+        'Snapshot artifact creation error',
+        { cause: created.error },
       );
     }
 
@@ -487,9 +492,9 @@ export class ArtifactService {
     };
     const created = await this.artifactRepository.create(createDto);
     if (created.error) {
-      throw new InternalServerErrorException(
-        `Artifact creation error: ${created.error}`,
-      );
+      throw new InternalServerErrorException('Artifact creation error', {
+        cause: created.error,
+      });
     }
     return this.asArtifact(created.data);
   }

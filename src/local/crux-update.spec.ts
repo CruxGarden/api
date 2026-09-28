@@ -104,7 +104,9 @@ describe('owned Crux details update', () => {
     );
     await expect(
       owner.updateCrux(id, { title: 'Failed', meta: { bad: true } }),
-    ).rejects.toThrow('Injected failure');
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringContaining('Injected failure') },
+    });
     expect(await owner.get('SELECT value FROM settings')).toEqual({
       value: 'original',
     });

@@ -62,7 +62,11 @@ export class CruxGraphService {
   async findById(id: string): Promise<Crux> {
     const { data, error } = await this.cruxRepository.findBy('id', id);
 
-    if (error || !data) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Crux', {
+        cause: error,
+      });
+    if (!data) {
       throw new NotFoundException('Crux not found');
     }
 
@@ -75,7 +79,11 @@ export class CruxGraphService {
       slug,
     );
 
-    if (error || !data) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Crux', {
+        cause: error,
+      });
+    if (!data) {
       throw new NotFoundException('Crux not found');
     }
 
@@ -121,7 +129,9 @@ export class CruxGraphService {
       dto.id,
     );
     if (existingId.error)
-      throw new InternalServerErrorException('Could not check Crux identity');
+      throw new InternalServerErrorException('Could not check Crux identity', {
+        cause: existingId.error,
+      });
     if (existingId.data)
       throw new ConflictException('A Crux with this identity already exists');
     const existingSlug = await this.cruxRepository.findByAuthorAndSlug(
@@ -129,7 +139,9 @@ export class CruxGraphService {
       dto.slug,
     );
     if (existingSlug.error)
-      throw new InternalServerErrorException('Could not check Crux slug');
+      throw new InternalServerErrorException('Could not check Crux slug', {
+        cause: existingSlug.error,
+      });
     if (existingSlug.data)
       throw new ConflictException(`Slug "${dto.slug}" is already in use`);
     const result = await this.cruxRepository.create(dto);
@@ -148,7 +160,9 @@ export class CruxGraphService {
           'A Crux with this identity or slug already exists',
         );
       }
-      throw new InternalServerErrorException('Could not create Crux');
+      throw new InternalServerErrorException('Could not create Crux', {
+        cause: result.error,
+      });
     }
     return this.asCrux(result.data);
   }
@@ -163,6 +177,10 @@ export class CruxGraphService {
         cruxToUpdate.authorId,
         updateCruxDto.slug,
       );
+      if (existing.error)
+        throw new InternalServerErrorException('Could not check Crux slug', {
+          cause: existing.error,
+        });
       if (existing.data) {
         throw new ConflictException(
           `Slug "${updateCruxDto.slug}" is already in use`,
@@ -176,9 +194,9 @@ export class CruxGraphService {
       updateCruxDto,
     );
     if (updated.error) {
-      throw new InternalServerErrorException(
-        `Crux update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Crux update error', {
+        cause: updated.error,
+      });
     }
 
     return this.asCrux(updated.data);

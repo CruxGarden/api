@@ -56,7 +56,9 @@ export class AccountService {
   async findById(accountId: string): Promise<Account> {
     const found = await this.accountRepository.findById(accountId);
     if (found.error)
-      throw new InternalServerErrorException(`database error: ${found.error}`);
+      throw new InternalServerErrorException('database error', {
+        cause: found.error,
+      });
     if (!found.data) throw new NotFoundException('Account not found');
 
     return this.asAccount(found.data);
@@ -78,7 +80,9 @@ export class AccountService {
     const formattedEmail = this.formatEmail(email);
     const found = await this.accountRepository.findByEmail(formattedEmail);
     if (found.error)
-      throw new InternalServerErrorException(`Database error: ${found.error}`);
+      throw new InternalServerErrorException('Database error', {
+        cause: found.error,
+      });
 
     return found.data ? this.asAccount(found.data) : null;
   }
@@ -96,9 +100,9 @@ export class AccountService {
     // 2) create account
     const created = await this.accountRepository.create(createAccountDto);
     if (created.error) {
-      throw new InternalServerErrorException(
-        `Account creation error: ${created.error}`,
-      );
+      throw new InternalServerErrorException('Account creation error', {
+        cause: created.error,
+      });
     }
 
     return this.asAccount(created.data);
@@ -134,9 +138,9 @@ export class AccountService {
       updateAccountDto,
     );
     if (updated.error) {
-      throw new InternalServerErrorException(
-        `Account update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Account update error', {
+        cause: updated.error,
+      });
     }
 
     // 5) if email changed, invalidate tokens (requires re-login)
@@ -177,9 +181,9 @@ export class AccountService {
       accountToDelete.id,
     );
     if (authorResult.error) {
-      throw new InternalServerErrorException(
-        `Error fetching author: ${authorResult.error}`,
-      );
+      throw new InternalServerErrorException('Error fetching author', {
+        cause: authorResult.error,
+      });
     }
 
     // 4) Cascade delete all associated data in a transaction
@@ -195,9 +199,9 @@ export class AccountService {
           author.id,
         );
         if (cruxesResult.error) {
-          throw new InternalServerErrorException(
-            `Error fetching cruxes: ${cruxesResult.error}`,
-          );
+          throw new InternalServerErrorException('Error fetching cruxes', {
+            cause: cruxesResult.error,
+          });
         }
 
         // Delete each crux (which also deletes associated dimensions)
@@ -208,9 +212,9 @@ export class AccountService {
               trx,
             );
             if (deleteCruxResult.error) {
-              throw new InternalServerErrorException(
-                `Error deleting crux: ${deleteCruxResult.error}`,
-              );
+              throw new InternalServerErrorException('Error deleting crux', {
+                cause: deleteCruxResult.error,
+              });
             }
           }
         }
@@ -222,9 +226,9 @@ export class AccountService {
         trx,
       );
       if (deleteAuthorsResult.error) {
-        throw new InternalServerErrorException(
-          `Error deleting authors: ${deleteAuthorsResult.error}`,
-        );
+        throw new InternalServerErrorException('Error deleting authors', {
+          cause: deleteAuthorsResult.error,
+        });
       }
 
       // Delete the account
@@ -233,9 +237,9 @@ export class AccountService {
         trx,
       );
       if (deleteAccountResult.error) {
-        throw new InternalServerErrorException(
-          `Error deleting account: ${deleteAccountResult.error}`,
-        );
+        throw new InternalServerErrorException('Error deleting account', {
+          cause: deleteAccountResult.error,
+        });
       }
 
       // Commit the transaction

@@ -103,7 +103,12 @@ describe('atomic Crux content and Garden placement', () => {
       await owner.run(
         `CREATE TRIGGER refuse_initial BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'Initial save refused'); END`,
       );
-      await expect(create(input)).rejects.toThrow('Initial save refused');
+      const driverFailure = {
+        message: expect.stringContaining('Initial save refused'),
+      };
+      await expect(create(input)).rejects.toMatchObject(
+        failure === 'content' ? driverFailure : { cause: driverFailure },
+      );
       expect(
         await owner.get('SELECT id FROM cruxes WHERE id = ?', [input.id]),
       ).toBeUndefined();

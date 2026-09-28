@@ -63,6 +63,8 @@ The API will be available at `http://localhost:3000`. Visit `http://localhost:30
 
 ## Running Tests
 
+The suite includes real SQLite file, archive and restart workflows. Jest uses two workers and a 30-second default budget for these operations; tests of runtime deadlines keep their explicit limits. Integration tests run serially.
+
 `npm run verify` is the release gate: lint, unit tests, HTTP integration tests, build, and the packaged local-runtime smoke check. The integration gate requires a running Docker engine. Its PostgreSQL fixture starts a disposable `postgres:16-alpine` container on a random loopback port, applies the real migrations, and removes the container afterward. It never reads database credentials from `.env` or connects to an existing database. The image is downloaded on first use if it is absent. No Redis server is needed for these fixtures.
 
 ```bash

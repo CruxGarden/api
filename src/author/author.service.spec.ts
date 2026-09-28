@@ -90,17 +90,6 @@ describe('AuthorService', () => {
         NotFoundException,
       );
     });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findBy.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(service.findById('author-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
   });
 
   describe('findByUsername', () => {

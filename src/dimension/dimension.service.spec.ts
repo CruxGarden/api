@@ -82,17 +82,6 @@ describe('DimensionService', () => {
         NotFoundException,
       );
     });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findBy.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(service.findById('dimension-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
   });
 
   describe('create', () => {

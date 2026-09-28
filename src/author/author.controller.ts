@@ -108,7 +108,8 @@ export class AuthorController {
     let currentAuthor = null;
     try {
       currentAuthor = await this.authorService.findByAccountId(req.account.id);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) throw error;
       // No author for this account yet
     }
 

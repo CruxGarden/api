@@ -103,9 +103,9 @@ export class CruxService extends CruxGraphService {
 
     const created = await this.cruxRepository.create(createCruxDto);
     if (created.error)
-      throw new InternalServerErrorException(
-        `Crux creation error: ${created.error}`,
-      );
+      throw new InternalServerErrorException('Crux creation error', {
+        cause: created.error,
+      });
 
     return this.asCrux(created.data);
   }
@@ -143,9 +143,9 @@ export class CruxService extends CruxGraphService {
     );
 
     if (deleteError) {
-      throw new InternalServerErrorException(
-        `Crux deletion error: ${deleteError}`,
-      );
+      throw new InternalServerErrorException('Crux deletion error', {
+        cause: deleteError,
+      });
     }
 
     return null;
@@ -410,7 +410,9 @@ export class CruxService extends CruxGraphService {
     });
 
     if (updated.error) {
-      throw new InternalServerErrorException(`Publish error: ${updated.error}`);
+      throw new InternalServerErrorException('Publish error', {
+        cause: updated.error,
+      });
     }
 
     return this.asCrux(updated.data);
@@ -444,7 +446,9 @@ export class CruxService extends CruxGraphService {
     );
 
     if (deleteError) {
-      throw new InternalServerErrorException(`Unpublish error: ${deleteError}`);
+      throw new InternalServerErrorException('Unpublish error', {
+        cause: deleteError,
+      });
     }
 
     // Return the crux state as it was before deletion (for client-side update)

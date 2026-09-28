@@ -103,6 +103,11 @@ export class LoggerService {
           name: error.name,
           message: error.message,
           stack: error.stack,
+          code:
+            'code' in error && typeof error.code === 'string'
+              ? error.code
+              : undefined,
+          causes: errorCauses(error),
         },
       }),
     };
@@ -193,4 +198,39 @@ export class LoggerService {
       this.debug('Database query executed', context, 'DATABASE');
     }
   }
+}
+
+/** Preserve driver diagnostics without serializing arbitrary attached objects or cycles. */
+function errorCauses(error: Error) {
+  const causes: Array<{
+    name?: string;
+    message: string;
+    stack?: string;
+    code?: string;
+  }> = [];
+  const seen = new Set<unknown>([error]);
+  let cause: unknown = 'cause' in error ? error.cause : undefined;
+  while (cause && !seen.has(cause) && causes.length < 8) {
+    seen.add(cause);
+    if (typeof cause !== 'object') {
+      causes.push({ message: String(cause) });
+      break;
+    }
+    const details = cause as {
+      name?: unknown;
+      message?: unknown;
+      stack?: unknown;
+      code?: unknown;
+      cause?: unknown;
+    };
+    causes.push({
+      name: typeof details.name === 'string' ? details.name : undefined,
+      message:
+        typeof details.message === 'string' ? details.message : String(cause),
+      stack: typeof details.stack === 'string' ? details.stack : undefined,
+      code: typeof details.code === 'string' ? details.code : undefined,
+    });
+    cause = details.cause;
+  }
+  return causes;
 }

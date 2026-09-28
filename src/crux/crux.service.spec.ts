@@ -148,17 +148,6 @@ describe('CruxService', () => {
         NotFoundException,
       );
     });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findBy.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(service.findById('crux-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
   });
 
   describe('findByAuthorAndSlug', () => {
@@ -188,17 +177,6 @@ describe('CruxService', () => {
 
       await expect(
         service.findByAuthorAndSlug('author-123', 'invalid-slug'),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findByAuthorAndSlug.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(
-        service.findByAuthorAndSlug('author-123', 'test-crux'),
       ).rejects.toThrow(NotFoundException);
     });
   });

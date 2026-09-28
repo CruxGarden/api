@@ -92,7 +92,8 @@ export class FunctionsController {
     try {
       const author = await this.authorService.findByAccountId(req.account.id);
       return author?.id ?? null;
-    } catch {
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) throw error;
       return null;
     }
   }

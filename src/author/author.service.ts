@@ -42,7 +42,11 @@ export class AuthorService {
       accountId,
     );
 
-    if (error || !author) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Author', {
+        cause: error,
+      });
+    if (!author) {
       throw new NotFoundException('Author not found for this account');
     }
 
@@ -55,7 +59,11 @@ export class AuthorService {
       authorId,
     );
 
-    if (error || !author) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Author', {
+        cause: error,
+      });
+    if (!author) {
       throw new NotFoundException('Author not found');
     }
 
@@ -72,6 +80,10 @@ export class AuthorService {
       .slice(0, 40);
     if (!clean) return [];
     const r = await this.authorRepository.search(clean, 10);
+    if (r.error)
+      throw new InternalServerErrorException('Could not search Authors', {
+        cause: r.error,
+      });
     return (r.data ?? []).map((a) => ({
       id: a.id,
       username: a.username,
@@ -83,7 +95,11 @@ export class AuthorService {
     const { data: author, error } =
       await this.authorRepository.findByUsername(username);
 
-    if (error || !author) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Author', {
+        cause: error,
+      });
+    if (!author) {
       throw new NotFoundException('Author not found');
     }
 
@@ -94,7 +110,11 @@ export class AuthorService {
     const { data: author, error } =
       await this.authorRepository.findByUsername(username);
 
-    if (error || !author) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Author', {
+        cause: error,
+      });
+    if (!author) {
       return null;
     }
 
@@ -109,7 +129,11 @@ export class AuthorService {
       accountId,
     );
 
-    if (error || !author) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Author', {
+        cause: error,
+      });
+    if (!author) {
       return null;
     }
 
@@ -136,9 +160,9 @@ export class AuthorService {
     // 4) create author
     const created = await this.authorRepository.create(createAuthorDto);
     if (created.error)
-      throw new InternalServerErrorException(
-        `Author creation error: ${created.error}`,
-      );
+      throw new InternalServerErrorException('Author creation error', {
+        cause: created.error,
+      });
 
     return this.asAuthor(created.data);
   }
@@ -170,9 +194,9 @@ export class AuthorService {
       updateAuthorDto,
     );
     if (updated.error)
-      throw new InternalServerErrorException(
-        `Author update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Author update error', {
+        cause: updated.error,
+      });
 
     return this.asAuthor(updated.data);
   }
@@ -184,9 +208,9 @@ export class AuthorService {
       authorToDelete.id,
     );
     if (deleteError) {
-      throw new InternalServerErrorException(
-        `Author deletion error: ${deleteError}`,
-      );
+      throw new InternalServerErrorException('Author deletion error', {
+        cause: deleteError,
+      });
     }
 
     return null;
@@ -229,9 +253,9 @@ export class AuthorService {
     };
     const updated = await this.authorRepository.update(authorId, { meta });
     if (updated.error) {
-      throw new InternalServerErrorException(
-        `Avatar update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Avatar update error', {
+        cause: updated.error,
+      });
     }
 
     return this.asAuthor(updated.data);
@@ -260,9 +284,9 @@ export class AuthorService {
     delete meta.avatarUrl;
     const updated = await this.authorRepository.update(authorId, { meta });
     if (updated.error) {
-      throw new InternalServerErrorException(
-        `Avatar remove error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Avatar remove error', {
+        cause: updated.error,
+      });
     }
 
     return this.asAuthor(updated.data);
@@ -282,9 +306,9 @@ export class AuthorService {
     const { data, error } = await this.authorRepository.getGraphData(authorId);
 
     if (error || !data) {
-      throw new InternalServerErrorException(
-        `Failed to fetch graph data: ${error}`,
-      );
+      throw new InternalServerErrorException('Failed to fetch graph data', {
+        cause: error,
+      });
     }
 
     // Format response

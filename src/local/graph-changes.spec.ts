@@ -64,9 +64,11 @@ describe('committed local graph notifications', () => {
     await owner.run(
       "CREATE TRIGGER fail_change BEFORE UPDATE ON cruxes BEGIN SELECT RAISE(ABORT, 'No commit'); END",
     );
-    await expect(owner.updateCrux(id, { title: 'Failed' })).rejects.toThrow(
-      'No commit',
-    );
+    await expect(
+      owner.updateCrux(id, { title: 'Failed' }),
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringContaining('No commit') },
+    });
     await expect(
       owner.updateCrux(id, { authorId: 'no' } as any),
     ).rejects.toThrow();

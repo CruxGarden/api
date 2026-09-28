@@ -178,6 +178,8 @@
     "transformIgnorePatterns": [
       "node_modules/"
     ],
+    "maxWorkers": 2,
+    "testTimeout": 30000,
     "automock": false,
     "resetMocks": false,
     "watchman": false

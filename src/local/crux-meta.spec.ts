@@ -68,9 +68,9 @@ describe('owned Crux metadata merge', () => {
     await owner.run(
       "CREATE TRIGGER fail_meta BEFORE UPDATE ON cruxes BEGIN DELETE FROM settings; SELECT RAISE(ABORT, 'Injected failure'); END",
     );
-    await expect(owner.mergeCruxMeta(id, { bad: true })).rejects.toThrow(
-      'Injected failure',
-    );
+    await expect(owner.mergeCruxMeta(id, { bad: true })).rejects.toMatchObject({
+      cause: { message: expect.stringContaining('Injected failure') },
+    });
     expect(await owner.get('SELECT value FROM settings')).toEqual({
       value: 'original',
     });

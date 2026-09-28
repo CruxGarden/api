@@ -98,7 +98,9 @@ export class TagService {
     );
 
     if (error) {
-      throw new InternalServerErrorException(`Error fetching tags: ${error}`);
+      throw new InternalServerErrorException('Error fetching tags', {
+        cause: error,
+      });
     }
 
     let tags = data || [];
@@ -126,9 +128,9 @@ export class TagService {
       await this.tagRepository.findByResource(resourceType, resourceId);
 
     if (fetchError) {
-      throw new InternalServerErrorException(
-        `Error fetching existing tags: ${fetchError}`,
-      );
+      throw new InternalServerErrorException('Error fetching existing tags', {
+        cause: fetchError,
+      });
     }
 
     const existingLabels = (existingTags || []).map((tag) => tag.label);
@@ -147,9 +149,9 @@ export class TagService {
     for (const tag of tagsToRemove) {
       const deleteResult = await this.tagRepository.delete(tag.id);
       if (deleteResult.error) {
-        throw new InternalServerErrorException(
-          `Error deleting tag: ${deleteResult.error}`,
-        );
+        throw new InternalServerErrorException('Error deleting tag', {
+          cause: deleteResult.error,
+        });
       }
     }
 
@@ -170,9 +172,9 @@ export class TagService {
       const createResult = await this.tagRepository.createMany(tagsToCreate);
 
       if (createResult.error) {
-        throw new InternalServerErrorException(
-          `Error creating tags: ${createResult.error}`,
-        );
+        throw new InternalServerErrorException('Error creating tags', {
+          cause: createResult.error,
+        });
       }
     }
 
@@ -181,9 +183,9 @@ export class TagService {
       await this.tagRepository.findByResource(resourceType, resourceId);
 
     if (finalError) {
-      throw new InternalServerErrorException(
-        `Error fetching final tags: ${finalError}`,
-      );
+      throw new InternalServerErrorException('Error fetching final tags', {
+        cause: finalError,
+      });
     }
 
     return this.asTags(finalTags || []);

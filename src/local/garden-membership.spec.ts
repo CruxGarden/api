@@ -135,9 +135,9 @@ describe('local Garden membership domain operations', () => {
       authorId,
       homeId,
     };
-    await expect(runtime.moveGardenMember(move)).rejects.toThrow(
-      'refused move',
-    );
+    await expect(runtime.moveGardenMember(move)).rejects.toMatchObject({
+      cause: { message: expect.stringContaining('refused move') },
+    });
     expect((await runtime.listGardenMembers(a.id)).items[0].id).toBe(work.id);
     await runtime.run('DROP TRIGGER refuse_move');
     const moved = await runtime.moveGardenMember(move);

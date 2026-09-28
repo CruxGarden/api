@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { StoreController } from './crux-store.controller';
 import { StoreService } from './crux-store.service';
@@ -40,7 +41,7 @@ describe('StoreController', () => {
       findByAccountId: jest.fn(async (accountId: string) => {
         if (accountId === 'acct-alice') return { id: 'author-alice' };
         if (accountId === 'acct-owner') return { id: 'author-owner' };
-        throw new Error('no author');
+        throw new NotFoundException('no author');
       }),
     };
     usage = { noteStoreRequest: jest.fn() };

@@ -15,6 +15,7 @@
   ],
   "testTimeout": 30000,
   "maxWorkers": 1,
+  "watchman": false,
   "forceExit": true,
   "detectOpenHandles": true
 }
