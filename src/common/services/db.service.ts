@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Inject,
   Injectable,
   OnModuleDestroy,
@@ -13,6 +14,7 @@ import * as formatLink from 'format-link-header';
 import { LoggerService } from './logger.service';
 import { toEntityFields } from '../helpers/case-helpers';
 import { AsyncLocalStorage } from 'async_hooks';
+import { positiveIntegerQuery } from '../validation/positive-integer-query';
 
 attachPaginate();
 
@@ -99,86 +101,56 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   async paginate<TRaw = any, TModel = any>(
     opts: PaginationOptions<TRaw, TModel>,
   ): Promise<TModel[] | TRaw[]> {
-    const pageDefault = 1;
-    const perPageDefault = 25;
-    const pageQueryName = 'page';
-    const perPageQueryName = opts.request.query['perPage']
-      ? 'perPage'
-      : 'per_page';
-    const linkHeaderName = 'Link';
-    const paginationHeaderName = 'Pagination';
-
-    const page = parseInt(opts.request.query[pageQueryName]?.toString(), 10);
-    const perPage = parseInt(
-      opts.request.query[perPageQueryName]?.toString(),
-      10,
+    const perPageName =
+      opts.request.query.perPage !== undefined ? 'perPage' : 'per_page';
+    const currentPage = positiveIntegerQuery(
+      opts.request.query.page,
+      'page',
+      1,
     );
-
+    if (currentPage > 1_000_000)
+      throw new BadRequestException('page must not exceed 1000000');
+    const perPage = Math.min(
+      100,
+      positiveIntegerQuery(opts.request.query[perPageName], perPageName, 25),
+    );
     const r = await opts.query.paginate({
-      perPage: perPage || perPageDefault,
-      currentPage: page || pageDefault,
+      perPage,
+      currentPage,
       isLengthAware: true,
     });
-
+    const lastPage = Math.max(1, r.pagination.lastPage);
     const url = new URL(`${process.env.BASE_URL}${opts.request.originalUrl}`);
-    if (perPage)
-      url.searchParams.set(perPageQueryName, r.pagination.perPage.toString());
-
-    const link: any = {};
-
-    // first
-    const firstPage = 1;
-    url.searchParams.set(pageQueryName, firstPage.toString());
-    link.first = {
-      [pageQueryName]: firstPage,
-      [perPageQueryName]: r.pagination.perPage,
-      rel: 'first',
-      url: url.toString(),
+    url.searchParams.set(perPageName, String(perPage));
+    const pages = {
+      first: 1,
+      prev: Math.max(1, Math.min(lastPage, currentPage - 1)),
+      next: Math.min(lastPage, currentPage + 1),
+      last: lastPage,
     };
-    // ~first
-
-    // prev
-    let prevPage = r.pagination.currentPage - 1;
-    if (prevPage < 1) prevPage = 1;
-    url.searchParams.set(pageQueryName, prevPage.toString());
-    link.prev = {
-      [pageQueryName]: prevPage,
-      [perPageQueryName]: r.pagination.perPage,
-      rel: 'prev',
-      url: url.toString(),
-    };
-    // ~prev
-
-    // next
-    let nextPage = r.pagination.currentPage + 1;
-    if (nextPage > r.pagination.lastPage) nextPage = r.pagination.lastPage;
-    url.searchParams.set(pageQueryName, nextPage.toString());
-    link.next = {
-      [pageQueryName]: nextPage,
-      [perPageQueryName]: r.pagination.perPage,
-      rel: 'next',
-      url: url.toString(),
-    };
-    // ~next
-
-    // last
-    const lastPage = r.pagination.lastPage;
-    url.searchParams.set(pageQueryName, lastPage.toString());
-    link.last = {
-      [pageQueryName]: lastPage,
-      [perPageQueryName]: r.pagination.perPage,
-      rel: 'last',
-      url: url.toString(),
-    };
-    // ~last
-
-    opts.response.setHeader(linkHeaderName, formatLink(link));
+    const links = Object.fromEntries(
+      Object.entries(pages).map(([rel, page]) => {
+        const target = new URL(url);
+        target.searchParams.set('page', String(page));
+        return [
+          rel,
+          {
+            page: String(page),
+            [perPageName]: String(perPage),
+            rel,
+            url: target.toString(),
+          },
+        ];
+      }),
+    );
+    opts.response.setHeader('Link', formatLink(links));
     opts.response.setHeader(
-      paginationHeaderName,
+      'Pagination',
       JSON.stringify({
-        currentPage: r.pagination.currentPage,
-        perPage: r.pagination.perPage,
+        currentPage,
+        perPage,
         total: r.pagination.total,
+        lastPage,
       }),
     );
 

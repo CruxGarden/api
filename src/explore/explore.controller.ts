@@ -4,6 +4,7 @@ import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { DbService } from '../common/services/db.service';
 import { ExploreService } from './explore.service';
+import { positiveIntegerQuery } from '../common/validation/positive-integer-query';
 
 @ApiTags('explore')
 @Controller('explore')
@@ -97,7 +98,7 @@ export class ExploreController {
     description: 'Only tags on cruxes of this kind',
   })
   async tags(@Query('limit') limit?: string, @Query('kind') kind?: string) {
-    const n = limit ? Math.min(parseInt(limit, 10) || 50, 200) : 50;
+    const n = Math.min(200, positiveIntegerQuery(limit, 'limit', 50));
     const data = await this.exploreService.getPopularTags(n, kind || undefined);
     return { data };
   }
