@@ -20,4 +20,4 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npm run verify           # eslint + jest + nest build — the same gate the agent runs
+      - run: npm run verify           # lint, unit + HTTP integration tests, build and local runtime checks

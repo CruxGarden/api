@@ -10,18 +10,15 @@
  * When the app changes what it sends, change the fixture here in the same
  * commit — that is the point of the file.
  */
-import { ValidationPipe, ArgumentMetadata } from '@nestjs/common';
+import { ArgumentMetadata } from '@nestjs/common';
 import { CreateCruxDto } from '../../crux/dto/create-crux.dto';
 import { UpdateCruxDto } from '../../crux/dto/update-crux.dto';
 import { UpdateAuthorDto } from '../../author/dto/update-author.dto';
 import { SyncTagsDto } from '../../tag/dto/sync-tags.dto';
 
-// Same options as main.ts — kept in sync deliberately.
-const pipe = new ValidationPipe({
-  whitelist: true,
-  transform: true,
-  forbidUnknownValues: false,
-});
+import { createRequestValidationPipe } from './request-validation';
+
+const pipe = createRequestValidationPipe();
 
 const body = (metatype: ArgumentMetadata['metatype']): ArgumentMetadata => ({
   type: 'body',
@@ -46,6 +43,14 @@ const cruxUpsertFields = {
 };
 
 describe('app payloads survive the global ValidationPipe', () => {
+  it('rejects undeclared top-level fields instead of silently accepting them', async () => {
+    await expect(
+      pipe.transform(
+        { ...cruxUpsertFields, internalOnly: true },
+        body(CreateCruxDto),
+      ),
+    ).rejects.toThrow('Bad Request');
+  });
   describe('publish → POST /cruxes (first publish)', () => {
     it('accepts a workspace crux with empty data', async () => {
       const out = (await pipe.transform(

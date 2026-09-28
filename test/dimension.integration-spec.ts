@@ -1,5 +1,6 @@
+import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
@@ -96,13 +97,7 @@ describe('Dimension Integration Tests', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
+    app.useGlobalPipes(createRequestValidationPipe());
 
     await app.init();
 

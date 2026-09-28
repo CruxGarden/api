@@ -3,7 +3,7 @@ require('dotenv').config({ quiet: true });
 import { NestFactory } from '@nestjs/core';
 import { makeOriginCheck } from './common/cors-origin';
 import { DomainsService } from './domains/domains.service';
-import { ValidationPipe } from '@nestjs/common';
+import { createRequestValidationPipe } from './common/validation/request-validation';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { json } from 'express';
 import helmet from 'helmet';
@@ -69,19 +69,8 @@ async function bootstrap() {
     );
   });
 
-  // Request validation. Without this every class-validator decorator on the
-  // DTOs is inert — invalid enum values and wrong-typed fields reached the
-  // repositories untouched. `whitelist` strips undeclared top-level properties
-  // only; it does not recurse into `meta`, which is declared @IsOptional and
-  // therefore keeps its full contents (the app relies on that for persona and
-  // author snapshots).
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidUnknownValues: false,
-    }),
-  );
+  // Reject undeclared request fields; DTO-declared meta retains its contents.
+  app.useGlobalPipes(createRequestValidationPipe());
 
   // Security headers
   app.use(

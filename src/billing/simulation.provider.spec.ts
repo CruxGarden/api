@@ -1,6 +1,6 @@
+import { createRequestValidationPipe } from '../common/validation/request-validation';
 import { prepareBillingFixture } from '../../test/support/billing-simulation-host';
 import { Test } from '@nestjs/testing';
-import { ValidationPipe } from '@nestjs/common';
 import request = require('supertest');
 import { BillingController } from './billing.controller';
 import { AuthGuard } from '../common/guards/auth.guard';
@@ -170,9 +170,7 @@ describe('persistent local billing simulation', () => {
       })
       .compile();
     const app = module.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
-    );
+    app.useGlobalPipes(createRequestValidationPipe());
     // Keep one owned listener for the journey instead of letting Supertest
     // repeatedly open/close an ephemeral port between HTTP assertions.
     await app.listen(0, '127.0.0.1');

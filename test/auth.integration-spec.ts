@@ -1,3 +1,4 @@
+import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
@@ -71,14 +72,7 @@ describe('Auth Integration Tests', () => {
     app = moduleFixture.createNestApplication();
 
     // Apply same validation pipe as production
-    const { ValidationPipe } = await import('@nestjs/common');
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
+    app.useGlobalPipes(createRequestValidationPipe());
 
     await app.init();
   });
