@@ -1,5 +1,7 @@
 import { JwtPayload } from '../types/interfaces';
 
+export const NURSERY_AUTHOR_ID = 'e7f5c645-6b4e-4c3b-a5cb-3fd81c652b96';
+
 /** Demo authentication must never turn a deployed API into an anonymous administrator. */
 export function assertNurseryConfiguration(): void {
   if (
