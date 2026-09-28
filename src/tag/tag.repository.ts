@@ -42,7 +42,7 @@ export class TagRepository {
     }
 
     if (search) {
-      query.where('label', 'ilike', `%${search}%`);
+      query.whereRaw('lower(label) like ?', [`%${search.toLowerCase()}%`]);
     }
 
     if (label) {
@@ -53,13 +53,16 @@ export class TagRepository {
       query.orderBy('label', 'asc');
     } else {
       query
-        .groupBy('label')
-        .count('* as count')
+        .select(
+          this.dbService
+            .query()
+            .raw('count(*) over (partition by label) as count'),
+        )
         .orderBy('count', 'desc')
         .orderBy('label', 'asc');
     }
 
-    return query;
+    return query.orderBy('id', 'asc');
   }
 
   async findBy(
@@ -86,12 +89,16 @@ export class TagRepository {
     updateData: UpdateTagDto,
   ): Promise<RepositoryResponse<TagRaw>> {
     try {
-      const tableFields = toTableFields(updateData);
+      const tableFields = toTableFields({
+        label: updateData.label,
+        system: updateData.system,
+      });
 
       await this.dbService
         .query()
         .from<TagRaw>(TagRepository.TABLE_NAME)
         .where('id', tagId)
+        .whereNull('deleted')
         .update({
           ...tableFields,
           updated: new Date(),
@@ -102,6 +109,7 @@ export class TagRepository {
         .from<TagRaw>(TagRepository.TABLE_NAME)
         .select(TagRepository.BASE_SELECT)
         .where('id', tagId)
+        .whereNull('deleted')
         .first();
 
       return success(updated);
@@ -116,6 +124,7 @@ export class TagRepository {
         .query()
         .from<TagRaw>(TagRepository.TABLE_NAME)
         .where('id', tagId)
+        .whereNull('deleted')
         .update({
           deleted: new Date(),
           updated: new Date(),
@@ -172,7 +181,19 @@ export class TagRepository {
     tags: Partial<Tag>[],
   ): Promise<RepositoryResponse<TagRaw[]>> {
     try {
-      const tableFieldsArray = tags.map((tag) => toTableFields(tag));
+      const tableFieldsArray = tags.map((tag) =>
+        toTableFields({
+          id: tag.id,
+          label: tag.label,
+          resourceType: tag.resourceType,
+          resourceId: tag.resourceId,
+          authorId: tag.authorId,
+          homeId: tag.homeId,
+          system: tag.system,
+          created: tag.created,
+          updated: tag.updated,
+        }),
+      );
 
       await this.dbService
         .query()

@@ -42,7 +42,11 @@ export class HomeService {
   async findById(id: string): Promise<Home> {
     const { data: home, error } = await this.homeRepository.findBy('id', id);
 
-    if (error || !home) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Home', {
+        cause: error,
+      });
+    if (!home) {
       throw new NotFoundException('Home not found');
     }
 
@@ -50,13 +54,14 @@ export class HomeService {
   }
 
   async create(createHomeDto: CreateHomeDto): Promise<Home> {
-    createHomeDto.id = this.keyMaster.generateId();
-
-    const created = await this.homeRepository.create(createHomeDto);
+    const created = await this.homeRepository.create({
+      ...createHomeDto,
+      id: this.keyMaster.generateId(),
+    });
     if (created.error)
-      throw new InternalServerErrorException(
-        `Home creation error: ${created.error}`,
-      );
+      throw new InternalServerErrorException('Could not create Home', {
+        cause: created.error,
+      });
 
     return this.asHome(created.data);
   }
@@ -71,9 +76,9 @@ export class HomeService {
       updateDto,
     );
     if (updated.error)
-      throw new InternalServerErrorException(
-        `Home update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Could not update Home', {
+        cause: updated.error,
+      });
 
     return this.asHome(updated.data);
   }
@@ -86,9 +91,9 @@ export class HomeService {
       homeToDelete.id,
     );
     if (deleteError) {
-      throw new InternalServerErrorException(
-        `Home deletion error: ${deleteError}`,
-      );
+      throw new InternalServerErrorException('Could not delete Home', {
+        cause: deleteError,
+      });
     }
 
     return null;
@@ -100,7 +105,11 @@ export class HomeService {
       true,
     );
 
-    if (error || !home) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Home', {
+        cause: error,
+      });
+    if (!home) {
       throw new NotFoundException('Primary home not found');
     }
 

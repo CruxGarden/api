@@ -51,7 +51,11 @@ export class TagService {
       fieldName,
       fieldValue,
     );
-    if (error || !tag) throw new NotFoundException('Tag not found');
+    if (error)
+      throw new InternalServerErrorException('Could not load Tag', {
+        cause: error,
+      });
+    if (!tag) throw new NotFoundException('Tag not found');
 
     return this.asTag(tag);
   }
@@ -64,9 +68,9 @@ export class TagService {
     const tagToUpdate = await this.findById(tagId);
     const updated = await this.tagRepository.update(tagToUpdate.id, updateDto);
     if (updated.error)
-      throw new InternalServerErrorException(
-        `Tag update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Could not update Tag', {
+        cause: updated.error,
+      });
 
     return this.asTag(updated.data);
   }
@@ -75,9 +79,9 @@ export class TagService {
     const tagToDelete = await this.findById(tagId);
     const deleted = await this.tagRepository.delete(tagToDelete.id);
     if (deleted.error) {
-      throw new InternalServerErrorException(
-        `Tag deletion error: ${deleted.error}`,
-      );
+      throw new InternalServerErrorException('Could not delete Tag', {
+        cause: deleted.error,
+      });
     }
 
     return null;

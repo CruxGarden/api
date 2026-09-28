@@ -1,16 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsObject,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CreateHomeDto {
-  @ApiPropertyOptional({
-    description: 'Unique identifier for the home',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-    format: 'uuid',
-  })
-  @IsOptional()
-  @IsString()
-  id?: string;
-
   @ApiProperty({
     description: 'Name of the home',
     example: 'My Garden',
@@ -58,5 +55,6 @@ export class CreateHomeDto {
     example: { color: 'blue', icon: 'tree' },
   })
   @IsOptional()
-  meta?: any;
+  @IsObject()
+  meta?: Record<string, unknown>;
 }

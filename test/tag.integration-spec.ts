@@ -100,7 +100,7 @@ describe('Tag Integration Tests', () => {
 
   describe('GET /tags', () => {
     it('should return 200 and list of tags (happy path)', async () => {
-      const token = generateToken(testAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
 
       mockTagRepository.findAllQuery.mockReturnValue({
         select: jest.fn().mockReturnThis(),
@@ -124,7 +124,7 @@ describe('Tag Integration Tests', () => {
     });
 
     it('should return 200 with query parameters', async () => {
-      const token = generateToken(testAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
 
       mockTagRepository.findAllQuery.mockReturnValue({
         select: jest.fn().mockReturnThis(),
@@ -165,7 +165,7 @@ describe('Tag Integration Tests', () => {
 
   describe('GET /tags/:tagId', () => {
     it('should return 200 and tag data (happy path)', async () => {
-      const token = generateToken(testAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
       mockTagRepository.findBy.mockResolvedValue(success(testTagRaw));
 
       const response = await request(app.getHttpServer())
@@ -181,7 +181,7 @@ describe('Tag Integration Tests', () => {
     });
 
     it('should return 404 when tag not found', async () => {
-      const token = generateToken(testAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
       mockTagRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())

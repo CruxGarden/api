@@ -87,7 +87,7 @@ describe('Home Integration Tests', () => {
 
   describe('GET /homes', () => {
     it('should return 200 and list of homes (happy path)', async () => {
-      const token = generateToken(testAuthorAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
 
       mockHomeRepository.findAllQuery.mockReturnValue({
         select: jest.fn().mockReturnThis(),
@@ -120,7 +120,7 @@ describe('Home Integration Tests', () => {
 
   describe('GET /homes/:homeId', () => {
     it('should return 200 and home data (happy path)', async () => {
-      const token = generateToken(testAuthorAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
       mockHomeRepository.findBy.mockResolvedValue(success(testHomeRaw));
 
       const response = await request(app.getHttpServer())
@@ -137,7 +137,7 @@ describe('Home Integration Tests', () => {
     });
 
     it('should return 404 when home not found', async () => {
-      const token = generateToken(testAuthorAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
       mockHomeRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())

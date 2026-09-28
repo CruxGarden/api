@@ -5,7 +5,6 @@ import {
   Body,
   HttpCode,
   HttpStatus,
-  ForbiddenException,
   Patch,
   Param,
   Delete,
@@ -18,7 +17,7 @@ import { HomeService } from './home.service';
 import { CreateHomeDto } from './dto/create-home.dto';
 import { UpdateHomeDto } from './dto/update-home.dto';
 import { AuthGuard } from '../common/guards/auth.guard';
-import { AccountRole } from '../common/types/enums';
+import { AdminGuard } from '../common/guards/admin.guard';
 import { AuthRequest } from '../common/types/interfaces';
 import { DbService } from '../common/services/db.service';
 import { HomeSwagger } from './home.swagger';
@@ -27,7 +26,7 @@ import Home from './entities/home.entity';
 import HomeRaw from './entities/home-raw.entity';
 
 @Controller('homes')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, AdminGuard)
 @HomeSwagger.Controller()
 export class HomeController {
   // @ts-expect-error - logger
@@ -39,12 +38,6 @@ export class HomeController {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('HomeController');
-  }
-
-  private ensureAdmin(req: AuthRequest): void {
-    if (req.account.role !== AccountRole.ADMIN) {
-      throw new ForbiddenException('Only admins can manage homes');
-    }
   }
 
   @Get()
@@ -70,11 +63,7 @@ export class HomeController {
 
   @Post()
   @HomeSwagger.Create()
-  async create(
-    @Body() createHomeDto: CreateHomeDto,
-    @Req() req: AuthRequest,
-  ): Promise<Home> {
-    this.ensureAdmin(req);
+  async create(@Body() createHomeDto: CreateHomeDto): Promise<Home> {
     return this.homeService.create(createHomeDto);
   }
 
@@ -83,20 +72,14 @@ export class HomeController {
   async update(
     @Param('id') id: string,
     @Body() updateHomeDto: UpdateHomeDto,
-    @Req() req: AuthRequest,
   ): Promise<Home> {
-    this.ensureAdmin(req);
     return this.homeService.update(id, updateHomeDto);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @HomeSwagger.Delete()
-  async delete(
-    @Param('id') id: string,
-    @Req() req: AuthRequest,
-  ): Promise<null> {
-    this.ensureAdmin(req);
+  async delete(@Param('id') id: string): Promise<null> {
     return this.homeService.delete(id);
   }
 }

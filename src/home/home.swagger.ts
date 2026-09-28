@@ -25,7 +25,13 @@ const combineDecorators = (...decorators: any[]) => {
 };
 
 export const HomeSwagger = {
-  Controller: () => ApiTags('Homes'),
+  Controller: () =>
+    combineDecorators(
+      ApiTags('Homes'),
+      ApiForbiddenResponse({
+        description: 'Admin or keeper privileges required for host-level Homes',
+      }),
+    ),
 
   Create: () =>
     combineDecorators(
