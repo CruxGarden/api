@@ -29,7 +29,7 @@ describe('Crux Integration Tests', () => {
 
   const testAccountId = 'account-123';
   const testAuthorId = 'author-123';
-  const testCruxId = 'crux-123';
+  const testCruxId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
   const testAuthorRaw: AuthorRaw = {
     id: testAuthorId,
@@ -71,7 +71,10 @@ describe('Crux Integration Tests', () => {
     // Create mock repositories
     mockCruxRepository = {
       findAll: jest.fn(),
-      findAllByAuthorQuery: jest.fn(),
+      findAllByAuthorQuery: jest.fn().mockReturnValue({
+        clearSelect: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+      }),
       findBy: jest.fn(),
       findByIdIncludingDeleted: jest
         .fn()
@@ -144,6 +147,8 @@ describe('Crux Integration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
+    mockCruxRepository.findByAuthorAndSlug.mockResolvedValue(success(null));
   });
 
   describe('GET /cruxes', () => {
@@ -158,6 +163,7 @@ describe('Crux Integration Tests', () => {
         offset: jest.fn().mockReturnThis(),
         whereNull: jest.fn().mockReturnThis(),
         leftJoin: jest.fn().mockReturnThis(),
+        clearSelect: jest.fn().mockReturnThis(),
       } as any);
 
       const response = await request(app.getHttpServer())
@@ -198,10 +204,7 @@ describe('Crux Integration Tests', () => {
         slug: 'test-crux',
         title: 'Test Crux',
       });
-      expect(mockCruxRepository.findBy).toHaveBeenCalledWith(
-        'slug',
-        testCruxId,
-      );
+      expect(mockCruxRepository.findBy).toHaveBeenCalledWith('id', testCruxId);
     });
 
     it('should return 404 when crux not found', async () => {
@@ -422,6 +425,7 @@ describe('Crux Integration Tests', () => {
 
       mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
       mockDimensionRepository.findBySourceIdAndTypeQuery.mockReturnValue({
+        whereIn: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
@@ -444,6 +448,7 @@ describe('Crux Integration Tests', () => {
 
       mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
       mockDimensionRepository.findBySourceIdAndTypeQuery.mockReturnValue({
+        whereIn: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
@@ -501,7 +506,8 @@ describe('Crux Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
       mockCruxRepository.findBy
         .mockResolvedValueOnce(success(testCruxRaw))
-        .mockResolvedValueOnce(success({ ...testCruxRaw, id: targetCruxId }));
+        .mockResolvedValueOnce(success({ ...testCruxRaw, id: targetCruxId }))
+        .mockResolvedValueOnce(success(testCruxRaw));
       mockDimensionRepository.create.mockResolvedValue(
         success(newDimensionRaw),
       );

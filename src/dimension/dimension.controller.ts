@@ -57,7 +57,12 @@ export class DimensionController {
 
   @Get(':id')
   @DimensionSwagger.GetByKey()
-  async getById(@Param('id') id: string): Promise<Dimension> {
+  async getById(
+    @Param('id') id: string,
+    @Req() req: AuthRequest,
+  ): Promise<Dimension> {
+    const author = await this.getAuthor(req);
+    await this.canManageDimension(id, author);
     return this.dimensionService.findById(id);
   }
 

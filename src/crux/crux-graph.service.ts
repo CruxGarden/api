@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -68,16 +69,6 @@ export class CruxGraphService {
     return this.asCrux(data);
   }
 
-  async findBySlug(slug: string): Promise<Crux> {
-    const { data, error } = await this.cruxRepository.findBy('slug', slug);
-
-    if (error || !data) {
-      throw new NotFoundException('Crux not found');
-    }
-
-    return this.asCrux(data);
-  }
-
   async findByAuthorAndSlug(authorId: string, slug: string): Promise<Crux> {
     const { data, error } = await this.cruxRepository.findByAuthorAndSlug(
       authorId,
@@ -91,16 +82,28 @@ export class CruxGraphService {
     return this.asCrux(data);
   }
 
-  async findByIdentifier(identifier: string): Promise<Crux> {
-    // If it looks like a UUID, search by ID
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (uuidPattern.test(identifier)) {
-      return this.findById(identifier);
+  /** Working data is available only to its author, even when the Crux is public. */
+  async findOwnedById(id: string, authorId: string): Promise<Crux> {
+    const crux = await this.findById(id);
+    if (crux.authorId !== authorId) {
+      throw new ForbiddenException(
+        'You do not have permission to access this crux',
+      );
     }
+    return crux;
+  }
 
-    // Otherwise, treat it as a slug
-    return this.findBySlug(identifier);
+  async findOwnedByIdentifier(
+    identifier: string,
+    authorId: string,
+  ): Promise<Crux> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        identifier,
+      );
+    return isUuid
+      ? this.findOwnedById(identifier, authorId)
+      : this.findByAuthorAndSlug(authorId, identifier);
   }
 
   /** Create new private work. Never replace existing work as a side effect. */

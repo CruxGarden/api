@@ -274,7 +274,9 @@ describe('actual API graph repositories over desktop SQLite', () => {
       graph.update(original.id, { slug: other.slug }),
     ).rejects.toThrow('already in use');
     await graph.update(original.id, { title: 'Changed locally' });
-    expect(await graph.findByIdentifier(original.id)).toMatchObject({
+    expect(
+      await graph.findOwnedByIdentifier(original.id, authorId),
+    ).toMatchObject({
       title: 'Changed locally',
     });
     expect(

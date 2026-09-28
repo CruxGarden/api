@@ -107,7 +107,21 @@ export class CruxRepository {
 
   async create(cruxData: CreateCruxDto): Promise<RepositoryResponse<CruxRaw>> {
     try {
-      const tableFields = toTableFields(cruxData);
+      const tableFields = toTableFields({
+        id: cruxData.id,
+        slug: cruxData.slug,
+        title: cruxData.title,
+        description: cruxData.description,
+        data: cruxData.data,
+        type: cruxData.type,
+        kind: cruxData.kind,
+        status: cruxData.status,
+        visibility: cruxData.visibility,
+        discoverable: cruxData.discoverable,
+        meta: cruxData.meta,
+        authorId: cruxData.authorId,
+        homeId: cruxData.homeId,
+      });
 
       await this.dbService
         .query()
@@ -133,10 +147,22 @@ export class CruxRepository {
 
   async update(
     cruxId: string,
-    updateData: UpdateCruxDto,
+    updateData: UpdateCruxDto & { remoteId?: string },
   ): Promise<RepositoryResponse<CruxRaw>> {
     try {
-      const tableFields = toTableFields(updateData);
+      const tableFields = toTableFields({
+        remoteId: updateData.remoteId,
+        slug: updateData.slug,
+        title: updateData.title,
+        description: updateData.description,
+        data: updateData.data,
+        type: updateData.type,
+        kind: updateData.kind,
+        status: updateData.status,
+        visibility: updateData.visibility,
+        discoverable: updateData.discoverable,
+        meta: updateData.meta,
+      });
 
       await this.dbService
         .query()

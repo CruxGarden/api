@@ -7,7 +7,7 @@ import {
 import { Knex } from 'knex';
 import { toEntityFields } from '../common/helpers/case-helpers';
 import { CreateArtifactDto } from './dto/create-artifact.dto';
-import { UpdateArtifactDto } from './dto/update-artifact.dto';
+import { UpdateArtifactDto, ArtifactUpdate } from './dto/update-artifact.dto';
 import { ArtifactRepository } from './artifact.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { MAX_ARTIFACT_SIZE } from '../common/types/constants';
@@ -240,6 +240,12 @@ export class ArtifactService {
     file?: UploadedFile,
   ): Promise<Artifact> {
     const artifactToUpdate = await this.findById(artifactId);
+    const changes: ArtifactUpdate = {
+      type: updateDto.type,
+      kind: updateDto.kind,
+      meta: updateDto.meta,
+      filename: updateDto.filename,
+    };
     const oldStoragePath = this.getStoragePath(artifactToUpdate);
 
     // If file provided, validate and upload
@@ -247,13 +253,13 @@ export class ArtifactService {
       this.validateFile(file);
 
       // Update file-related fields
-      updateDto.encoding = file.encoding || '7bit';
-      updateDto.mimeType = file.mimetype;
-      updateDto.filename = file.originalname;
-      updateDto.size = file.size;
+      changes.encoding = file.encoding || '7bit';
+      changes.mimeType = file.mimetype;
+      changes.filename = file.originalname;
+      changes.size = file.size;
 
       // Generate new storage path (might be different if mimeType changed)
-      const newArtifact = { ...artifactToUpdate, ...updateDto };
+      const newArtifact = { ...artifactToUpdate, ...changes };
       const newStoragePath = this.getStoragePath(newArtifact);
 
       // Upload new file
@@ -282,7 +288,7 @@ export class ArtifactService {
     // Update database
     const updated = await this.artifactRepository.update(
       artifactToUpdate.id,
-      updateDto,
+      changes,
     );
     if (updated.error) {
       throw new InternalServerErrorException(

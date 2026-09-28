@@ -1,7 +1,6 @@
 // src/cruxes/dto/create-crux.dto.ts
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsArray,
   IsBoolean,
   IsEnum,
   IsNotEmpty,
@@ -92,16 +91,6 @@ export class CreateCruxDto {
   @IsOptional()
   @IsBoolean()
   discoverable?: boolean;
-
-  @ApiPropertyOptional({
-    description: 'Array of tag names to associate with the crux',
-    type: [String],
-    example: ['technology', 'programming'],
-  })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  tags?: string[];
 
   @ApiPropertyOptional({
     description: 'Optional metadata object for the crux',

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { LoggerService } from '../common/services/logger.service';
 import { ArtifactService } from '../artifact/artifact.service';
@@ -46,8 +46,7 @@ export class AiService {
     userApiKey: string,
   ): Promise<void> {
     // Load crux and its author for context
-    const crux = await this.cruxService.findById(cruxId);
-    if (!crux) throw new NotFoundException('Crux not found');
+    const crux = await this.cruxService.findOwnedById(cruxId, authorId);
     const cruxAuthor = await this.authorService.findById(crux.authorId);
 
     const anthropicClient = new Anthropic({

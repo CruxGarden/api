@@ -111,6 +111,7 @@ describe('Dimension Integration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
   });
 
   describe('GET /dimensions/:dimensionId', () => {

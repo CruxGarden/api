@@ -99,7 +99,15 @@ export class AuthorRepository {
     createData: CreateAuthorDto,
   ): Promise<RepositoryResponse<AuthorRaw>> {
     try {
-      const tableFields = toTableFields(createData);
+      const tableFields = toTableFields({
+        id: createData.id,
+        username: createData.username,
+        displayName: createData.displayName,
+        bio: createData.bio,
+        rootId: createData.rootId,
+        accountId: createData.accountId,
+        homeId: createData.homeId,
+      });
 
       await this.dbService
         .query()
@@ -128,7 +136,13 @@ export class AuthorRepository {
     updateData: UpdateAuthorDto,
   ): Promise<RepositoryResponse<AuthorRaw>> {
     try {
-      const tableFields = toTableFields(updateData);
+      const tableFields = toTableFields({
+        username: updateData.username,
+        displayName: updateData.displayName,
+        bio: updateData.bio,
+        rootId: updateData.rootId,
+        meta: updateData.meta,
+      });
 
       await this.dbService
         .query()
@@ -207,10 +221,11 @@ export class AuthorRepository {
     try {
       const db = this.dbService.query();
 
-      // Get all cruxes for this author
+      // A public graph contains only listed Cruxes, never private or unlisted work.
       const nodes = await db('cruxes')
         .select('id', 'title', 'slug', 'type', 'status')
         .where('author_id', authorId)
+        .where('visibility', 'public')
         .whereNull('deleted');
 
       // Get all crux IDs

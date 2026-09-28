@@ -247,6 +247,7 @@ describe('AuthorController', () => {
       slug: 'test-crux',
       title: 'Test Crux',
       data: 'Test content',
+      visibility: 'public',
       authorId: 'author-id',
       homeId: 'home-id',
       accountId: 'account-123',
