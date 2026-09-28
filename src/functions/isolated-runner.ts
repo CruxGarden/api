@@ -196,8 +196,11 @@ export async function runIsolatedFunction(
     return result.value;
   } catch (error) {
     if (
-      error instanceof Error &&
-      /timed out|Isolate was disposed/.test(error.message)
+      // isolated-vm may create the native error in a different JavaScript realm.
+      error !== null &&
+      typeof error === 'object' &&
+      'message' in error &&
+      /timed out|Isolate was disposed/.test(String(error.message))
     )
       throw new IsolatedFunctionError(`"${name}" ran past ${budgetMs} ms`, 504);
     throw error;
