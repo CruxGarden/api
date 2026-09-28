@@ -186,6 +186,61 @@ describe('single-owner local API runtime', () => {
     expect(databases[0].name).toBe('main');
   });
 
+  it.each(['get', 'all'] as const)(
+    '%s refuses returning writes before they change records',
+    async (method) => {
+      await runtime.putSetting('read-boundary', 'preserved');
+      for (const sql of [
+        "INSERT INTO settings (key, value) VALUES ('injected', 'bad') RETURNING *",
+        "UPDATE settings SET value = 'bad' WHERE key = 'read-boundary' RETURNING *",
+        "/* read request */ WITH chosen AS (SELECT 'read-boundary' AS key) DELETE FROM settings WHERE key IN (SELECT key FROM chosen) RETURNING *",
+      ]) {
+        await expect(runtime[method](sql)).rejects.toThrow('read-only');
+        expect(
+          await runtime.all('SELECT * FROM settings ORDER BY key'),
+        ).toEqual([{ key: 'read-boundary', value: 'preserved' }]);
+      }
+      expect(
+        await runtime[method](
+          "WITH words AS (SELECT 'INSERT UPDATE DELETE' AS value) SELECT value FROM words",
+        ),
+      ).toEqual(
+        method === 'get'
+          ? { value: 'INSERT UPDATE DELETE' }
+          : [{ value: 'INSERT UPDATE DELETE' }],
+      );
+    },
+  );
+
+  it.each(['get', 'all'] as const)(
+    '%s refuses connection pragmas without changing connection state',
+    async (method) => {
+      for (const sql of [
+        'PRAGMA foreign_keys = OFF',
+        '; /* still a pragma */ PRAGMA writable_schema = ON',
+        'PRAGMA user_version = 999',
+      ]) {
+        await expect(runtime[method](sql)).rejects.toThrow('read-only');
+      }
+      const state = await runtime.get(
+        'SELECT foreign_keys AS enabled FROM pragma_foreign_keys',
+      );
+      expect(state).toEqual({ enabled: 1 });
+      expect(
+        await runtime.get(
+          'SELECT writable_schema AS enabled FROM pragma_writable_schema',
+        ),
+      ).toEqual({ enabled: 0 });
+      expect(await runtime.all('PRAGMA database_list')).toHaveLength(1);
+      const inspect = new Database(filename, { readonly: true });
+      try {
+        expect(inspect.pragma('user_version', { simple: true })).not.toBe(999);
+      } finally {
+        inspect.close();
+      }
+    },
+  );
+
   it.each(['same path', 'symlink', 'hard link'])(
     'refuses a second runtime for the same database through %s',
     async (alias) => {

@@ -1129,7 +1129,7 @@ export class LocalGraphRuntime {
     method: 'run' | 'get' | 'all',
   ): Promise<T> {
     const statement = sql.replace(
-      /^(?:\s|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/,
+      /^(?:\s|;|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/,
       '',
     );
     if (
@@ -1141,6 +1141,18 @@ export class LocalGraphRuntime {
         new Error(
           'Use an owned API transaction; legacy SQL cannot change connection ownership',
         ),
+      );
+    }
+    // Some PRAGMAs change connection state during preparation and SQLite still
+    // calls them read-only. Read ports admit queries, plus this inspection used
+    // by recovery checks; other introspection uses SELECT pragma_* table functions.
+    if (
+      method !== 'run' &&
+      !/^(?:SELECT|WITH)\b/i.test(statement) &&
+      !/^PRAGMA\s+database_list\s*;?\s*$/i.test(statement)
+    ) {
+      throw new Error(
+        'SQL reads must be read-only; use a named API command for changes',
       );
     }
     // Capture at admission: callers may reuse arrays or change nested state
@@ -1156,7 +1168,15 @@ export class LocalGraphRuntime {
     });
     return this.enqueue(() =>
       this.withConnection((connection) => {
-        const result = connection.prepare(sql)[method](...bindings);
+        const prepared = connection.prepare(sql);
+        // WITH may introduce a write with RETURNING. SQLite, not a keyword
+        // search, decides whether executing the prepared query can write.
+        if (method !== 'run' && !prepared.readonly) {
+          throw new Error(
+            'SQL reads must be read-only; use a named API command for changes',
+          );
+        }
+        const result = prepared[method](...bindings);
         return (method === 'run' ? { changes: result.changes } : result) as T;
       }),
     );
