@@ -115,7 +115,8 @@ describe('Artifact Integration Tests', () => {
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(createRequestValidationPipe());
 
-    await app.init();
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
 
     // Set environment
     process.env.JWT_SECRET = 'test-secret';

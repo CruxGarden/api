@@ -46,7 +46,8 @@ describe('Nursery authentication boundary', () => {
       ],
     }).compile();
     app = module.createNestApplication({ logger: false });
-    await app.init();
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
   });
   afterEach(() => {
     if (environment === undefined) delete process.env.NODE_ENV;

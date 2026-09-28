@@ -108,6 +108,36 @@ describe('BillingService', () => {
     await expect(svc.me('acct-1')).rejects.toMatchObject({ status: 503 });
   });
 
+  it('retries a webhook after event claiming fails instead of acknowledging a duplicate', async () => {
+    const repo = fakeRepo();
+    const svc = new BillingService(repo as never, logger, email as never);
+    const provider = new MockBillingProvider();
+    svc.useProvider(provider, PRICES);
+    await svc.checkout('acct-1', 'gardener', 'month');
+    const row = repo.rows.get('acct-1')!;
+    const event = {
+      id: 'evt_claim_retry',
+      type: 'payment.failed' as const,
+      customerId: row.customer_id!,
+      subscriptionId: row.subscription_id!,
+    };
+    repo.claimEvent.mockResolvedValueOnce({
+      data: null,
+      error: new Error('database unavailable'),
+    } as never);
+    provider.emit(event);
+    await expect(
+      svc.handleWebhook(Buffer.from('{}'), 'sig'),
+    ).rejects.toMatchObject({ status: 503 });
+    expect((await svc.me('acct-1')).status).toBe('active');
+    expect(repo.recordEvent).not.toHaveBeenCalled();
+    provider.emit(event);
+    await expect(svc.handleWebhook(Buffer.from('{}'), 'sig')).resolves.toEqual({
+      handled: 'payment.failed',
+    });
+    expect((await svc.me('acct-1')).status).toBe('past_due');
+  });
+
   it('free by default; catalog lists paid plans with prices', async () => {
     const repo = fakeRepo();
     const svc = new BillingService(repo as never, logger, email as never);

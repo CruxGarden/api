@@ -363,6 +363,10 @@ export class BillingService {
       this.provider.name,
       event.type,
     );
+    if (claimed.error)
+      throw new ServiceUnavailableException('Could not claim billing event', {
+        cause: claimed.error,
+      });
     if (!claimed.data) return { handled: 'duplicate' };
     let accountId: string | null = null;
     try {

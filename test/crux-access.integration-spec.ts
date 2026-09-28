@@ -169,7 +169,8 @@ describe('Crux access policy', () => {
       .compile();
     app = module.createNestApplication();
     app.useGlobalPipes(createRequestValidationPipe());
-    await app.init();
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
   });
 
   afterAll(async () => {

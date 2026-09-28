@@ -24,6 +24,7 @@ import { CruxService } from '../crux/crux.service';
 import { AuthRequest } from '../common/types/interfaces';
 import { AuthorService } from '../author/author.service';
 import { FunctionsService } from './functions.service';
+import { sendFunctionResponse } from './http-response';
 
 /**
  * A published crux's functions and events (CRUX-FUNCTIONS-PLAN F0 + F6):
@@ -152,32 +153,25 @@ export class FunctionsController {
       if (k === 'authorization' || k === 'cookie') continue;
       if (typeof v === 'string') headers[k] = v;
     }
+    const visitorId = await this.visitorId(req);
     const result = await this.functions.call(cruxId, name, {
       body: body ?? null,
-      visitorId: await this.visitorId(req),
+      visitorId,
       method: r.method,
       rest,
       query: r.query ?? {},
       headers,
     });
-    res.status(result.status);
-    res.setHeader('X-Crux-Function-Ms', String(result.ms));
-    if (result.logs.length)
-      res.setHeader(
-        'X-Crux-Function-Logs',
-        encodeURIComponent(result.logs.join('\n')),
-      );
-    for (const [k, v] of Object.entries(result.headers ?? {}))
-      res.setHeader(k, v);
-    if (result.contentType) {
-      res.setHeader('Content-Type', result.contentType);
-      res.send(result.body);
-      return undefined;
-    }
-    // Every ordinary handler result is JSON, including strings and null.
-    // Nest otherwise sends string results as text, unlike objects and arrays.
-    res.json(result.body);
-    return undefined;
+    sendFunctionResponse(res, result, await this.isOwner(cruxId, visitorId));
+  }
+
+  private async isOwner(
+    cruxId: string,
+    visitorId: string | null,
+  ): Promise<boolean> {
+    if (!visitorId) return false;
+    const crux = await this.cruxService.findById(cruxId);
+    return crux?.authorId === visitorId;
   }
 
   @Post('events/:cruxId/:name')
@@ -189,13 +183,21 @@ export class FunctionsController {
     @Body() body: unknown,
     @Req() req: AuthRequest,
   ) {
+    const visitorId = await this.visitorId(req);
     const { handlers, results } = await this.functions.emit(
       cruxId,
       name,
       body ?? null,
-      await this.visitorId(req),
+      visitorId,
     );
-    return { event: name, handlers, results };
+    const isOwner = await this.isOwner(cruxId, visitorId);
+    const visibleResults = Object.fromEntries(
+      Object.entries(results).map(([handler, result]) => [
+        handler,
+        { ...result, logs: isOwner ? result.logs : [] },
+      ]),
+    );
+    return { event: name, handlers, results: visibleResults };
   }
 
   @Sse('events/:cruxId')
