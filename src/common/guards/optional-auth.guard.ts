@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 import { LoggerService } from '../services/logger.service';
+import { nurseryAccount } from './nursery-account';
 
 /**
  * Like AuthGuard but does not reject unauthenticated requests.
@@ -26,15 +27,8 @@ export class OptionalAuthGuard implements CanActivate {
           error: e.message,
         });
       }
-    } else if (process.env.NURSERY_MODE === 'true') {
-      request.account = {
-        id: 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96',
-        email: 'keeper@crux.garden',
-        role: 'keeper',
-        grantId: 'nursery-mode-grant',
-        exp: Math.floor(Date.now() / 1000) + 86400,
-        iat: Math.floor(Date.now() / 1000),
-      };
+    } else {
+      request.account = nurseryAccount();
     }
 
     return true;

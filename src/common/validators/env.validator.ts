@@ -1,8 +1,10 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { assertNurseryConfiguration } from '../guards/nursery-account';
 
 export class EnvValidator {
   static validate(): void {
+    assertNurseryConfiguration();
     const pkg = JSON.parse(
       readFileSync(join(process.cwd(), 'package.json'), 'utf-8'),
     );
