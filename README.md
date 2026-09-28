@@ -63,6 +63,8 @@ The API will be available at `http://localhost:3000`. Visit `http://localhost:30
 
 ## Running Tests
 
+`npm run verify` is the release gate: lint, unit tests, HTTP integration tests, build, and the packaged local-runtime smoke check. The integration gate requires a running Docker engine. Its PostgreSQL fixture starts a disposable `postgres:16-alpine` container on a random loopback port, applies the real migrations, and removes the container afterward. It never reads database credentials from `.env` or connects to an existing database. The image is downloaded on first use if it is absent. No Redis server is needed for these fixtures.
+
 ```bash
 npm run test             # Unit tests
 npm run test:integration # Integration tests
@@ -72,13 +74,16 @@ npm run test:all         # All tests
 ## Environment Variables
 
 **Required:**
+
 - `JWT_SECRET` - JWT token signing secret (minimum 32 characters)
 
 **Database & Cache** (auto-configured with Docker):
+
 - `DATABASE_URL` - PostgreSQL connection string
 - `REDIS_URL` - Redis connection string
 
 **AWS Services** (optional - runs in mock mode if not configured):
+
 - `AWS_ACCESS_KEY_ID` - AWS access key
 - `AWS_SECRET_ACCESS_KEY` - AWS secret key
 - `AWS_REGION` - AWS region (e.g., `us-east-1`)

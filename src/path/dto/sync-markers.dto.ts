@@ -1,10 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  ArrayMaxSize,
   IsArray,
   IsInt,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -24,6 +26,7 @@ export class MarkerInput {
   })
   @IsInt()
   @Min(0)
+  @Max(2147483647)
   order: number;
 
   @ApiProperty({
@@ -50,6 +53,7 @@ export class SyncMarkersDto {
     ],
   })
   @IsArray()
+  @ArrayMaxSize(1000)
   @ValidateNested({ each: true })
   @Type(() => MarkerInput)
   markers: MarkerInput[];

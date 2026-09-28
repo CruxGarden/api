@@ -1,11 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsEnum,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  IsUUID,
-} from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { PathKind, PathType, PathVisibility } from '../../common/types/enums';
 
 export class CreatePathDto {
@@ -62,49 +56,4 @@ export class CreatePathDto {
   @IsNotEmpty()
   @IsEnum(PathKind)
   kind: PathKind;
-
-  @ApiProperty({
-    description: 'Entry marker ID for the path',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-  })
-  @IsNotEmpty()
-  @IsUUID()
-  entry: string;
-
-  // Internal fields set by service
-  @ApiPropertyOptional({
-    description: 'Unique identifier for the path (auto-generated)',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-    format: 'uuid',
-  })
-  @IsOptional()
-  @IsString()
-  id?: string;
-
-  @ApiPropertyOptional({
-    description: 'Author ID (set internally from account)',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-    format: 'uuid',
-  })
-  @IsOptional()
-  @IsString()
-  authorId?: string;
-
-  @ApiPropertyOptional({
-    description: 'Home ID (set internally from primary home)',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-    format: 'uuid',
-  })
-  @IsOptional()
-  @IsString()
-  homeId?: string;
-
-  @ApiPropertyOptional({
-    description: 'Account ID (set internally from auth)',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-    format: 'uuid',
-  })
-  @IsOptional()
-  @IsString()
-  accountId?: string;
 }

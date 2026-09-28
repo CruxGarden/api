@@ -33,7 +33,7 @@ export const PathSwagger = {
       ApiOperation({
         summary: 'Get all paths',
         description:
-          'Retrieves a paginated list of all paths with their metadata.',
+          'Retrieves a paginated list of the signed-in author’s Paths.',
       }),
       ApiResponse({
         status: 200,
@@ -53,7 +53,7 @@ export const PathSwagger = {
               type: { type: 'string', example: 'living' },
               visibility: { type: 'string', example: 'public' },
               kind: { type: 'string', example: 'guide' },
-              entry: { type: 'string', format: 'uuid' },
+              entry: { type: 'string', format: 'uuid', nullable: true },
               authorId: { type: 'string', format: 'uuid' },
               homeId: { type: 'string', format: 'uuid' },
               meta: { type: 'object', example: {} },
@@ -69,7 +69,8 @@ export const PathSwagger = {
     combineDecorators(
       ApiOperation({
         summary: 'Get a path by identifier',
-        description: 'Retrieves a specific path by its UUID or slug.',
+        description:
+          'Retrieves an owned Path by UUID or an author-scoped slug.',
       }),
       ApiParam({
         name: 'identifier',
@@ -92,7 +93,7 @@ export const PathSwagger = {
             type: { type: 'string', example: 'living' },
             visibility: { type: 'string', example: 'public' },
             kind: { type: 'string', example: 'guide' },
-            entry: { type: 'string', format: 'uuid' },
+            entry: { type: 'string', format: 'uuid', nullable: true },
             authorId: { type: 'string', format: 'uuid' },
             homeId: { type: 'string', format: 'uuid' },
             created: { type: 'string', format: 'date-time' },
@@ -108,7 +109,7 @@ export const PathSwagger = {
       ApiOperation({
         summary: 'Create a new path',
         description:
-          'Creates a new path with the provided data. Requires authentication.',
+          'Creates an empty owned Path with a generated ID and no entry marker. Add markers before selecting an entry.',
       }),
       ApiBody({ type: CreatePathDto }),
       ApiBearerAuth(),
@@ -128,7 +129,7 @@ export const PathSwagger = {
             type: { type: 'string', example: 'living' },
             visibility: { type: 'string', example: 'unlisted' },
             kind: { type: 'string', example: 'guide' },
-            entry: { type: 'string', format: 'uuid' },
+            entry: { type: 'string', format: 'uuid', nullable: true },
             authorId: { type: 'string', format: 'uuid' },
             homeId: { type: 'string', format: 'uuid' },
             created: { type: 'string', format: 'date-time' },
@@ -167,7 +168,7 @@ export const PathSwagger = {
             type: { type: 'string', example: 'frozen' },
             visibility: { type: 'string', example: 'public' },
             kind: { type: 'string', example: 'wander' },
-            entry: { type: 'string', format: 'uuid' },
+            entry: { type: 'string', format: 'uuid', nullable: true },
             authorId: { type: 'string', format: 'uuid' },
             homeId: { type: 'string', format: 'uuid' },
             created: { type: 'string', format: 'date-time' },
@@ -319,7 +320,6 @@ export const PathSwagger = {
               order: { type: 'number', example: 0 },
               note: { type: 'string', example: 'Start here' },
               authorId: { type: 'string', format: 'uuid' },
-              homeId: { type: 'string', format: 'uuid' },
               created: { type: 'string', format: 'date-time' },
               updated: { type: 'string', format: 'date-time' },
             },
@@ -357,7 +357,6 @@ export const PathSwagger = {
               order: { type: 'number', example: 0 },
               note: { type: 'string', example: 'Start here' },
               authorId: { type: 'string', format: 'uuid' },
-              homeId: { type: 'string', format: 'uuid' },
               created: { type: 'string', format: 'date-time' },
               updated: { type: 'string', format: 'date-time' },
             },
