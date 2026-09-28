@@ -1,4 +1,7 @@
 import { FunctionsService, matches } from './functions.service';
+import * as dns from 'node:dns/promises';
+import { createServer } from 'node:http';
+import { AddressInfo } from 'node:net';
 
 /**
  * The runner, with the crux, its published files and its Store faked:
@@ -320,16 +323,26 @@ describe('Crux Functions runner', () => {
     expect(await s.listSecretNames('crux-1')).toEqual([]);
   });
 
-  it('reaches out only to the hosts functions/egress.json names, never the private network', async () => {
-    const realFetch = global.fetch;
+  it('runs declared ctx.fetch requests through the isolate and real HTTP', async () => {
+    const oldNursery = process.env.NURSERY_MODE;
+    process.env.NURSERY_MODE = 'true';
+    const lookup = jest
+      .spyOn(dns, 'lookup')
+      .mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
     const calls: string[] = [];
-    global.fetch = jest.fn(async (url: any) => {
-      calls.push(String(url));
-      return new Response(JSON.stringify({ pong: true }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }) as any;
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      calls.push(
+        `${req.method} ${req.url} ${Buffer.concat(chunks).toString()}`,
+      );
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ pong: true }));
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    const port = (server.address() as AddressInfo).port;
     try {
       const s = service({
         'functions/egress.json': JSON.stringify({
@@ -338,36 +351,61 @@ describe('Crux Functions runner', () => {
         'functions/out.js':
           'export default async (req, ctx) => { const r = await ctx.fetch(req.body.url, { method: "POST", body: { a: 1 } }); return { status: r.status, data: await r.json() }; }',
       });
-      const ok = await s.call('crux-1', 'out', {
-        body: { url: 'https://api.example.com/ping' },
-        visitorId: null,
-      });
-      expect(ok.body).toEqual({ status: 200, data: { pong: true } });
-      const sub = await s.call('crux-1', 'out', {
-        body: { url: 'https://api.stripe.com/v1/x' },
-        visitorId: null,
-      });
-      expect(sub.status).toBe(200);
+      for (const host of ['api.example.com', 'api.stripe.com']) {
+        const result = await s.call('crux-1', 'out', {
+          body: { url: `http://${host}:${port}/ping` },
+          visitorId: null,
+        });
+        expect(result.body).toEqual({ status: 200, data: { pong: true } });
+      }
       const no = await s.call('crux-1', 'out', {
         body: { url: 'https://evil.example.org/' },
         visitorId: null,
       });
       expect(no.status).toBe(403);
-      expect(String((no.body as { error: string }).error)).toMatch(
-        /egress\.json/,
-      );
-      const priv = await s.call('crux-1', 'out', {
-        body: { url: 'http://169.254.169.254/latest' },
-        visitorId: null,
+      expect(no.body).toEqual({
+        error: expect.stringContaining('egress.json'),
       });
-      expect(priv.status).toBe(403);
-      expect(calls).toHaveLength(2);
-      // "secrets" is the API's own route, never a handler
+      expect(calls).toEqual(['POST /ping {"a":1}', 'POST /ping {"a":1}']);
       expect((await s.list('crux-1')).map((f) => f.name)).toEqual(['out']);
     } finally {
-      global.fetch = realFetch;
+      if (oldNursery === undefined) delete process.env.NURSERY_MODE;
+      else process.env.NURSERY_MODE = oldNursery;
+      lookup.mockRestore();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
+
+  it.each(['private-dns', 'mapped-literal'])(
+    'blocks %s egress even when the host is declared',
+    async (kind) => {
+      const lookup = jest
+        .spyOn(dns, 'lookup')
+        .mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+      const fetch = jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValue(new Response('internal service'));
+      try {
+        const host =
+          kind === 'private-dns' ? 'internal.example.test' : '[::ffff:7f00:1]';
+        const s = service({
+          'functions/egress.json': JSON.stringify({ hosts: [host] }),
+          'functions/out.js':
+            'export default async (req, ctx) => { const r = await ctx.fetch(req.body.url); return await r.text(); }',
+        });
+        const response = await s.call('crux-1', 'out', {
+          body: { url: `http://${host}/private` },
+          visitorId: null,
+        });
+        expect(response.status).toBe(403);
+        expect(fetch).not.toHaveBeenCalled();
+      } finally {
+        fetch.mockRestore();
+        lookup.mockRestore();
+      }
+    },
+  );
 
   it('meters every run, whatever it answered', async () => {
     const s = service({

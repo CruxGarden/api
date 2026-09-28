@@ -65,26 +65,3 @@ export function decryptSecret(row: {
     decipher.final(),
   ]).toString('utf8');
 }
-
-/** Hosts a handler may never reach, whatever the allowlist says (the API's own network). */
-export function isPrivateHost(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (h === 'localhost' || h.endsWith('.localhost') || h === '::1') return true;
-  if (/^127\./.test(h) || /^10\./.test(h) || /^169\.254\./.test(h)) return true;
-  if (/^192\.168\./.test(h)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  if (/^0\./.test(h) || h === '0.0.0.0') return true;
-  if (/^f[cd][0-9a-f]{2}:/i.test(h) || /^fe80:/i.test(h)) return true;
-  return false;
-}
-
-/** Whether `hostname` is on the crux's egress list (`api.example.com` or `*.example.com`). */
-export function egressAllowed(hostname: string, allow: string[]): boolean {
-  const h = hostname.toLowerCase();
-  return allow.some((entry) => {
-    const e = entry.trim().toLowerCase();
-    if (!e) return false;
-    if (e.startsWith('*.')) return h === e.slice(2) || h.endsWith(e.slice(1));
-    return h === e;
-  });
-}

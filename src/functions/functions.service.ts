@@ -20,12 +20,8 @@ import {
   FunctionScheduleRow,
 } from './functions.repository';
 import { cronError, nextCron, normalizeSchedule } from './cron';
-import {
-  decryptSecret,
-  egressAllowed,
-  encryptSecret,
-  isPrivateHost,
-} from './secrets';
+import { decryptSecret, encryptSecret } from './secrets';
+import { fetchEgress } from './egress';
 
 /**
  * Crux Functions (CRUX-FUNCTIONS-PLAN, ADR 0023 — F0 and F6): small handlers
@@ -101,8 +97,6 @@ interface Loaded {
   egress: string[];
 }
 
-const FETCH_MS = 4000;
-const FETCH_MAX_BYTES = 1_000_000;
 /** Handler names the API keeps for itself. */
 export const RESERVED_NAMES = new Set(['secrets']);
 
@@ -514,100 +508,6 @@ export class FunctionsService {
     }
   }
 
-  /**
-   * `ctx.fetch` (F1): outbound only to the hosts `functions/egress.json`
-   * names, never to the API's own network, four seconds, a megabyte back.
-   * The answer is a small object the sandbox can hold: status, headers,
-   * text(), json(). In nursery mode (one machine, no public reach) the local
-   * addresses are allowed so a garden can talk to its own API.
-   */
-  private async egressFetch(
-    cruxId: string,
-    egress: string[],
-    url: string,
-    init?: Record<string, unknown>,
-  ): Promise<{
-    ok: boolean;
-    status: number;
-    headers: Record<string, string>;
-    text: () => Promise<string>;
-    json: () => Promise<unknown>;
-  }> {
-    let target: URL;
-    try {
-      target = new URL(url);
-    } catch {
-      throw new FunctionReject(`fetch: "${url}" is not a URL`, 400);
-    }
-    if (target.protocol !== 'https:' && target.protocol !== 'http:')
-      throw new FunctionReject('fetch: only http and https', 400);
-    const local = process.env.NURSERY_MODE === 'true';
-    if (!local && isPrivateHost(target.hostname))
-      throw new FunctionReject(
-        `fetch: ${target.hostname} is not reachable`,
-        403,
-      );
-    if (!egressAllowed(target.hostname, egress))
-      throw new FunctionReject(
-        `fetch: ${target.hostname} is not in functions/egress.json ("hosts")`,
-        403,
-      );
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_MS);
-    try {
-      const method = String(init?.method ?? 'GET').toUpperCase();
-      const headers: Record<string, string> = {};
-      for (const [k, v] of Object.entries(
-        (init?.headers as Record<string, unknown>) ?? {},
-      ))
-        headers[k] = String(v);
-      const body =
-        init?.body === undefined || init?.body === null
-          ? undefined
-          : typeof init.body === 'string'
-            ? init.body
-            : JSON.stringify(init.body);
-      if (
-        body !== undefined &&
-        !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
-      )
-        headers['content-type'] = 'application/json';
-      const res = await fetch(target, {
-        method,
-        headers,
-        body,
-        signal: controller.signal,
-        redirect: 'manual',
-      });
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length > FETCH_MAX_BYTES)
-        throw new FunctionReject('fetch: the answer is over 1 MB', 502);
-      const text = buf.toString('utf8');
-      const outHeaders: Record<string, string> = {};
-      res.headers.forEach((v, k) => {
-        outHeaders[k] = v;
-      });
-      this.logger.debug(`fetch ${method} ${target.host} → ${res.status}`, {
-        cruxId,
-      });
-      return {
-        ok: res.ok,
-        status: res.status,
-        headers: outHeaders,
-        text: async () => text,
-        json: async () => JSON.parse(text) as unknown,
-      };
-    } catch (error) {
-      if (error instanceof FunctionReject) throw error;
-      throw new FunctionReject(
-        `fetch: ${(error as Error).name === 'AbortError' ? 'timed out' : (error as Error).message}`,
-        502,
-      );
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   private context(
     crux: { id: string; authorId: string },
     input: { visitorId: string | null; event?: CruxEvent; depth?: number },
@@ -619,7 +519,7 @@ export class FunctionsService {
   ) {
     const cruxId = crux.id;
     const fetchOut = async (url: string, init?: Record<string, unknown>) =>
-      this.egressFetch(cruxId, world.egress, String(url), init);
+      fetchEgress(world.egress, String(url), init);
     const visitorId = input.visitorId;
     const writer = visitorId ?? crux.authorId;
     const isOwner = visitorId === crux.authorId;
