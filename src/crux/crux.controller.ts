@@ -47,7 +47,10 @@ import {
   MAX_PUBLISH_FILES,
 } from '../common/types/constants';
 import Artifact from '../artifact/entities/artifact.entity';
-import { publishUploadStorage } from '../common/publish/upload-storage';
+import {
+  publishUploadStorage,
+  publishUploadLimits,
+} from '../common/publish/upload-storage';
 
 @Controller('cruxes')
 @UseGuards(AuthGuard)
@@ -289,7 +292,7 @@ export class CruxController {
   @UseInterceptors(
     FilesInterceptor('files', MAX_PUBLISH_FILES, {
       storage: publishUploadStorage(),
-      limits: { fileSize: MAX_PUBLISH_SIZE },
+      limits: publishUploadLimits,
     }),
   )
   async publish(
