@@ -461,48 +461,38 @@ export class ArtifactService {
     );
   }
 
-  /**
-   * Create a DB artifact record without uploading to working S3 storage.
-   * Used by the direct-publish flow where files go straight to the published bucket.
-   */
-  async createArtifactRecord(
-    resourceType: string,
+  /** Describe a publication before it is uploaded. Admission belongs to the publish transaction. */
+  describePublishedArtifact(
     resourceId: string,
     homeId: string,
     authorId: string,
     file: UploadedFile,
     extra: { type?: string; kind?: string; path?: string },
-  ): Promise<Artifact> {
-    const id = this.keyMaster.generateId();
-    const createDto: CreateArtifactDto = {
-      id,
-      // Columns are NOT NULL — default when the client omits per-file meta
-      // (e.g. built site output, which has no source artifact to inherit from)
+    storageId: string,
+    layout: string,
+  ): Artifact {
+    return new Artifact({
+      id: this.keyMaster.generateId(),
       type: extra.type || 'artifact',
       kind: extra.kind || 'file',
-      meta: extra.path ? { path: extra.path } : undefined,
+      meta: {
+        path: extra.path || file.originalname,
+        publishStorageId: storageId,
+        publishLayout: layout,
+      },
       resourceId,
-      resourceType,
+      resourceType: 'crux',
       authorId,
       homeId,
       encoding: file.encoding || '7bit',
       mimeType: file.mimetype,
       filename: file.originalname,
       size: file.size,
-    };
-    const created = await this.artifactRepository.create(createDto);
-    if (created.error) {
-      throw new InternalServerErrorException('Artifact creation error', {
-        cause: created.error,
-      });
-    }
-    return this.asArtifact(created.data);
+      created: new Date(),
+      updated: new Date(),
+    });
   }
 
-  /**
-   * Publish file buffers directly to the published S3 bucket (with HTML injections).
-   * Bypasses working S3 storage entirely.
-   */
   /**
    * The bytes that go live: HTML gets the publish injections (store client,
    * basename, nav sync — see publish-injections.ts); everything else passes
@@ -541,50 +531,29 @@ export class ArtifactService {
     });
   }
 
-  async publishFilesDirectly(
-    files: Array<{
-      buffer: Buffer;
-      mimeType: string;
-      path: string;
-      artifact: Artifact;
-    }>,
-    pathPrefix: string,
-    cruxKind?: string,
-    cruxId?: string,
+  async uploadPreparedPublication(
+    files: Array<{ path: string; data: Buffer; contentType: string }>,
+    storageId: string,
   ): Promise<void> {
-    const publishedBucket =
+    const namespace =
       process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published';
-
-    const artifactContexts = files.map((f) => f.artifact);
-
-    await Promise.all(
-      files.map(async ({ buffer, mimeType, path, artifact }) => {
-        let data = buffer;
-
-        if (mimeType === 'text/html') {
-          const result = applyInjections(
-            data,
-            artifact,
-            artifactContexts,
-            cruxKind,
-            { cruxId },
-          );
-          data = result.data;
-          if (result.applied.length > 0) {
-            this.logger.info(`Publish injections applied to ${path}`, {
-              injections: result.applied,
-            });
-          }
+    const queue = [...files];
+    const results = await Promise.allSettled(
+      Array.from({ length: Math.min(16, queue.length) }, async () => {
+        for (let file = queue.shift(); file; file = queue.shift()) {
+          await this.storeService.upload({
+            path: `${storageId}/${file.path}`,
+            data: file.data,
+            namespace,
+            contentType: file.contentType,
+          });
         }
-
-        await this.storeService.upload({
-          path: `${pathPrefix}/${path}`,
-          data,
-          namespace: publishedBucket,
-          contentType: mimeType,
-        });
       }),
     );
+    const refused = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (refused) throw refused.reason;
   }
 
   /**

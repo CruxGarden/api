@@ -331,7 +331,9 @@ export class FunctionsService {
     try {
       if (meta.publishLayout === 'bucket-per-crux') {
         const r = await this.files.download({
-          namespace: this.publishStorage.bucketName(cruxId),
+          namespace: this.publishStorage.bucketName(
+            meta.publishStorageId || cruxId,
+          ),
           path,
         });
         return r.data;
@@ -339,7 +341,7 @@ export class FunctionsService {
       const r = await this.files.download({
         namespace:
           process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published',
-        path: `${cruxId}/${path}`,
+        path: `${meta.publishStorageId || cruxId}/${path}`,
       });
       return r.data;
     } catch (error) {

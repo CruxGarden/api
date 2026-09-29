@@ -32,6 +32,7 @@ import DimensionRaw from '../dimension/entities/dimension-raw.entity';
  */
 @Injectable()
 export class CruxGraphService {
+  protected readonly protectedMetaKeys: string[] = [];
   constructor(
     protected readonly cruxRepository: CruxRepository,
     protected readonly keyMaster: KeyMaster,
@@ -192,6 +193,7 @@ export class CruxGraphService {
     const updated = await this.cruxRepository.update(
       cruxToUpdate.id,
       updateCruxDto,
+      ...(this.protectedMetaKeys.length ? [this.protectedMetaKeys] : []),
     );
     if (updated.error) {
       throw new InternalServerErrorException('Crux update error', {

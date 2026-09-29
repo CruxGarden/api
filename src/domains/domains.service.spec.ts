@@ -243,6 +243,20 @@ describe('DomainsService', () => {
     expect(await svc.resolveHost('nobody.example.com')).toBeNull();
   });
 
+  it('does not turn a failed publication lookup into a cached not-found answer', async () => {
+    const repo = fakeRepo();
+    repo.publishState.mockResolvedValueOnce({
+      data: null,
+      error: new Error('Database unavailable'),
+    } as never);
+    const svc = new DomainsService(repo as never, logger);
+    await expect(
+      svc.resolveHost(
+        '550e8400-e29b-41d4-a716-446655440000.publish.crux.garden',
+      ),
+    ).rejects.toThrow('Could not resolve publication');
+  });
+
   it('records a failed certificate request and lets the user retry', async () => {
     const repo = fakeRepo();
     const svc = new DomainsService(repo as never, logger);

@@ -1,6 +1,13 @@
+import { randomUUID } from 'node:crypto';
+import {
+  PUBLICATION_META_KEYS,
+  withoutPublicationState,
+} from '../common/publish/publication-state';
 import { CruxGraphService } from './crux-graph.service';
 import {
   Injectable,
+  ServiceUnavailableException,
+  ConflictException,
   BadRequestException,
   PayloadTooLargeException,
   NotFoundException,
@@ -38,6 +45,7 @@ import {
 @Injectable()
 export class CruxService extends CruxGraphService {
   private readonly logger: LoggerService;
+  protected override readonly protectedMetaKeys = PUBLICATION_META_KEYS;
 
   constructor(
     cruxRepository: CruxRepository,
@@ -71,6 +79,7 @@ export class CruxService extends CruxGraphService {
   ): Promise<Crux> {
     createCruxDto.id = createCruxDto.id || this.keyMaster.generateId();
 
+    createCruxDto.meta = withoutPublicationState(createCruxDto.meta);
     this.applyDefaults(createCruxDto);
 
     // Hard-delete a soft-deleted record with the same ID and same author
@@ -204,9 +213,16 @@ export class CruxService extends CruxGraphService {
       if (!path)
         throw new NotFoundException('Published artifact path is missing');
       if (
-        (crux.meta.publishLayout || this.publishLayout()) === 'bucket-per-crux'
+        (artifact.meta?.publishLayout ||
+          crux.meta.publishLayout ||
+          this.publishLayout()) === 'bucket-per-crux'
       ) {
-        const data = await this.publishStorage.downloadFile(crux.id, path);
+        const data = await this.publishStorage.downloadFile(
+          artifact.meta?.publishStorageId ||
+            crux.meta?.publishStorageId ||
+            crux.id,
+          path,
+        );
         return {
           data,
           filename: artifact.filename,
@@ -216,7 +232,7 @@ export class CruxService extends CruxGraphService {
       const result = await this.storeService.download({
         namespace:
           process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published',
-        path: `${crux.id}/${path}`,
+        path: `${artifact.meta?.publishStorageId || crux.meta?.publishStorageId || crux.id}/${path}`,
       });
       return {
         data: result.data,
@@ -254,7 +270,16 @@ export class CruxService extends CruxGraphService {
     authorId: string,
     accountId?: string,
   ): Promise<Crux> {
+    if (process.env.PUBLISH_REVISION_ROUTING !== '1')
+      throw new ServiceUnavailableException(
+        'Publishing is awaiting the revision-aware origin router. Deploy the router, then enable PUBLISH_REVISION_ROUTING.',
+      );
     const crux = await this.findById(cruxId);
+
+    if (crux.meta?.publicationRemoving)
+      throw new ConflictException(
+        'Finish removing the previous publication before publishing again.',
+      );
 
     // Validate the one tool-version entity before replacing an existing publication.
     let toolPackage: Awaited<ReturnType<typeof inspectToolPackage>> | undefined;
@@ -292,112 +317,116 @@ export class CruxService extends CruxGraphService {
       'publish',
     );
 
-    // 1. Replace existing artifact records (working + any old snapshots).
-    //    deleteWorkingArtifactsByResource handles missing S3 files gracefully.
-    await this.artifactService.deleteWorkingArtifactsByResource(
-      ResourceType.CRUX,
-      crux.id,
-    );
-    await this.artifactService.deleteSnapshotArtifacts(
-      ResourceType.CRUX,
-      crux.id,
-    );
-
-    // 2. Create artifact DB records (metadata only — no working S3 copy needed).
-    const artifactRecords: Artifact[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const record = await this.artifactService.createArtifactRecord(
-        ResourceType.CRUX,
+    // A unique location keeps both layouts immutable while a replacement uploads.
+    // The public Crux ID remains stable; only the edge's storage pointer changes.
+    const storageId = randomUUID();
+    const layout = this.publishLayout();
+    await this.domainsService.assertPublicationLayout(crux.id, layout);
+    const artifactRecords = files.map((file, i) =>
+      this.artifactService.describePublishedArtifact(
         crux.id,
         crux.homeId,
         authorId,
-        files[i],
+        file,
         fileMetas[i] || {},
-      );
-      artifactRecords.push(record);
-    }
-
-    // 3. Publish the files.
+        storageId,
+        layout,
+      ),
+    );
     const publishFiles = files.map((file, i) => ({
       buffer: file.buffer,
       mimeType: file.mimetype,
       path: fileMetas[i]?.path || file.originalname,
       artifact: artifactRecords[i],
     }));
-    const pathPrefix = crux.id;
-    let storedBytes: number | null = null;
-    if (this.publishLayout() === 'bucket-per-crux') {
-      // ADR 0011: the crux's own website bucket; HTML has short cache, so no invalidation
-      await this.publishStorage.ensureBucket(crux.id, authorId);
-      const put = await this.publishStorage.putFiles(
-        crux.id,
-        this.artifactService.preparePublishFiles(
-          publishFiles,
-          crux.kind,
-          crux.id,
-        ),
-      );
-      storedBytes = put.bytes; // exact: what actually sits in the bucket, injections included
-      // Custom domains cache through their tenants — drop what they hold (best effort)
-      void this.domainsService.invalidateForCrux(crux.id);
-    } else {
-      await this.artifactService.deleteFromStaticBucket(pathPrefix);
-      await this.artifactService.publishFilesDirectly(
-        publishFiles,
-        pathPrefix,
-        crux.kind,
-        crux.id,
-      );
-      // 4. Invalidate CloudFront cache (best-effort, don't block publish)
-      this.storeService
-        .invalidateCache({ paths: [`/${pathPrefix}/*`] })
-        .catch((err) =>
-          this.logger.error(`CloudFront invalidation failed: ${err.message}`),
-        );
-    }
-
-    // Storage usage is exact at publish time (ADR 0011 §3)
-    const publishedBytes =
-      storedBytes ??
-      files.reduce((sum, f) => sum + (f.size ?? f.buffer?.length ?? 0), 0);
-    await this.usageService.recordStorage(
+    const prepared = this.artifactService.preparePublishFiles(
+      publishFiles,
+      crux.kind,
       crux.id,
-      authorId,
-      publishedBytes,
-      files.length,
     );
-    void this.notifications.afterWrite(authorId, accountId);
-
-    // 5. Update crux meta with publish info and set visibility to public
-    const publishedVersion = (crux.meta?.publishedVersion || 0) + 1;
-    const publishedAt = new Date().toISOString();
-
-    const updated = await this.cruxRepository.update(crux.id, {
-      meta: {
-        ...crux.meta,
-        publishedAt,
-        publishedVersion,
-        // where the files live — the origin router asks (ADR 0011 migration)
-        publishLayout: this.publishLayout(),
-        // What the site weighs, so Explore can say what an install carries.
-        publishedBytes,
-        ...(toolPackage
-          ? {
-              toolPackage: {
-                ...toolPackage,
-                artifactId: artifactRecords[0].id,
-              },
-            }
-          : {}),
-      },
-      visibility: CruxVisibility.PUBLIC,
-    });
-
-    if (updated.error) {
-      throw new InternalServerErrorException('Publish error', {
-        cause: updated.error,
-      });
+    const publishedBytes = prepared.reduce(
+      (sum, file) => sum + file.data.length,
+      0,
+    );
+    let updated: Awaited<ReturnType<CruxRepository['commitPublication']>>;
+    let admissionStarted = false;
+    try {
+      if (layout === 'bucket-per-crux') {
+        await this.publishStorage.ensureBucket(storageId, authorId, crux.id);
+        await this.publishStorage.putFiles(storageId, prepared);
+      } else {
+        await this.artifactService.uploadPreparedPublication(
+          prepared,
+          storageId,
+        );
+      }
+      admissionStarted = true;
+      updated = await this.cruxRepository.commitPublication(
+        crux.id,
+        authorId,
+        crux.meta?.publishedVersion || 0,
+        artifactRecords,
+        {
+          publishedAt: new Date().toISOString(),
+          publishedVersion: (crux.meta?.publishedVersion || 0) + 1,
+          publishLayout: layout,
+          publishStorageId: storageId,
+          publishedBytes,
+          ...(toolPackage
+            ? {
+                toolPackage: {
+                  ...toolPackage,
+                  artifactId: artifactRecords[0].id,
+                },
+              }
+            : {}),
+        },
+      );
+      if (updated.error) throw updated.error;
+    } catch (cause) {
+      // A lost database commit acknowledgement is ambiguous: retain staged bytes once
+      // admission starts. Never clean up a location that might now be live.
+      // Uploaders drain workers before rejecting, so no late write can recreate a cleaned object.
+      if (admissionStarted)
+        this.logger.warn('Unconfirmed publication location retained', {
+          cruxId: crux.id,
+          storageId,
+          layout,
+        });
+      try {
+        if (!admissionStarted) {
+          if (layout === 'bucket-per-crux')
+            await this.publishStorage.deleteBucket(storageId);
+          else await this.artifactService.deleteFromStaticBucket(storageId);
+        }
+      } catch (cleanup) {
+        this.logger.error(
+          'Uncommitted publication cleanup failed',
+          cleanup as Error,
+        );
+      }
+      if (cause instanceof ConflictException) throw cause;
+      throw new InternalServerErrorException(
+        admissionStarted
+          ? 'Could not confirm the publication. Please refresh its status before retrying.'
+          : 'Could not upload the publication. The previous publication is unchanged. Please retry.',
+        { cause },
+      );
     }
+    // Once committed, a notification/cache failure cannot turn success into a false refusal.
+    void this.notifications
+      .afterWrite(authorId, accountId)
+      .catch((error) =>
+        this.logger.error('Publish notification failed', error),
+      );
+    void this.domainsService
+      .activatePublication(crux.id)
+      .catch((error) => this.logger.error('Domain activation pending', error));
+    void this.storeService
+      .invalidateCache({ paths: [`/${crux.id}/*`] })
+      .catch((error) =>
+        this.logger.error('CloudFront invalidation failed', error),
+      );
 
     return this.asCrux(updated.data);
   }
@@ -408,6 +437,28 @@ export class CruxService extends CruxGraphService {
    */
   private async removePublication(cruxId: string): Promise<void> {
     try {
+      const removing =
+        await this.cruxRepository.beginPublicationRemoval(cruxId);
+      if (removing.error) throw removing.error;
+      const crux = this.asCrux(removing.data);
+      for (const publication of [
+        ...(crux.meta?.retiredPublications || []),
+        ...(crux.meta?.publishStorageId
+          ? [
+              {
+                storageId: crux.meta.publishStorageId,
+                layout: crux.meta.publishLayout,
+              },
+            ]
+          : []),
+      ]) {
+        if (publication.layout === 'bucket-per-crux')
+          await this.publishStorage.deleteBucket(publication.storageId);
+        else
+          await this.artifactService.deleteFromStaticBucket(
+            publication.storageId,
+          );
+      }
       await this.artifactService.deleteFromStaticBucket(cruxId);
       await this.publishStorage.deleteBucket(cruxId);
       await this.domainsService.removeAllForCrux(cruxId);

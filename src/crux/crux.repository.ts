@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ConflictException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { toTableFields } from '../common/helpers/case-helpers';
 import { DbService } from '../common/services/db.service';
@@ -8,6 +8,7 @@ import { success, failure } from '../common/helpers/repository-helpers';
 import CruxRaw from './entities/crux-raw.entity';
 import { CreateCruxDto } from './dto/create-crux.dto';
 import { UpdateCruxDto } from './dto/update-crux.dto';
+import Artifact from '../artifact/entities/artifact.entity';
 
 @Injectable()
 export class CruxRepository {
@@ -148,6 +149,7 @@ export class CruxRepository {
   async update(
     cruxId: string,
     updateData: UpdateCruxDto & { remoteId?: string },
+    protectedMetaKeys: string[] = [],
   ): Promise<RepositoryResponse<CruxRaw>> {
     try {
       const tableFields = toTableFields({
@@ -164,22 +166,150 @@ export class CruxRepository {
         meta: updateData.meta,
       });
 
-      await this.dbService
-        .query()
-        .from<CruxRaw>(CruxRepository.TABLE_NAME)
-        .where('id', cruxId)
-        .update({
-          ...tableFields,
-          updated: new Date(),
-        });
+      if (!protectedMetaKeys.length || tableFields.meta === undefined) {
+        await this.dbService
+          .query()
+          .from<CruxRaw>('cruxes')
+          .where('id', cruxId)
+          .update({ ...tableFields, updated: new Date() });
+        const data = await this.dbService
+          .query()
+          .from<CruxRaw>('cruxes')
+          .select('*')
+          .where('id', cruxId)
+          .first();
+        return success(data);
+      }
+      const data = await this.dbService.query().transaction(async (trx) => {
+        // Preserve publication authority from the locked row, including when a stale client
+        // syncs its metadata while another request finishes publishing.
+        if (tableFields.meta !== undefined && protectedMetaKeys.length) {
+          const current = await trx('cruxes')
+            .where({ id: cruxId })
+            .forUpdate()
+            .first();
+          const meta = { ...(tableFields.meta as Record<string, unknown>) };
+          for (const key of protectedMetaKeys) {
+            delete meta[key];
+            if (current?.meta?.[key] !== undefined)
+              meta[key] = current.meta[key];
+          }
+          tableFields.meta = meta;
+        }
+        const [row] = await trx('cruxes')
+          .where({ id: cruxId })
+          .update({ ...tableFields, updated: new Date() })
+          .returning('*');
+        return row;
+      });
 
-      const data = await this.dbService
-        .query()
-        .from<CruxRaw>(CruxRepository.TABLE_NAME)
-        .select(CruxRepository.BASE_SELECT)
-        .where('id', cruxId)
-        .first();
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
 
+  /** Fence activation before external teardown starts; a failed teardown remains retryable. */
+  async beginPublicationRemoval(
+    cruxId: string,
+  ): Promise<RepositoryResponse<CruxRaw>> {
+    try {
+      const data = await this.dbService.query().transaction(async (trx) => {
+        const current = await trx('cruxes')
+          .where({ id: cruxId })
+          .whereNull('deleted')
+          .forUpdate()
+          .first();
+        if (!current) throw new ConflictException('Crux no longer exists');
+        const [row] = await trx('cruxes')
+          .where({ id: cruxId })
+          .update({
+            meta: { ...current.meta, publicationRemoving: true },
+            updated: new Date(),
+          })
+          .returning('*');
+        return row;
+      });
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  /** Storage is complete before this transaction. Publish identity, files and usage become visible together. */
+  async commitPublication(
+    cruxId: string,
+    authorId: string,
+    expectedVersion: number,
+    artifacts: Artifact[],
+    publicationMeta: Record<string, unknown>,
+  ): Promise<RepositoryResponse<CruxRaw>> {
+    try {
+      const data = await this.dbService.query().transaction(async (trx) => {
+        const current = await trx('cruxes')
+          .where({ id: cruxId, author_id: authorId })
+          .whereNull('deleted')
+          .forUpdate()
+          .first();
+        if (
+          !current ||
+          current.meta?.publicationRemoving ||
+          (current.meta?.publishedVersion || 0) !== expectedVersion
+        )
+          throw new ConflictException(
+            'The publication changed while uploading. Please retry.',
+          );
+        const retired = [...(current.meta?.retiredPublications || [])];
+        if (current.meta?.publishedAt)
+          retired.push({
+            storageId: current.meta.publishStorageId || cruxId,
+            layout: current.meta.publishLayout || 'shared',
+          });
+        await trx('artifacts')
+          .where({ resource_type: 'crux', resource_id: cruxId })
+          .whereNull('deleted')
+          .update({ deleted: new Date(), updated: new Date() });
+        if (artifacts.length)
+          await trx.batchInsert(
+            'artifacts',
+            artifacts.map((a) => toTableFields(a)),
+            100,
+          );
+        await trx('usage_storage')
+          .insert({
+            crux_id: cruxId,
+            author_id: authorId,
+            bytes: publicationMeta.publishedBytes,
+            files: artifacts.length,
+            updated: new Date(),
+          })
+          .onConflict('crux_id')
+          .merge();
+        // The durable domain lifecycle retries origin activation after commit, including after restart.
+        await trx('custom_domains')
+          .where({ crux_id: cruxId })
+          .whereNull('deleted')
+          .whereNotNull('tenant_id')
+          .whereIn('status', ['active', 'issuing'])
+          .update({
+            status: 'issuing',
+            error: 'Publication update pending',
+            updated: new Date(),
+          });
+        const [row] = await trx('cruxes')
+          .where({ id: cruxId })
+          .update({
+            meta: {
+              ...current.meta,
+              ...publicationMeta,
+              retiredPublications: retired,
+            },
+            visibility: 'public',
+            updated: new Date(),
+          })
+          .returning('*');
+        return row;
+      });
       return success(data);
     } catch (error) {
       return failure(error);

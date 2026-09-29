@@ -113,7 +113,11 @@ export class PublishStorageService {
   }
 
   /** Create the crux's bucket if needed and (re)apply website config, policy, tags. Idempotent. */
-  async ensureBucket(cruxId: string, authorId: string): Promise<string> {
+  async ensureBucket(
+    cruxId: string,
+    authorId: string,
+    ownerCruxId = cruxId,
+  ): Promise<string> {
     const bucket = this.bucketName(cruxId);
     if (this.mockMode) {
       if (!this.mockBuckets.has(bucket))
@@ -175,7 +179,7 @@ export class PublishStorageService {
         Tagging: {
           TagSet: [
             { Key: 'crux-garden:author', Value: authorId },
-            { Key: 'crux-garden:crux', Value: cruxId },
+            { Key: 'crux-garden:crux', Value: ownerCruxId },
             { Key: 'crux-garden:role', Value: 'publish' },
           ],
         },
@@ -234,7 +238,11 @@ export class PublishStorageService {
         }
       },
     );
-    await Promise.all(workers);
+    const results = await Promise.allSettled(workers);
+    const refused = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (refused) throw refused.reason;
     const stale = (await this.listKeys(bucket)).filter((k) => !wanted.has(k));
     if (stale.length) await this.deleteKeys(bucket, stale);
     this.logger.info('Files published', {

@@ -1,3 +1,4 @@
+import { PUBLICATION_META_KEYS } from '../common/publish/publication-state';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -258,7 +259,11 @@ describe('CruxService', () => {
       const result = await service.update('crux-id-123', updateDto);
 
       expect(result.title).toBe('Updated Title');
-      expect(repository.update).toHaveBeenCalledWith(mockCruxRaw.id, updateDto);
+      expect(repository.update).toHaveBeenCalledWith(
+        mockCruxRaw.id,
+        updateDto,
+        PUBLICATION_META_KEYS,
+      );
     });
 
     it('should throw InternalServerErrorException on update error', async () => {

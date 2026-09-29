@@ -40,6 +40,64 @@ function fakeClient(answers: Record<string, unknown>[] = []) {
 }
 
 describe('CloudFrontEdgeProvider', () => {
+  it('repoints a tenant to a committed publication without changing its certificate, domain or enabled state', async () => {
+    const tenant = {
+      Id: 'dt-1',
+      Enabled: true,
+      Domains: [{ Domain: 'blog.example.com' }],
+      Parameters: [{ Name: 'bucket', Value: 'crux-old' }],
+      ConnectionGroupId: 'cg-1',
+      Customizations: { Certificate: { Arn: 'arn:certificate' } },
+    };
+    const { client, sent } = fakeClient([
+      { ETag: 'etag-1', DistributionTenant: tenant },
+      {},
+    ]);
+    const edge = new CloudFrontEdgeProvider(client, {
+      region: 'us-east-1',
+      distributionId: 'E-STANDARD',
+    });
+    await edge.setPublication('dt-1', 'new-publication');
+    expect(sent[1]).toEqual({
+      name: 'UpdateDistributionTenantCommand',
+      input: {
+        Id: 'dt-1',
+        IfMatch: 'etag-1',
+        Domains: tenant.Domains,
+        Parameters: [{ Name: 'bucket', Value: 'crux-new-publication' }],
+        ConnectionGroupId: 'cg-1',
+        Customizations: tenant.Customizations,
+        Enabled: true,
+      },
+    });
+  });
+  it('does not revive a disabled tenant or rewrite one already pointing at the publication', async () => {
+    const disabled = fakeClient([
+      { ETag: 'etag', DistributionTenant: { Enabled: false } },
+    ]);
+    const off = new CloudFrontEdgeProvider(disabled.client, {
+      region: 'us-east-1',
+      distributionId: 'E',
+    });
+    await expect(off.setPublication('dt', 'new')).rejects.toThrow(
+      'not enabled',
+    );
+    expect(disabled.sent).toHaveLength(1);
+    const current = fakeClient([
+      {
+        DistributionTenant: {
+          Enabled: true,
+          Parameters: [{ Name: 'bucket', Value: 'crux-current' }],
+        },
+      },
+    ]);
+    await new CloudFrontEdgeProvider(current.client, {
+      region: 'us-east-1',
+      distributionId: 'E',
+    }).setPublication('dt', 'current');
+    expect(current.sent).toHaveLength(1);
+  });
+
   it('creates the tenant on the multi-tenant distribution with the crux bucket as the origin parameter', async () => {
     const { client, sent } = fakeClient([
       { __throw: 'EntityNotFound' }, // no tenant for this domain yet

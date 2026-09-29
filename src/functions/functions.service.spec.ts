@@ -12,6 +12,7 @@ import { AddressInfo } from 'node:net';
 function service(
   files: Record<string, string>,
   store = new Map<string, unknown>(),
+  publication: Record<string, unknown> = {},
 ) {
   const logger = {
     createChildLogger: () => ({
@@ -24,7 +25,11 @@ function service(
   const crux = {
     id: 'crux-1',
     authorId: 'author-1',
-    meta: { publishedAt: '2026-09-20T00:00:00Z', publishedVersion: 3 },
+    meta: {
+      publishedAt: '2026-09-20T00:00:00Z',
+      publishedVersion: 3,
+      ...publication,
+    },
   };
   const artifacts = Object.keys(files).map((path, i) => ({
     id: `a${i}`,
@@ -32,8 +37,23 @@ function service(
     meta: { path },
   }));
   const fileStore = {
-    download: async ({ path }: { path: string }) => {
-      const key = path.replace(/^crux-1\//, '');
+    download: async ({
+      path,
+      namespace,
+    }: {
+      path: string;
+      namespace?: string;
+    }) => {
+      const storageId = publication.publishStorageId || 'crux-1';
+      if (publication.publishLayout === 'bucket-per-crux') {
+        if (namespace !== `crux-${storageId}`)
+          throw new Error('Wrong publication bucket');
+      } else if (!path.startsWith(`${storageId}/`))
+        throw new Error('Wrong publication prefix');
+      const key =
+        publication.publishLayout === 'bucket-per-crux'
+          ? path
+          : path.slice(String(storageId).length + 1);
       if (!(key in files)) throw new Error('missing');
       return { data: Buffer.from(files[key]) };
     },
@@ -170,6 +190,23 @@ function service(
 }
 
 describe('Crux Functions runner', () => {
+  it.each(['shared', 'bucket-per-crux'])(
+    'executes functions from the committed %s storage location',
+    async (layout) => {
+      const svc = service(
+        {
+          'functions/version.js':
+            'export default () => ({version: "committed"});',
+        },
+        new Map(),
+        { publishLayout: layout, publishStorageId: 'publication-2' },
+      );
+      expect(
+        (await svc.call('crux-1', 'version', { body: null, visitorId: null }))
+          .body,
+      ).toEqual({ version: 'committed' });
+    },
+  );
   it('lists the functions folder and tells HTTP handlers from event handlers', async () => {
     const s = service({
       'functions/hello.js':

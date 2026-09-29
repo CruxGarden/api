@@ -1,3 +1,4 @@
+import { PUBLICATION_META_KEYS } from '../src/common/publish/publication-state';
 import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
@@ -326,6 +327,7 @@ describe('Crux Integration Tests', () => {
       expect(mockCruxRepository.update).toHaveBeenCalledWith(
         testCruxId,
         expect.objectContaining(updateCruxDto),
+        PUBLICATION_META_KEYS,
       );
     });
 

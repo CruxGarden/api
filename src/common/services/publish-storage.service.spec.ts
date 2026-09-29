@@ -132,3 +132,43 @@ describe('Bucket teardown failures', () => {
     await expect(svc.deleteBucket('c1')).resolves.toBeUndefined();
   });
 });
+
+describe('Publication upload failure', () => {
+  it('drains in-flight writes before reporting refusal so cleanup cannot race a late write', async () => {
+    let finish!: () => void;
+    let entered!: () => void;
+    const delayed = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const send = jest.fn(async (command) => {
+      if (command.input.Key === 'refused.css')
+        throw new Error('Upload refused');
+      entered();
+      await delayed;
+      return {};
+    });
+    const svc = new PublishStorageService(logger, { send } as never);
+    let settled = false;
+    const upload = svc
+      .putFiles('staged', [
+        {
+          path: 'refused.css',
+          data: Buffer.from('x'),
+          contentType: 'text/css',
+        },
+        { path: 'slow.html', data: Buffer.from('x'), contentType: 'text/html' },
+      ])
+      .catch((error) => {
+        settled = true;
+        return error;
+      });
+    await started;
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finish();
+    expect(await upload).toEqual(new Error('Upload refused'));
+  });
+});

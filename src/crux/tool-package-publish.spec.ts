@@ -40,25 +40,25 @@ function fixture(layout: 'shared' | 'bucket-per-crux') {
     },
   });
   const repository = {
-    update: jest.fn(async (_id, input) => ({
-      data: { ...crux, ...input },
-      error: null,
-    })),
+    commitPublication: jest.fn(
+      async (_id, _author, _version, _artifacts, meta) => ({
+        data: { ...crux, meta },
+        error: null,
+      }),
+    ),
   };
   const artifact = {
     deleteWorkingArtifactsByResource: jest.fn(),
     deleteSnapshotArtifacts: jest.fn(),
     deleteFromStaticBucket: jest.fn(),
-    createArtifactRecord: jest.fn(
-      async (_type, _id, _home, _author, file, meta) => ({
-        id: 'archive-artifact',
-        resourceType: 'crux',
-        resourceId: 'c1',
-        filename: file.originalname,
-        mimeType: file.mimetype,
-        meta,
-      }),
-    ),
+    describePublishedArtifact: jest.fn((_id, _home, _author, file, meta) => ({
+      id: 'archive-artifact',
+      resourceType: 'crux',
+      resourceId: 'c1',
+      filename: file.originalname,
+      mimeType: file.mimetype,
+      meta,
+    })),
     preparePublishFiles: jest.fn((files) =>
       files.map((f) => ({
         path: f.path,
@@ -66,7 +66,7 @@ function fixture(layout: 'shared' | 'bucket-per-crux') {
         contentType: f.mimeType,
       })),
     ),
-    publishFilesDirectly: jest.fn(),
+    uploadPreparedPublication: jest.fn(),
     findById: jest.fn(async () => ({
       id: 'archive-artifact',
       resourceType: 'crux',
@@ -106,8 +106,11 @@ function fixture(layout: 'shared' | 'bucket-per-crux') {
     storage as never,
     usage as never,
     { assertStorage: jest.fn() } as never,
-    { afterWrite: jest.fn() } as never,
-    { invalidateForCrux: jest.fn() } as never,
+    { afterWrite: jest.fn().mockResolvedValue([]) } as never,
+    {
+      activatePublication: jest.fn().mockResolvedValue(undefined),
+      assertPublicationLayout: jest.fn().mockResolvedValue(undefined),
+    } as never,
   );
   jest.spyOn(service, 'findById').mockResolvedValue(crux);
   return { service, artifact, store, storage, usage, repository };
@@ -115,7 +118,14 @@ function fixture(layout: 'shared' | 'bucket-per-crux') {
 
 describe('single-package tool publication', () => {
   const previous = process.env.PUBLISH_LAYOUT;
+  const previousRouting = process.env.PUBLISH_REVISION_ROUTING;
+  beforeEach(() => {
+    process.env.PUBLISH_REVISION_ROUTING = '1';
+  });
   afterEach(() => {
+    if (previousRouting === undefined)
+      delete process.env.PUBLISH_REVISION_ROUTING;
+    else process.env.PUBLISH_REVISION_ROUTING = previousRouting;
     if (previous === undefined) delete process.env.PUBLISH_LAYOUT;
     else process.env.PUBLISH_LAYOUT = previous;
   });
@@ -131,11 +141,11 @@ describe('single-package tool publication', () => {
         [{ path: TOOL_PACKAGE_PATH }],
         'a1',
       );
-      expect(f.artifact.createArtifactRecord).toHaveBeenCalledTimes(1);
+      expect(f.artifact.describePublishedArtifact).toHaveBeenCalledTimes(1);
       if (layout === 'shared')
-        expect(f.artifact.publishFilesDirectly.mock.calls[0][0]).toHaveLength(
-          1,
-        );
+        expect(
+          f.artifact.uploadPreparedPublication.mock.calls[0][0],
+        ).toHaveLength(1);
       else
         expect(f.storage.putFiles.mock.calls[0][1]).toEqual([
           {
@@ -144,11 +154,15 @@ describe('single-package tool publication', () => {
             contentType: 'application/zip',
           },
         ]);
-      expect(f.usage.recordStorage).toHaveBeenCalledWith(
+      expect(f.repository.commitPublication).toHaveBeenCalledWith(
         'c1',
         'a1',
-        file.size,
         1,
+        expect.any(Array),
+        expect.objectContaining({
+          publishedBytes: file.size,
+          publishStorageId: expect.any(String),
+        }),
       );
       expect(publicCruxMeta(result.meta)?.toolPackage).toMatchObject({
         artifactId: 'archive-artifact',
@@ -176,7 +190,7 @@ describe('single-package tool publication', () => {
       f.service.publishCrux('c1', [file], [{ path: TOOL_PACKAGE_PATH }], 'a1'),
     ).rejects.toThrow(/Invalid Crux Tool package/);
     expect(f.artifact.deleteWorkingArtifactsByResource).not.toHaveBeenCalled();
-    expect(f.repository.update).not.toHaveBeenCalled();
+    expect(f.repository.commitPublication).not.toHaveBeenCalled();
   });
   it('rejects legacy loose tool files before deleting a previous publication', async () => {
     const f = fixture('shared');
