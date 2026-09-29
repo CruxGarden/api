@@ -19,7 +19,8 @@ import {
   FunctionsRepository,
   FunctionScheduleRow,
 } from './functions.repository';
-import { cronError, nextCron, normalizeSchedule } from './cron';
+import { nextCron } from './cron';
+import { functionName, scheduleOf } from './declarations';
 import { decryptSecret, encryptSecret } from './secrets';
 import { fetchEgress } from './egress';
 
@@ -97,9 +98,6 @@ interface Loaded {
   egress: string[];
 }
 
-/** Handler names the API keeps for itself. */
-export const RESERVED_NAMES = new Set(['secrets']);
-
 @Injectable()
 export class FunctionsService {
   private readonly logger: LoggerService;
@@ -155,10 +153,14 @@ export class FunctionsService {
     let loaded: Loaded;
     try {
       loaded = await this.load(row.crux_id);
-    } catch {
-      // Unpublished or gone: its schedules go with it.
-      await this.schedules.deleteSchedules(row.crux_id);
-      return 'unpublished';
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        await this.schedules.deleteSchedules(row.crux_id);
+        return 'unpublished';
+      }
+      // An unavailable database/storage is not evidence of Unshare. Keep the
+      // clock so the next interval can try again; this firing is not replayed.
+      return `error: ${(error as Error).message}`.slice(0, 200);
     }
     const code = loaded.code.get(row.name);
     if (!code) return 'missing';
@@ -225,28 +227,6 @@ export class FunctionsService {
     return out;
   }
 
-  /** `export const schedule = '…'` in a handler, validated. */
-  private scheduleOf(code: string): string | null {
-    const m = /export\s+const\s+schedule\s*=\s*(['"`])([^'"`]+)\1/.exec(code);
-    if (!m) return null;
-    const expr = m[2].trim();
-    return cronError(expr) ? null : normalizeSchedule(expr);
-  }
-
-  /** The table mirrors what the published folder declares. */
-  private async syncSchedules(cruxId: string, loaded: Loaded): Promise<void> {
-    const now = new Date();
-    const rows = loaded.sources
-      .filter((s) => s.schedule)
-      .map((s) => ({
-        name: s.name,
-        schedule: s.schedule!,
-        nextRun:
-          nextCron(s.schedule!, now) ?? new Date(now.getTime() + 86_400_000),
-      }));
-    await this.schedules.syncSchedules(cruxId, rows);
-  }
-
   /** What a published crux's handlers run on, with when-next, for the Share pane. */
   async listWithSchedules(cruxId: string): Promise<FunctionSource[]> {
     const loaded = await this.load(cruxId);
@@ -298,15 +278,13 @@ export class FunctionsService {
         }
         continue;
       }
-      const m = /^functions\/([A-Za-z0-9._-]+)\.js$/.exec(path ?? '');
-      if (!m) continue;
-      const name = m[1];
-      if (RESERVED_NAMES.has(name)) continue;
+      const name = functionName(path ?? '');
+      if (!name) continue;
       const bytes = await this.readPublished(crux.id, crux.meta, path);
       if (!bytes) continue;
       const event = name.startsWith('on-') ? name.slice(3) : undefined;
       const text = bytes.toString('utf8');
-      const schedule = this.scheduleOf(text);
+      const schedule = scheduleOf(text);
       sources.push({
         name,
         path,
@@ -318,8 +296,6 @@ export class FunctionsService {
     }
     const loaded = { version, sources, code, egress };
     this.cache.set(cruxId, loaded);
-    // A new published version re-declares its schedules.
-    await this.syncSchedules(cruxId, loaded);
     return loaded;
   }
 
@@ -348,7 +324,9 @@ export class FunctionsService {
       this.logger.warn(`Could not read ${path}: ${(error as Error).message}`, {
         cruxId,
       });
-      return null;
+      throw new ServiceUnavailableException(
+        'Published Function files are unavailable',
+      );
     }
   }
 

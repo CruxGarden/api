@@ -1,3 +1,5 @@
+import { functionName, scheduleOf } from '../functions/declarations';
+import { nextCron } from '../functions/cron';
 import { randomUUID } from 'node:crypto';
 import {
   PUBLICATION_META_KEYS,
@@ -348,6 +350,13 @@ export class CruxService extends CruxGraphService {
       (sum, file) => sum + file.data.length,
       0,
     );
+    const now = new Date();
+    const schedules = files.flatMap((file, index) => {
+      const name = functionName(fileMetas[index]?.path ?? file.originalname);
+      const schedule = name ? scheduleOf(file.buffer.toString('utf8')) : null;
+      const nextRun = schedule ? nextCron(schedule, now) : null;
+      return name && schedule && nextRun ? [{ name, schedule, nextRun }] : [];
+    });
     let updated: Awaited<ReturnType<CruxRepository['commitPublication']>>;
     let admissionStarted = false;
     try {
@@ -381,6 +390,7 @@ export class CruxService extends CruxGraphService {
               }
             : {}),
         },
+        schedules,
       );
       if (updated.error) throw updated.error;
     } catch (cause) {

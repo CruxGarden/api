@@ -1,3 +1,4 @@
+import { FunctionsService } from '../src/functions/functions.service';
 import { DomainsRepository } from '../src/domains/domains.repository';
 import { LoggerService } from '../src/common/services/logger.service';
 import { INestApplication } from '@nestjs/common';
@@ -220,6 +221,68 @@ describe('Publication replacement and retry', () => {
       );
     },
   );
+  it('publishing alone registers, updates and removes Function schedules', async () => {
+    process.env.PUBLISH_LAYOUT = 'shared';
+    const id = await seed();
+    const upload = (schedule: string) =>
+      request(app.getHttpServer())
+        .post(`/cruxes/${id}/publish`)
+        .set('Authorization', `Bearer ${token()}`)
+        .field('meta', JSON.stringify([{ path: 'functions/tick.js' }]))
+        .attach(
+          'files',
+          Buffer.from(
+            `export const schedule = '${schedule}'; export default async (req, ctx) => { await ctx.store.set('tick-proof', ctx.event.name); return { ok: true }; }`,
+          ),
+          {
+            filename: 'tick.js',
+            contentType: 'text/javascript',
+          },
+        );
+    const rows = () =>
+      fixture.db.query()('function_schedules').where({ crux_id: id });
+    await upload('every 1m').expect(200);
+    expect(await rows()).toEqual([
+      expect.objectContaining({ name: 'tick', schedule: '*/1 * * * *' }),
+    ]);
+    const initial = (await rows())[0];
+    await upload('every 1m').expect(200);
+    expect((await rows())[0].next_run).toEqual(initial.next_run);
+    const functions = app.get(FunctionsService);
+    // No list or invoke request bootstraps this: the API clock finds the row.
+    await functions.runDue(new Date(initial.next_run));
+    expect((await rows())[0].last_status).toBe('200');
+    expect(
+      await fixture.db
+        .query()('store')
+        .where({ crux_id: id, key: 'tick-proof' })
+        .first(),
+    ).toMatchObject({ value: 'schedule' });
+    // A schedule write refusal rolls back publication activation too.
+    const before = await state(id);
+    const beforeClock = await rows();
+    const db = fixture.db.query();
+    await db.raw(
+      `CREATE FUNCTION refuse_clock() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Clock refused'; END $$`,
+    );
+    await db.raw(
+      `CREATE TRIGGER refuse_clock BEFORE INSERT OR UPDATE ON function_schedules FOR EACH ROW EXECUTE FUNCTION refuse_clock()`,
+    );
+    try {
+      await upload('every 2h').expect(500);
+    } finally {
+      await db.raw('DROP TRIGGER refuse_clock ON function_schedules');
+      await db.raw('DROP FUNCTION refuse_clock()');
+    }
+    expect(await state(id)).toEqual(before);
+    expect(await rows()).toEqual(beforeClock);
+    await upload('every 2h').expect(200);
+    expect(await rows()).toEqual([
+      expect.objectContaining({ name: 'tick', schedule: '0 */2 * * *' }),
+    ]);
+    await publish(id, 'without functions').expect(200);
+    expect(await rows()).toEqual([]);
+  });
   it('refuses publication before any writes until the router is enabled', async () => {
     const id = await seed();
     const before = await state(id);

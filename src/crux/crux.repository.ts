@@ -1,3 +1,4 @@
+import { replaceFunctionSchedules } from '../functions/functions.repository';
 import { Injectable, ConflictException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { toTableFields } from '../common/helpers/case-helpers';
@@ -243,6 +244,7 @@ export class CruxRepository {
     expectedVersion: number,
     artifacts: Artifact[],
     publicationMeta: Record<string, unknown>,
+    schedules: { name: string; schedule: string; nextRun: Date }[],
   ): Promise<RepositoryResponse<CruxRaw>> {
     try {
       const data = await this.dbService.query().transaction(async (trx) => {
@@ -275,6 +277,7 @@ export class CruxRepository {
             artifacts.map((a) => toTableFields(a)),
             100,
           );
+        await replaceFunctionSchedules(trx, cruxId, schedules);
         await trx('usage_storage')
           .insert({
             crux_id: cruxId,

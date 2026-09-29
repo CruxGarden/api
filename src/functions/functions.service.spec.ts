@@ -120,21 +120,6 @@ function service(
         updated: new Date(),
       })),
     })),
-    syncSchedules: jest.fn(
-      async (
-        cruxId: string,
-        rows: { name: string; schedule: string; nextRun: Date }[],
-      ) => {
-        for (const k of [...table.keys()])
-          if (!rows.some((r) => `${cruxId}|${r.name}` === k)) table.delete(k);
-        for (const r of rows) {
-          const k = `${cruxId}|${r.name}`;
-          const prev = table.get(k);
-          table.set(k, prev && prev.schedule === r.schedule ? prev : { ...r });
-        }
-        return { data: undefined };
-      },
-    ),
     deleteSchedules: jest.fn(async () => ({ data: undefined })),
     listSchedules: jest.fn(async (cruxId: string) => ({
       data: [...table.entries()]
@@ -186,6 +171,8 @@ function service(
     metered: usage,
     clock: schedules,
     kvStore: store,
+    publishedFiles: fileStore,
+    cruxLookup: cruxService,
   });
 }
 
@@ -308,13 +295,18 @@ describe('Crux Functions runner', () => {
     });
   });
 
-  it('declares schedules when the folder loads, runs the due ones on the clock with ctx.event, and drops an unpublished crux', async () => {
+  it('reads publication-owned schedules and runs due handlers with ctx.event', async () => {
     const s = service({
       'functions/digest.js':
         'export const schedule = "every 10m";\nexport default async (req, ctx) => { await ctx.store.set("last-digest", ctx.event.data.at); return { ran: ctx.event.name }; }',
       'functions/bad.js':
         'export const schedule = "every 90m";\nexport default async () => 1;',
       'functions/hello.js': 'export default async () => 1;',
+    });
+    s.clock.table.set('crux-1|digest', {
+      name: 'digest',
+      schedule: '*/10 * * * *',
+      nextRun: new Date('2026-09-29T12:00:00Z'),
     });
     const listed = await s.listWithSchedules('crux-1');
     expect(listed.find((f) => f.name === 'digest')).toMatchObject({
@@ -337,6 +329,36 @@ describe('Crux Functions runner', () => {
       expect.any(Number),
     );
   });
+
+  it.each(['database', 'storage'])(
+    'retains schedules and retries next interval after a %s outage',
+    async (boundary) => {
+      const s = service({
+        'functions/tick.js': 'export default () => ({ ok: true });',
+      });
+      const row = {
+        name: 'tick',
+        schedule: '* * * * *',
+        nextRun: new Date('2026-09-29T12:00:00Z'),
+      };
+      s.clock.table.set('crux-1|tick', row);
+      if (boundary === 'database')
+        jest
+          .spyOn(s.cruxLookup, 'findById')
+          .mockRejectedValueOnce(new Error('Database unavailable'));
+      else
+        jest
+          .spyOn(s.publishedFiles, 'download')
+          .mockRejectedValueOnce(new Error('Storage unavailable'));
+      await s.runDue(new Date('2026-09-29T12:00:00Z'));
+      expect(s.clock.deleteSchedules).not.toHaveBeenCalled();
+      expect(s.clock.table.get('crux-1|tick')).toMatchObject({
+        status: expect.stringContaining('error:'),
+      });
+      await s.runDue(new Date('2026-09-29T12:01:00Z'));
+      expect(s.clock.table.get('crux-1|tick')).toMatchObject({ status: '200' });
+    },
+  );
 
   it('keeps secrets encrypted at rest and hands them to handlers only', async () => {
     process.env.JWT_SECRET =

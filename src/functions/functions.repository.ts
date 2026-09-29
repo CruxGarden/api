@@ -1,3 +1,4 @@
+import type { Knex } from 'knex';
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
@@ -22,6 +23,30 @@ export interface FunctionScheduleRow {
   last_status: string | null;
 }
 
+/** Called within publication's transaction: activation and its clock are one commit. */
+export async function replaceFunctionSchedules(
+  tx: Knex.Transaction,
+  cruxId: string,
+  rows: { name: string; schedule: string; nextRun: Date }[],
+): Promise<void> {
+  const names = rows.map((row) => row.name);
+  const removed = tx('function_schedules').where({ crux_id: cruxId });
+  if (names.length) removed.whereNotIn('name', names);
+  await removed.delete();
+  for (const row of rows) {
+    await tx.raw(
+      `INSERT INTO function_schedules (crux_id, name, schedule, next_run)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (crux_id, name) DO UPDATE SET
+         schedule = EXCLUDED.schedule,
+         next_run = CASE WHEN function_schedules.schedule = EXCLUDED.schedule
+                    THEN function_schedules.next_run ELSE EXCLUDED.next_run END,
+         updated = now()`,
+      [cruxId, row.name, row.schedule, row.nextRun],
+    );
+  }
+}
+
 /** The `function_schedules` table: which published handlers run on the clock, and when next. */
 @Injectable()
 export class FunctionsRepository {
@@ -31,37 +56,6 @@ export class FunctionsRepository {
     loggerService: LoggerService,
   ) {
     this.logger = loggerService.createChildLogger('FunctionsRepository');
-  }
-
-  /** Make the table hold exactly `rows` for this crux (others removed; existing keep their next_run when the schedule is unchanged). */
-  async syncSchedules(
-    cruxId: string,
-    rows: { name: string; schedule: string; nextRun: Date }[],
-  ): Promise<RepositoryResponse<void>> {
-    try {
-      await this.dbService.query().transaction(async (tx) => {
-        const names = rows.map((r) => r.name);
-        const del = tx('function_schedules').where({ crux_id: cruxId });
-        if (names.length) del.whereNotIn('name', names);
-        await del.delete();
-        for (const r of rows) {
-          await tx.raw(
-            `INSERT INTO function_schedules (crux_id, name, schedule, next_run)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT (crux_id, name) DO UPDATE SET
-               schedule = EXCLUDED.schedule,
-               next_run = CASE WHEN function_schedules.schedule = EXCLUDED.schedule
-                          THEN function_schedules.next_run ELSE EXCLUDED.next_run END,
-               updated = now()`,
-            [cruxId, r.name, r.schedule, r.nextRun],
-          );
-        }
-      });
-      return success(undefined);
-    } catch (error) {
-      this.logger.error('syncSchedules failed', error as Error);
-      return failure(error);
-    }
   }
 
   async deleteSchedules(cruxId: string): Promise<RepositoryResponse<void>> {

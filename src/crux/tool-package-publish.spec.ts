@@ -163,6 +163,7 @@ describe('single-package tool publication', () => {
           publishedBytes: file.size,
           publishStorageId: expect.any(String),
         }),
+        [],
       );
       expect(publicCruxMeta(result.meta)?.toolPackage).toMatchObject({
         artifactId: 'archive-artifact',
