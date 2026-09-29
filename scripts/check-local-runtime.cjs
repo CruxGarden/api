@@ -22,7 +22,11 @@ for (const [file, hash] of Object.entries(provenance.files)) {
   );
 }
 assert.equal(manifest.private, true);
-assert.equal(manifest.peerDependencies['better-sqlite3'], '12.8.0');
+assert.equal(
+  manifest.peerDependencies['better-sqlite3'],
+  load('better-sqlite3/package.json').version,
+  'The runtime must use its declared native SQLite version',
+);
 for (const name of Object.keys(manifest.dependencies)) {
   assert.ok(!/aws|redis|stripe|isolated-vm|anthropic|openai/.test(name), name);
 }
