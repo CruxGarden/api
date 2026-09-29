@@ -204,5 +204,10 @@
       "RATE_LIMIT_MAX",
       "CORS_ORIGIN"
     ]
+  },
+  "overrides": {
+    "@nestjs/swagger": {
+      "js-yaml": "5.4.2"
+    }
   }
 }
