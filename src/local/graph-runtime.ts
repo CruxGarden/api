@@ -1,4 +1,8 @@
 import { GardenMoodService, SelectGardenMood } from './garden-mood.service';
+import {
+  isCredentialSetting,
+  exportWithoutCredentials,
+} from './installation-settings';
 import { GardenMoodRepository } from './garden-mood.repository';
 import { WorkspaceStateService } from './workspace-state.service';
 import { EditRetentionService } from './edit-retention.service';
@@ -1185,11 +1189,12 @@ export class LocalGraphRuntime {
   /** The installation's settings (secrets never enter this table). */
   listSettings(): Promise<{ key: string; value: string }[]> {
     return this.enqueue(() =>
-      this.withConnection(
-        (connection) =>
+      this.withConnection((connection) =>
+        (
           connection
             .prepare('SELECT key, value FROM settings ORDER BY key')
-            .all() as { key: string; value: string }[],
+            .all() as { key: string; value: string }[]
+        ).filter((row) => !isCredentialSetting(row.key)),
       ),
     );
   }
@@ -1198,6 +1203,10 @@ export class LocalGraphRuntime {
   putSetting(key: string, value: string): Promise<void> {
     if (typeof key !== 'string' || !key || typeof value !== 'string')
       return Promise.reject(new Error('Use a setting key and a text value'));
+    if (isCredentialSetting(key))
+      return Promise.reject(
+        new Error('Credentials cannot be saved as installation settings'),
+      );
     const captured = { key, value };
     return this.enqueue(() =>
       this.withConnection((connection) => {
@@ -1314,11 +1323,7 @@ export class LocalGraphRuntime {
   exportDatabase(): Promise<ArrayBuffer> {
     return this.enqueue(() =>
       this.withConnection((connection) => {
-        const bytes: Buffer = connection.serialize();
-        return bytes.buffer.slice(
-          bytes.byteOffset,
-          bytes.byteOffset + bytes.byteLength,
-        ) as ArrayBuffer;
+        return exportWithoutCredentials(connection.serialize());
       }),
     );
   }
