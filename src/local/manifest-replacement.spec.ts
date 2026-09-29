@@ -87,6 +87,9 @@ describe('manifest-aware API installation replacement', () => {
     const source = await LocalGraphRuntime.create(join(dir, 'incoming.db'));
     try {
       replacement = await seed(source, 'Incoming');
+      await source.mergeCruxMeta(replacement.id, {
+        projectFolder: '/foreign/project',
+      });
       await source.run('CREATE TABLE extension_data (value TEXT)');
       await source.run("INSERT INTO extension_data VALUES ('preserve')");
       incoming = await source.exportDatabase();
@@ -115,6 +118,31 @@ describe('manifest-aware API installation replacement', () => {
     await owner.replaceDatabaseWithContent(previous, store);
     expect(await text(owner, current)).toBe('Current');
     expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
+  });
+
+  it('removes imported filesystem grants before the replacement can be reopened', async () => {
+    await owner.mergeCruxMeta(current.id, { projectFolder: '/local/project' });
+    const previous = await owner.replaceDatabaseWithContent(incoming, store);
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'current.db'));
+    const row = await owner.get<{ meta: string }>(
+      'SELECT meta FROM cruxes WHERE id = ?',
+      [replacement.id],
+    );
+    expect(JSON.parse(row!.meta)).not.toHaveProperty('projectFolder');
+    expect(await text(owner, replacement)).toBe('Incoming');
+    const Database = require('better-sqlite3');
+    const bytes = Buffer.from(previous);
+    bytes[18] = bytes[19] = 1; // Serialized WAL pages are complete; deserialize in rollback mode.
+    const rollback = new Database(bytes);
+    try {
+      const retained = rollback
+        .prepare('SELECT meta FROM cruxes WHERE id = ?')
+        .get(current.id);
+      expect(JSON.parse(retained.meta).projectFolder).toBe('/local/project');
+    } finally {
+      rollback.close();
+    }
   });
 
   it.each(['Incoming', 'Current'])(

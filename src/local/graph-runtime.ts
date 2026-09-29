@@ -1398,6 +1398,7 @@ export class LocalGraphRuntime {
               },
             }
           : undefined,
+        true,
       ),
     );
     this.replacing = true;
@@ -1431,6 +1432,7 @@ export class LocalGraphRuntime {
       image,
     ) => inspectDesktopRecovery(image).database,
     contentStore?: DesktopContentStore,
+    rehomeFolders = false,
   ): Promise<ArrayBuffer> {
     const prefix = join(
       dirname(this.filename),
@@ -1457,6 +1459,20 @@ export class LocalGraphRuntime {
         false,
         contentStore,
       );
+      if (rehomeFolders) {
+        // Incoming paths describe another installation, never filesystem authority
+        // here. Clear them before the atomic swap, including a crash before the
+        // renderer recreates folders. The rollback image keeps its local paths.
+        const query = candidate.get(DbService).query();
+        await query.transaction(async (transaction) => {
+          await transaction('cruxes')
+            .whereRaw('json_valid(meta)')
+            .update({
+              meta: transaction.raw("json_remove(meta, '$.projectFolder')"),
+            });
+          await transaction('working_copies').update({ project_folder: null });
+        });
+      }
       await candidate.close();
       candidateClosed = true;
       const staged = openSync(candidatePath, 'r+');
