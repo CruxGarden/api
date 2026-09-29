@@ -19,7 +19,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { FunctionsService } from '../functions/functions.service';
 import { forwardRef, Inject } from '@nestjs/common';
-import { OptionalAuthGuard } from '../common/guards/optional-auth.guard';
+import { VisitorAuthGuard } from '../published-auth/visitor-auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
 import { CruxService } from '../crux/crux.service';
 import { AuthorService } from '../author/author.service';
@@ -52,6 +52,7 @@ export class StoreController {
     value: unknown,
     mode: StoreMode,
     visitorId: string | null,
+    visitorOnly = false,
   ): Promise<void> {
     let results: Record<string, { status: number; body: unknown }>;
     try {
@@ -62,6 +63,8 @@ export class StoreController {
         'store:write',
         { key, value, mode, before: before ?? null },
         visitorId,
+        0,
+        visitorOnly,
       ));
     } catch {
       return; // the runner itself failing is not the crux refusing
@@ -100,6 +103,7 @@ export class StoreController {
    * Resolve visitor's author ID from the account JWT (if present).
    */
   private async getVisitorId(req: AuthRequest): Promise<string | null> {
+    if (req.publishedVisitor) return req.publishedVisitor.id;
     if (!req.account) return null;
     try {
       const author = await this.authorService.findByAccountId(req.account.id);
@@ -118,7 +122,7 @@ export class StoreController {
    * Protected keys: the caller's own slot (token), else `{ value: null }`.
    */
   @Get(':cruxId/:key')
-  @UseGuards(OptionalAuthGuard)
+  @UseGuards(VisitorAuthGuard)
   @StoreSwagger.Get()
   async get(
     @Param('cruxId') cruxId: string,
@@ -140,7 +144,7 @@ export class StoreController {
    * accepted as an alias of `public`.
    */
   @Put(':cruxId/:key')
-  @UseGuards(OptionalAuthGuard, StoreWriteRateLimitGuard)
+  @UseGuards(VisitorAuthGuard, StoreWriteRateLimitGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   @StoreSwagger.Set()
   async set(
@@ -157,7 +161,14 @@ export class StoreController {
     // (functions/on-store.js with `export const match = 'store:*'`,
     // CRUX-FUNCTIONS-PLAN F2): a handler that calls ctx.reject refuses the
     // write and its message is the answer. A broken handler never blocks one.
-    await this.storeWriteHook(cruxId, key, dto.value, mode, visitorId);
+    await this.storeWriteHook(
+      cruxId,
+      key,
+      dto.value,
+      mode,
+      visitorId,
+      !!req.publishedVisitor,
+    );
     const entry = await this.storeService.set(
       cruxId,
       authorId,
@@ -176,7 +187,7 @@ export class StoreController {
    * Protected keys: the caller's own slot.
    */
   @Post(':cruxId/:key/inc')
-  @UseGuards(OptionalAuthGuard, StoreWriteRateLimitGuard)
+  @UseGuards(VisitorAuthGuard, StoreWriteRateLimitGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   @StoreSwagger.Increment()
   async increment(
@@ -206,7 +217,7 @@ export class StoreController {
    * on a protected key.
    */
   @Delete(':cruxId/:key')
-  @UseGuards(OptionalAuthGuard, StoreWriteRateLimitGuard)
+  @UseGuards(VisitorAuthGuard, StoreWriteRateLimitGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   @HttpCode(HttpStatus.NO_CONTENT)
   @StoreSwagger.Delete()
@@ -217,7 +228,7 @@ export class StoreController {
   ) {
     const authorId = await this.getCruxAuthorId(cruxId);
     const visitorId = await this.getVisitorId(req);
-    if (visitorId && visitorId === authorId) {
+    if (!req.publishedVisitor && visitorId && visitorId === authorId) {
       await this.storeService.delete(cruxId, key);
     } else {
       await this.storeService.deleteSlot(cruxId, key, visitorId);

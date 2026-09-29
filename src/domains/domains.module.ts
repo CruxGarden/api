@@ -20,7 +20,7 @@ import { BillingModule } from '../billing/billing.module';
     GatepostController,
   ],
   providers: [DomainsService, DomainsRepository],
-  exports: [DomainsService],
+  exports: [DomainsService, DomainsRepository],
 })
 export class DomainsModule implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly domains: DomainsService) {}

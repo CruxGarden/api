@@ -357,6 +357,7 @@ export class FunctionsService {
     input: {
       body: unknown;
       visitorId: string | null;
+      visitorOnly?: boolean;
       method?: string;
       /** The path after the handler's name: `/fn/<id>/orders/42/items` → `42/items`. */
       rest?: string;
@@ -386,6 +387,7 @@ export class FunctionsService {
         headers: input.headers ?? {},
       },
       visitorId: input.visitorId,
+      visitorOnly: input.visitorOnly,
     });
   }
 
@@ -400,6 +402,7 @@ export class FunctionsService {
     data: unknown,
     visitorId: string | null,
     depth = 0,
+    visitorOnly = false,
   ): Promise<{ handlers: number; results: Record<string, RunResult> }> {
     const event: CruxEvent = {
       name,
@@ -420,6 +423,7 @@ export class FunctionsService {
         results[source.name] = await this.execute(cruxId, source.name, code, {
           req: { method: 'EVENT', body: data, json: async () => data },
           visitorId,
+          visitorOnly,
           event,
           depth: depth + 1,
         }).catch((error) => ({
@@ -455,6 +459,7 @@ export class FunctionsService {
         headers?: Record<string, string>;
       };
       visitorId: string | null;
+      visitorOnly?: boolean;
       event?: CruxEvent;
       depth?: number;
     },
@@ -510,7 +515,12 @@ export class FunctionsService {
 
   private context(
     crux: { id: string; authorId: string },
-    input: { visitorId: string | null; event?: CruxEvent; depth?: number },
+    input: {
+      visitorId: string | null;
+      visitorOnly?: boolean;
+      event?: CruxEvent;
+      depth?: number;
+    },
     logs: string[],
     world: { egress: string[]; secrets: Map<string, string> } = {
       egress: [],
@@ -522,7 +532,7 @@ export class FunctionsService {
       fetchEgress(world.egress, String(url), init);
     const visitorId = input.visitorId;
     const writer = visitorId ?? crux.authorId;
-    const isOwner = visitorId === crux.authorId;
+    const isOwner = !input.visitorOnly && visitorId === crux.authorId;
     return Object.freeze({
       crux: { id: cruxId },
       visitor: visitorId ? { id: visitorId, isOwner } : null,
@@ -575,6 +585,7 @@ export class FunctionsService {
           data,
           visitorId,
           (input.depth ?? 0) + 1,
+          input.visitorOnly,
         ),
       store: Object.freeze({
         get: async (key: string) =>

@@ -149,6 +149,19 @@ export class AuthService {
     // 3) create refresh token
     const refreshToken = await this.genRefreshToken(grantId);
 
+    const account = await this.findOrCreateAccount(email);
+
+    // 5) create jwt access token for account
+    const accessToken = this.genAccessToken(account, grantId);
+
+    // 5) cleanup
+    await this.remove(this.codeKey(authLoginDto.code));
+
+    return this.genAuthCredentials(accessToken, refreshToken);
+  }
+
+  /** Shared identity creation; callers choose account or published visitor authority. */
+  async findOrCreateAccount(email: string): Promise<Account> {
     // 4) lookup account by email, create account if not found
     let account = null;
     try {
@@ -202,13 +215,7 @@ export class AuthService {
       }
     }
 
-    // 5) create jwt access token for account
-    const accessToken = this.genAccessToken(account, grantId);
-
-    // 5) cleanup
-    await this.remove(this.codeKey(authLoginDto.code));
-
-    return this.genAuthCredentials(accessToken, refreshToken);
+    return account;
   }
 
   async logout(email: string): Promise<{ message: string } | null> {

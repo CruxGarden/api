@@ -1,3 +1,4 @@
+import { PublishedAuthService } from '../published-auth/published-auth.service';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as jwt from 'jsonwebtoken';
@@ -27,6 +28,7 @@ describe('Function HTTP response boundary', () => {
     const module = await Test.createTestingModule({
       controllers: [FunctionsController],
       providers: [
+        { provide: PublishedAuthService, useValue: {} },
         { provide: FunctionsService, useValue: functions },
         {
           provide: CruxService,

@@ -1,3 +1,4 @@
+import { PublishedAuthService } from '../published-auth/published-auth.service';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { StoreController } from './crux-store.controller';
@@ -52,6 +53,7 @@ describe('StoreController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [StoreController],
       providers: [
+        { provide: PublishedAuthService, useValue: {} },
         { provide: StoreService, useValue: storeService },
         { provide: CruxService, useValue: cruxService },
         { provide: AuthorService, useValue: authorService },
@@ -133,6 +135,8 @@ describe('StoreController', () => {
         'store:write',
         { key: 'score', value: 3, mode: 'public', before: 7 },
         'author-alice',
+        0,
+        false,
       );
       expect(storeService.set).not.toHaveBeenCalled();
       expect(usage.noteStoreRequest).not.toHaveBeenCalled();

@@ -18,7 +18,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { Observable, filter, map } from 'rxjs';
-import { OptionalAuthGuard } from '../common/guards/optional-auth.guard';
+import { VisitorAuthGuard } from '../published-auth/visitor-auth.guard';
 import { AuthGuard } from '../common/guards/auth.guard';
 import { CruxService } from '../crux/crux.service';
 import { AuthRequest } from '../common/types/interfaces';
@@ -88,6 +88,7 @@ export class FunctionsController {
   }
 
   private async visitorId(req: AuthRequest): Promise<string | null> {
+    if (req.publishedVisitor) return req.publishedVisitor.id;
     if (!req.account) return null;
     try {
       const author = await this.authorService.findByAccountId(req.account.id);
@@ -99,13 +100,13 @@ export class FunctionsController {
   }
 
   @Get('fn/:cruxId')
-  @UseGuards(OptionalAuthGuard)
+  @UseGuards(VisitorAuthGuard)
   async list(@Param('cruxId') cruxId: string) {
     return this.functions.listWithSchedules(cruxId);
   }
 
   @All('fn/:cruxId/:name')
-  @UseGuards(OptionalAuthGuard)
+  @UseGuards(VisitorAuthGuard)
   async call(
     @Param('cruxId') cruxId: string,
     @Param('name') name: string,
@@ -117,7 +118,7 @@ export class FunctionsController {
   }
 
   @All('fn/:cruxId/:name/*rest')
-  @UseGuards(OptionalAuthGuard)
+  @UseGuards(VisitorAuthGuard)
   async callRest(
     @Param('cruxId') cruxId: string,
     @Param('name') name: string,
@@ -158,12 +159,17 @@ export class FunctionsController {
     const result = await this.functions.call(cruxId, name, {
       body: body ?? null,
       visitorId,
+      visitorOnly: !!req.publishedVisitor,
       method: r.method,
       rest,
       query: r.query ?? {},
       headers,
     });
-    sendFunctionResponse(res, result, await this.isOwner(cruxId, visitorId));
+    sendFunctionResponse(
+      res,
+      result,
+      !req.publishedVisitor && (await this.isOwner(cruxId, visitorId)),
+    );
   }
 
   private async isOwner(
@@ -177,7 +183,7 @@ export class FunctionsController {
 
   @Post('events/:cruxId/:name')
   @HttpCode(202)
-  @UseGuards(OptionalAuthGuard)
+  @UseGuards(VisitorAuthGuard)
   async emit(
     @Param('cruxId') cruxId: string,
     @Param('name') name: string,
@@ -190,8 +196,11 @@ export class FunctionsController {
       name,
       body ?? null,
       visitorId,
+      0,
+      !!req.publishedVisitor,
     );
-    const isOwner = await this.isOwner(cruxId, visitorId);
+    const isOwner =
+      !req.publishedVisitor && (await this.isOwner(cruxId, visitorId));
     const visibleResults = Object.fromEntries(
       Object.entries(results).map(([handler, result]) => [
         handler,

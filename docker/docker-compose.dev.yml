@@ -89,7 +89,7 @@ services:
       AWS_S3_SYNC_BUCKET: ${AWS_S3_SYNC_BUCKET:-sync.crux.garden}
 
       # Optional Configuration
-      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DB_POOL_MIN: ${DB_POOL_MIN:-2}
       DB_POOL_MAX: ${DB_POOL_MAX:-10}

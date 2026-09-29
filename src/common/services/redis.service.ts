@@ -50,6 +50,11 @@ export class RedisService implements OnModuleInit {
     return redis.get(key) || null;
   }
 
+  async take(key: string): Promise<string | null> {
+    await this.connect();
+    return redis.getDel(key);
+  }
+
   async del(key: string) {
     await this.connect();
     return redis.del(key);

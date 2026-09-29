@@ -1,3 +1,4 @@
+import { AccountOriginGuard } from '../common/guards/account-origin.guard';
 import {
   Controller,
   Get,
@@ -25,6 +26,7 @@ import Account from '../account/entities/account.entity';
 import { AuthCredentials } from '../common/types/interfaces';
 
 @Controller('auth')
+@UseGuards(AccountOriginGuard)
 @UsePipes(
   new ValidationPipe({
     transform: true,

@@ -15,5 +15,6 @@ import { HomeModule } from '../home/home.module';
   ],
   controllers: [AuthController],
   providers: [AuthService],
+  exports: [AuthService],
 })
 export class AuthModule {}

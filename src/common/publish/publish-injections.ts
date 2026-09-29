@@ -163,7 +163,9 @@ const CRUX_STORE_CLIENT: PublishInjection = {
   // store (sign-in by email code, for instance).
   window.crux.publish={cruxId:PUBLISHED_CRUX_ID,apiBase:PUBLISHED_API_BASE};
   var BASE=(PUBLISHED_CRUX_ID&&PUBLISHED_API_BASE)?PUBLISHED_API_BASE+'/store/'+PUBLISHED_CRUX_ID:'';
-  var _token=null,_mode='live',_cruxId=PUBLISHED_CRUX_ID;
+  var _token=null,_refreshToken=null,_refreshing=null,_mode='live',_cruxId=PUBLISHED_CRUX_ID;
+  var GARDEN_ORIGIN=${inlineJson(process.env.CORS_ORIGIN && process.env.CORS_ORIGIN !== '*' ? process.env.CORS_ORIGIN : 'https://crux.garden')};
+  var _parentOrigin=null;
   var _resolveReady;
   var _ready=new Promise(function(r){_resolveReady=r;});
   // A page opened directly (its own subdomain, no parent frame) never receives
@@ -171,20 +173,17 @@ const CRUX_STORE_CLIENT: PublishInjection = {
   // left every store call pending forever. Framed contexts (the workspace
   // preview) still override mode/token when their session arrives.
   if(window.parent===window&&BASE)_resolveReady();
+  // Arbitrary embeds still work as standalone pages; only Garden may enable its relay.
+  if(window.parent!==window)setTimeout(_resolveReady,1500);
   window.addEventListener('message',function(e){
-    // Only the opener may configure the session: any page can embed a
-    // published crux, and an arbitrary embedder must not be able to point
-    // store traffic at a server of its choosing.
-    if(e.source!==window.parent)return;
-    if(e.data&&e.data.type==='crux:session'){
-      _token=e.data.token||null;
-      _mode=e.data.mode||'live';
-      _cruxId=e.data.cruxId||_cruxId;
-      var apiBase=e.data.apiBase||PUBLISHED_API_BASE||'';
-      if(_cruxId)BASE=apiBase+'/store/'+_cruxId;
+    if(e.source!==window.parent||(e.origin!==GARDEN_ORIGIN&&e.origin!=='crux-app://index.html'))return;
+    if(e.data&&e.data.type==='crux:session'&&e.data.mode==='local'&&e.data.cruxId===PUBLISHED_CRUX_ID){
+      _mode='local';
+      _parentOrigin=e.origin;
       // Who is looking, as the host knows them (id, name, @username) — never a token.
       window.crux.visitor=e.data.visitorId?{id:e.data.visitorId,name:e.data.visitorName||null,username:e.data.visitorUsername||null}:null;
       _resolveReady();
+      window.dispatchEvent(new CustomEvent('crux:authchange'));
     }
   });
   function hdr(){var h={'Content-Type':'application/json'};if(_token)h['Authorization']='Bearer '+_token;return h;}
@@ -192,32 +191,70 @@ const CRUX_STORE_CLIENT: PublishInjection = {
   // signed-in account", 409 mode conflict, 429) instead of a bare status code.
   function fail(r,what){return r.json().catch(function(){return {};}).then(function(d){throw new Error(d&&d.message?d.message:what+' failed: '+r.status);});}
   function localCall(type,payload){
-    return new Promise(function(res){
+    return new Promise(function(res,rej){
       var id=Math.random().toString(36).slice(2);
-      var timeout=setTimeout(function(){window.removeEventListener('message',h);res(null);},5000);
+      var timeout=setTimeout(function(){window.removeEventListener('message',h);rej(new Error('Crux Garden did not answer'));},5000);
       function h(e){
-        if(e.data&&e.data.id===id&&e.data.type===type+':res'){
+        if(e.source===window.parent&&e.origin===_parentOrigin&&e.data&&e.data.id===id&&e.data.type===type+':res'){
           clearTimeout(timeout);
           window.removeEventListener('message',h);
+          if(e.data.error){rej(new Error(e.data.error));return;}
           res(e.data.value!==undefined?e.data.value:e.data.keys||null);
         }
       }
       window.addEventListener('message',h);
-      window.parent.postMessage(Object.assign({type:type,id:id},payload),'*');
+      window.parent.postMessage(Object.assign({type:type,id:id},payload),_parentOrigin);
     });
   }
+  function authUrl(path){return PUBLISHED_API_BASE+'/published-auth/'+encodeURIComponent(PUBLISHED_CRUX_ID)+'/'+path;}
+  function acceptSession(d){_token=d.accessToken;_refreshToken=d.refreshToken;window.crux.visitor=d.visitor;return d.visitor;}
+  function authRequest(path,body){
+    return fetch(authUrl(path),{method:'POST',credentials:'omit',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){if(!r.ok)return fail(r,'Sign-in');return r.json();});
+  }
+  function refresh(){
+    if(!_refreshToken)return Promise.reject(new Error('Sign in to this creation first.'));
+    if(!_refreshing)_refreshing=authRequest('token',{refreshToken:_refreshToken}).then(acceptSession).finally(function(){_refreshing=null;});
+    return _refreshing;
+  }
+  function request(url,init){
+    init=Object.assign({},init,{credentials:'omit',redirect:'error',headers:hdr()});
+    return fetch(url,init).then(function(r){
+      if(r.status!==401||!_refreshToken)return r;
+      return refresh().then(function(){return fetch(url,Object.assign({},init,{headers:hdr()}));});
+    });
+  }
+  function standalone(){if(_mode==='local')throw new Error('Manage your sign-in in Crux Garden.');}
+  window.crux.auth={
+    isHosted:function(){return _mode==='local';},
+    requestCode:function(email){return _ready.then(function(){standalone();return authRequest('code',{email:email});});},
+    login:function(email,code){return _ready.then(function(){standalone();return authRequest('login',{email:email,code:code}).then(acceptSession);});},
+    refresh:function(){return _ready.then(function(){standalone();return refresh();});},
+    profile:function(){return _ready.then(function(){
+      if(_mode==='local')return localCall('crux:visitor',{}).then(function(v){window.crux.visitor=v;return v;});
+      if(!_token)return null;
+      return request(authUrl('profile'),{}).then(function(r){if(!r.ok)return fail(r,'Profile');return r.json();});
+    });},
+    logout:function(){return _ready.then(function(){
+      standalone();
+      if(!_token)return;
+      return request(authUrl('logout'),{method:'DELETE'}).then(function(r){
+        if(!r.ok)return fail(r,'Sign out');_token=null;_refreshToken=null;window.crux.visitor=null;
+      });
+    });}
+  };
   window.crux.store={
     get:function(key){
       return _ready.then(function(){
         if(_mode==='local')return localCall('crux:store:get',{key:key});
-        return fetch(BASE+'/'+encodeURIComponent(key),{headers:hdr()}).then(function(r){return r.ok?r.json().then(function(d){return d.value}):null}).catch(function(){return null});
+        return request(BASE+'/'+encodeURIComponent(key),{headers:hdr()}).then(function(r){return r.ok?r.json().then(function(d){return d.value}):null}).catch(function(){return null});
       });
     },
     set:function(key,value,opts){
       var m=(opts&&opts.mode)||'protected';
       return _ready.then(function(){
-        if(_mode==='local'){window.parent.postMessage({type:'crux:store:set',key:key,value:value,mode:m},'*');return;}
-        return fetch(BASE+'/'+encodeURIComponent(key),{method:'PUT',headers:hdr(),body:JSON.stringify({value:value,mode:m})}).then(function(r){if(!r.ok)return fail(r,'Store set')});
+        if(_mode==='local')return localCall('crux:store:set',{key:key,value:value,mode:m});
+        return request(BASE+'/'+encodeURIComponent(key),{method:'PUT',headers:hdr(),body:JSON.stringify({value:value,mode:m})}).then(function(r){if(!r.ok)return fail(r,'Store set')});
       });
     },
     increment:function(key,by,opts){
@@ -226,19 +263,19 @@ const CRUX_STORE_CLIENT: PublishInjection = {
       return _ready.then(function(){
         if(_mode==='local')return localCall('crux:store:inc',{key:key,by:by,mode:m});
         var body={by:by};if(m)body.mode=m;
-        return fetch(BASE+'/'+encodeURIComponent(key)+'/inc',{method:'POST',headers:hdr(),body:JSON.stringify(body)}).then(function(r){if(!r.ok)return fail(r,'Store increment');return r.json().then(function(d){return d.value})});
+        return request(BASE+'/'+encodeURIComponent(key)+'/inc',{method:'POST',headers:hdr(),body:JSON.stringify(body)}).then(function(r){if(!r.ok)return fail(r,'Store increment');return r.json().then(function(d){return d.value})});
       });
     },
     delete:function(key){
       return _ready.then(function(){
-        if(_mode==='local'){window.parent.postMessage({type:'crux:store:del',key:key},'*');return;}
-        return fetch(BASE+'/'+encodeURIComponent(key),{method:'DELETE',headers:hdr()}).then(function(r){if(!r.ok)return fail(r,'Store delete')});
+        if(_mode==='local')return localCall('crux:store:del',{key:key});
+        return request(BASE+'/'+encodeURIComponent(key),{method:'DELETE',headers:hdr()}).then(function(r){if(!r.ok)return fail(r,'Store delete')});
       });
     },
     list:function(){
       return _ready.then(function(){
         if(_mode==='local')return localCall('crux:store:list',{});
-        return fetch(BASE,{headers:hdr()}).then(function(r){if(!r.ok)return fail(r,'Store list');return r.json()});
+        return request(BASE,{headers:hdr()}).then(function(r){if(!r.ok)return fail(r,'Store list');return r.json()});
       });
     }
   };
@@ -247,7 +284,7 @@ const CRUX_STORE_CLIENT: PublishInjection = {
   //   crux.emit(name, data)    raises an event: functions/on-<name>.js handlers run
   //   crux.on(name, cb)        hears the crux's events (a server-sent stream); returns stop()
   // Functions run where the crux is published; in the workspace preview they answer from there too.
-  function fnBase(){return (_cruxId&&BASE)?BASE.replace(/\/store\/[^/]+$/,''):'';}
+  function fnBase(){return PUBLISHED_API_BASE||'';}
   // Framed by Crux Garden (the workshop preview, the public page) the host makes the
   // call as the signed-in person — the page never holds a token.
   function hostCall(type,payload){
@@ -269,7 +306,7 @@ const CRUX_STORE_CLIENT: PublishInjection = {
     return _ready.then(function(){
       if(_mode==='local')return hostCall('crux:fn:call',{name:name,body:body===undefined?null:body});
       var b=fnBase();if(!b)return Promise.reject(new Error('Functions run in the published crux'));
-      return fetch(b+'/fn/'+encodeURIComponent(_cruxId)+'/'+encodeURIComponent(name),{method:'POST',headers:hdr(),body:JSON.stringify(body===undefined?null:body)})
+      return request(b+'/fn/'+encodeURIComponent(_cruxId)+'/'+encodeURIComponent(name),{method:'POST',headers:hdr(),body:JSON.stringify(body===undefined?null:body)})
         .then(function(r){if(!r.ok)return fail(r,'Function '+name);return r.status===204?null:r.json();});
     });
   };
@@ -277,7 +314,7 @@ const CRUX_STORE_CLIENT: PublishInjection = {
     return _ready.then(function(){
       if(_mode==='local')return hostCall('crux:fn:emit',{name:name,data:data===undefined?null:data});
       var b=fnBase();if(!b)return Promise.reject(new Error('Events run in the published crux'));
-      return fetch(b+'/events/'+encodeURIComponent(_cruxId)+'/'+encodeURIComponent(name),{method:'POST',headers:hdr(),body:JSON.stringify(data===undefined?null:data)})
+      return request(b+'/events/'+encodeURIComponent(_cruxId)+'/'+encodeURIComponent(name),{method:'POST',headers:hdr(),body:JSON.stringify(data===undefined?null:data)})
         .then(function(r){if(!r.ok)return fail(r,'Event '+name);return r.json();});
     });
   };

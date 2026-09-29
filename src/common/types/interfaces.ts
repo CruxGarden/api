@@ -9,6 +9,7 @@ export interface AuthCredentials {
 
 export interface AuthRequest extends Request {
   account: JwtPayload;
+  publishedVisitor?: { id: string; accountId: string };
 }
 
 export interface HealthStatus {

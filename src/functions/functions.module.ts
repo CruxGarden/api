@@ -1,3 +1,4 @@
+import { PublishedAuthModule } from '../published-auth/published-auth.module';
 import {
   Module,
   forwardRef,
@@ -14,6 +15,7 @@ import { UsageModule } from '../usage/usage.module';
 
 @Module({
   imports: [
+    PublishedAuthModule,
     forwardRef(() => CruxModule),
     forwardRef(() => StoreModule),
     forwardRef(() => AuthorModule),

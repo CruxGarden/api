@@ -26,6 +26,12 @@ export class MockRedisService {
     return entry.value;
   }
 
+  async take(key: string): Promise<string | null> {
+    const value = this.get(key);
+    this.store.delete(key);
+    return value;
+  }
+
   async del(key: string): Promise<void> {
     this.store.delete(key);
   }

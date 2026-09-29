@@ -1,3 +1,5 @@
+import { ForbiddenException } from '@nestjs/common';
+import { isAccountOrigin } from './account-origin.guard';
 import {
   CanActivate,
   ExecutionContext,
@@ -20,6 +22,11 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const token = request.headers.authorization?.replace('Bearer ', '');
+
+    if (token && !isAccountOrigin(request.headers.origin))
+      throw new ForbiddenException(
+        'Published pages require visitor credentials',
+      );
 
     if (token) {
       let payload = null;

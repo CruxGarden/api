@@ -1,3 +1,4 @@
+import { PublishedAuthModule } from '../published-auth/published-auth.module';
 import { Module, forwardRef } from '@nestjs/common';
 import { StoreController } from './crux-store.controller';
 import { StoreService } from './crux-store.service';
@@ -10,6 +11,7 @@ import { FunctionsModule } from '../functions/functions.module';
 
 @Module({
   imports: [
+    PublishedAuthModule,
     forwardRef(() => CruxModule),
     forwardRef(() => AuthorModule),
     UsageModule,
