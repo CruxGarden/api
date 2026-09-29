@@ -1,4 +1,5 @@
-import { Request } from 'express';
+import { Request, Response } from 'express';
+import multer = require('multer');
 import { MulterError, StorageEngine } from 'multer';
 import { MAX_PUBLISH_FILES, MAX_PUBLISH_SIZE } from '../types/constants';
 
@@ -12,34 +13,30 @@ export const publishUploadLimits = {
 
 /** Count bytes as they arrive, before retaining them. Downstream publication
  * currently needs Buffers, so the entire request shares one bounded budget. */
-export function publishUploadStorage(
-  maxBytes = MAX_PUBLISH_SIZE,
+function publishUploadStorage(
+  maxBytes: number,
+  onOverflow: (error: MulterError) => void,
 ): StorageEngine {
-  const budgets = new WeakMap<Request, { bytes: number; exceeded: boolean }>();
+  // One storage instance belongs to one request, shared by all its files.
+  let bytes = 0;
+  let exceeded = false;
   return {
-    _handleFile(req, file, callback) {
-      let budget = budgets.get(req);
-      if (!budget) {
-        budget = { bytes: 0, exceeded: false };
-        budgets.set(req, budget);
-      }
-      const requestBudget = budget;
+    _handleFile(_req, file, callback) {
       let chunks: Buffer[] = [];
       let size = 0;
       let finished = false;
       file.stream.on('data', (chunk: Buffer) => {
         if (finished) return;
-        if (
-          requestBudget.exceeded ||
-          chunk.length > maxBytes - requestBudget.bytes
-        ) {
-          requestBudget.exceeded = true;
+        if (exceeded || chunk.length > maxBytes - bytes) {
+          exceeded = true;
           finished = true;
           chunks = [];
-          callback(new MulterError('LIMIT_FILE_SIZE', file.fieldname));
+          const error = new MulterError('LIMIT_FILE_SIZE', file.fieldname);
+          onOverflow(error);
+          callback(error);
           return;
         }
-        requestBudget.bytes += chunk.length;
+        bytes += chunk.length;
         size += chunk.length;
         chunks.push(chunk);
       });
@@ -63,4 +60,28 @@ export function publishUploadStorage(
       setImmediate(() => callback(null));
     },
   };
+}
+
+/** Multer drains rejected bodies before completing. An aggregate byte refusal
+ * must reach the client even if it never finishes sending that body. Keep
+ * Multer's cleanup running, but close this connection after the error response. */
+export function receivePublishUpload(
+  req: Request,
+  res: Response,
+  maxBytes = MAX_PUBLISH_SIZE,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let refused = false;
+    const storage = publishUploadStorage(maxBytes, (error) => {
+      if (refused) return;
+      refused = true;
+      res.setHeader('Connection', 'close');
+      res.once('finish', () => req.destroy());
+      reject(error);
+    });
+    multer({ storage, limits: publishUploadLimits }).array(
+      'files',
+      MAX_PUBLISH_FILES,
+    )(req, res, (error) => (error ? reject(error) : resolve()));
+  });
 }

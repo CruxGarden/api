@@ -3,17 +3,64 @@ import multer = require('multer');
 import request = require('supertest');
 import { request as httpRequest } from 'node:http';
 import { AddressInfo } from 'node:net';
-import { publishUploadStorage, publishUploadLimits } from './upload-storage';
+import { receivePublishUpload, publishUploadLimits } from './upload-storage';
 import { MAX_PUBLISH_FILES } from '../types/constants';
+import {
+  Controller,
+  Post,
+  UploadedFiles,
+  UseInterceptors,
+} from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { PublishUploadInterceptor } from './upload.interceptor';
+
+@Controller('publish')
+class UploadBoundaryController {
+  @Post()
+  @UseInterceptors(PublishUploadInterceptor)
+  publish(@UploadedFiles() files: Express.Multer.File[]) {
+    return { count: files.length };
+  }
+}
+
+it('the Nest upload boundary accepts files and returns client errors for malformed multipart requests', async () => {
+  const module = await Test.createTestingModule({
+    controllers: [UploadBoundaryController],
+  }).compile();
+  const app = module.createNestApplication();
+  await app.init();
+  try {
+    const endpoint = () => request(app.getHttpServer()).post('/publish');
+    expect(
+      (await endpoint().attach('files', Buffer.from('ok'), 'ok.txt')).body,
+    ).toEqual({ count: 1 });
+    const unexpected = await endpoint().attach(
+      'unexpected',
+      Buffer.from('x'),
+      'x.txt',
+    );
+    expect(unexpected.status).toBe(400);
+    expect(unexpected.body.message).toBe('Invalid publish upload.');
+    const malformed = await endpoint()
+      .set('Content-Type', 'multipart/form-data')
+      .send('broken');
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.message).toBe('Invalid multipart upload.');
+    expect(
+      (await endpoint().attach('files', Buffer.from('still ok'), 'ok.txt'))
+        .body,
+    ).toEqual({ count: 1 });
+  } finally {
+    await app.close();
+  }
+});
 
 function server(maxBytes?: number) {
   const app = express();
   app.post(
     '/publish',
-    multer({
-      storage: publishUploadStorage(maxBytes),
-      limits: publishUploadLimits,
-    }).array('files', MAX_PUBLISH_FILES),
+    (req, res, next) =>
+      receivePublishUpload(req, res, maxBytes).then(() => next(), next),
     (req, res) => {
       res.json({ count: (req.files as Express.Multer.File[]).length });
     },
@@ -111,8 +158,12 @@ describe('publish byte budget', () => {
       headers: { 'Content-Type': 'multipart/form-data; boundary=budget' },
     });
     try {
+      const closed = new Promise<void>((resolve) =>
+        outgoing.once('close', resolve),
+      );
       const response = new Promise<number>((resolve) =>
         outgoing.once('response', (response) => {
+          expect(response.headers.connection).toBe('close');
           response.resume();
           resolve(response.statusCode!);
         }),
@@ -129,6 +180,8 @@ describe('publish byte budget', () => {
         }),
       ]);
       expect(status).toBe(400);
+      await closed;
+      expect((await request(listener).get('/health')).status).toBe(200);
     } finally {
       outgoing.destroy();
       listener.closeAllConnections();

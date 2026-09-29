@@ -21,7 +21,7 @@ import {
   Header,
   StreamableFile,
 } from '@nestjs/common';
-import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { AuthRequest } from '../common/types/interfaces';
 import { CruxService } from './crux.service';
@@ -41,16 +41,9 @@ import { SyncTagsDto } from '../tag/dto/sync-tags.dto';
 import Tag from '../tag/entities/tag.entity';
 import { HomeService } from '../home/home.service';
 import { UploadArtifactDto } from '../artifact/dto/upload-artifact.dto';
-import {
-  MAX_ARTIFACT_SIZE,
-  MAX_PUBLISH_SIZE,
-  MAX_PUBLISH_FILES,
-} from '../common/types/constants';
+import { MAX_ARTIFACT_SIZE, MAX_PUBLISH_SIZE } from '../common/types/constants';
 import Artifact from '../artifact/entities/artifact.entity';
-import {
-  publishUploadStorage,
-  publishUploadLimits,
-} from '../common/publish/upload-storage';
+import { PublishUploadInterceptor } from '../common/publish/upload.interceptor';
 
 @Controller('cruxes')
 @UseGuards(AuthGuard)
@@ -289,12 +282,7 @@ export class CruxController {
 
   @Post(':id/publish')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(
-    FilesInterceptor('files', MAX_PUBLISH_FILES, {
-      storage: publishUploadStorage(),
-      limits: publishUploadLimits,
-    }),
-  )
+  @UseInterceptors(PublishUploadInterceptor)
   async publish(
     @Param('id') id: string,
     @UploadedFiles() files: Express.Multer.File[],
