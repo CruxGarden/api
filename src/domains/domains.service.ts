@@ -398,13 +398,16 @@ export class DomainsService {
     if (row.tenant_id) {
       try {
         const outcome = await this.edge.deleteTenant(row.tenant_id);
-        if (outcome === 'deleted')
-          await this.repo.update(id, { tenant_id: null });
-        // 'disabling': the domain is dark; the sweep deletes the tenant later
-      } catch (err) {
-        // Keep tenant_id so the sweep can try again
-        this.logger.error(
-          `tenant delete failed for ${row.hostname}: ${(err as Error).message}`,
+        if (outcome === 'deleted') {
+          const updated = await this.repo.update(id, { tenant_id: null });
+          if (updated.error) throw updated.error;
+        }
+        // 'disabling' is acknowledged; the sweep finishes deletion after propagation.
+      } catch (cause) {
+        // Keep the live row and tenant id so explicit removal can be retried.
+        throw new InternalServerErrorException(
+          'Could not remove the domain at the edge. Please retry.',
+          { cause },
         );
       }
     }
@@ -501,7 +504,11 @@ export class DomainsService {
 
   async removeAllForCrux(cruxId: string): Promise<void> {
     const r = await this.repo.findByCrux(cruxId);
-    for (const row of r.data ?? []) await this.remove(row.id).catch(() => {});
+    if (r.error)
+      throw new InternalServerErrorException(
+        'Could not read the domains to remove',
+      );
+    for (const row of r.data ?? []) await this.remove(row.id);
   }
 
   /** Advance issuing tenants without a client asking. */

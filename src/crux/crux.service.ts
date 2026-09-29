@@ -115,24 +115,8 @@ export class CruxService extends CruxGraphService {
     const cruxToDelete = await this.findById(cruxId);
     if (!cruxToDelete) throw new NotFoundException('Crux not found');
 
-    // 1b) a deleted crux must not stay live, billed, or reachable by a custom domain
-    if (cruxToDelete.meta?.published) {
-      await this.artifactService
-        .deleteFromStaticBucket(cruxToDelete.id)
-        .catch((err: Error) =>
-          this.logger.error(
-            `static cleanup failed for ${cruxId}: ${err.message}`,
-          ),
-        );
-      await this.publishStorage
-        .deleteBucket(cruxToDelete.id)
-        .catch((err: Error) =>
-          this.logger.error(
-            `bucket cleanup failed for ${cruxId}: ${err.message}`,
-          ),
-        );
-      await this.usageService.clearStorage(cruxToDelete.id);
-      await this.domainsService.removeAllForCrux(cruxToDelete.id);
+    if (cruxToDelete.meta?.publishedAt) {
+      await this.removePublication(cruxToDelete.id);
     }
 
     // 2) delete crux
@@ -418,25 +402,29 @@ export class CruxService extends CruxGraphService {
     return this.asCrux(updated.data);
   }
 
+  /** Retain the owner record until every external cleanup acknowledges success.
+   * Each operation is idempotent so a partial failure can be retried safely.
+   * CDN invalidation acknowledges submission; propagation is asynchronous.
+   */
+  private async removePublication(cruxId: string): Promise<void> {
+    try {
+      await this.artifactService.deleteFromStaticBucket(cruxId);
+      await this.publishStorage.deleteBucket(cruxId);
+      await this.domainsService.removeAllForCrux(cruxId);
+      await this.storeService.invalidateCache({ paths: [`/${cruxId}/*`] });
+      await this.usageService.clearStorage(cruxId);
+    } catch (cause) {
+      throw new InternalServerErrorException(
+        'Could not finish removing the published site. Please retry.',
+        { cause },
+      );
+    }
+  }
+
   async unpublishCrux(cruxId: string): Promise<Crux> {
     const crux = await this.findById(cruxId);
 
-    // 1. Delete published files — both layouts, so a crux published under the
-    //    legacy prefix and republished into its own bucket leaves nothing behind.
-    const pathPrefix = crux.id;
-    await this.artifactService.deleteFromStaticBucket(pathPrefix);
-    await this.publishStorage.deleteBucket(crux.id);
-
-    // 2. Invalidate CloudFront cache (best-effort, legacy layout)
-    this.storeService
-      .invalidateCache({ paths: [`/${pathPrefix}/*`] })
-      .catch((err) =>
-        this.logger.error(`CloudFront invalidation failed: ${err.message}`),
-      );
-
-    // Usage and custom domains go with it
-    await this.usageService.clearStorage(crux.id);
-    await this.domainsService.removeAllForCrux(crux.id);
+    await this.removePublication(crux.id);
 
     // 3. Hard delete crux and all related entities (artifacts, dimensions, tags)
     const { error: deleteError } = await this.cruxRepository.delete(

@@ -270,7 +270,7 @@ export class StoreService {
       const objects = list.Contents;
       if (!objects || objects.length === 0) break;
 
-      await this.s3Client.send(
+      const result = await this.s3Client.send(
         new DeleteObjectsCommand({
           Bucket: bucket,
           Delete: {
@@ -280,6 +280,8 @@ export class StoreService {
         }),
       );
 
+      if (result.Errors?.length)
+        throw new Error('Could not delete all published objects');
       deleted += objects.length;
       continuationToken = list.IsTruncated
         ? list.NextContinuationToken

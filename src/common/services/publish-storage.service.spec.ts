@@ -95,3 +95,40 @@ describe('PublishStorageService', () => {
     expect(svc.mockContents('c1')).toBeNull();
   });
 });
+
+describe('Bucket teardown failures', () => {
+  it.each([403, 500])(
+    'does not treat a HeadBucket %s as an absent bucket',
+    async (status) => {
+      const error = Object.assign(new Error('Storage unavailable'), {
+        $metadata: { httpStatusCode: status },
+      });
+      const send = jest.fn().mockRejectedValue(error);
+      const svc = new PublishStorageService(logger, { send } as never);
+      await expect(svc.deleteBucket('c1')).rejects.toBe(error);
+    },
+  );
+  it('accepts an absent bucket and can retry a partially refused object deletion', async () => {
+    const send = jest
+      .fn()
+      .mockRejectedValueOnce({ $metadata: { httpStatusCode: 404 } });
+    const svc = new PublishStorageService(logger, { send } as never);
+    await expect(svc.deleteBucket('c1')).resolves.toBeUndefined();
+    send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Contents: [{ Key: 'index.html' }] })
+      .mockResolvedValueOnce({
+        Errors: [{ Key: 'index.html', Code: 'AccessDenied' }],
+      });
+    await expect(svc.deleteBucket('c1')).rejects.toThrow(/delete/i);
+    expect(
+      send.mock.calls.map(([command]) => command.constructor.name),
+    ).not.toContain('DeleteBucketCommand');
+    send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Contents: [{ Key: 'index.html' }] })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({});
+    await expect(svc.deleteBucket('c1')).resolves.toBeUndefined();
+  });
+});

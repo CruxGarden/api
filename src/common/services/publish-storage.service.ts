@@ -257,8 +257,9 @@ export class PublishStorageService {
     const s3 = this.s3!;
     try {
       await s3.send(new HeadBucketCommand({ Bucket: bucket }));
-    } catch {
-      return; // already gone
+    } catch (error) {
+      if (error?.$metadata?.httpStatusCode === 404) return; // already gone
+      throw error; // permission/network failures do not mean the site is gone
     }
     const keys = await this.listKeys(bucket);
     if (keys.length) await this.deleteKeys(bucket, keys);
@@ -305,7 +306,7 @@ export class PublishStorageService {
   private async deleteKeys(bucket: string, keys: string[]): Promise<void> {
     const s3 = this.s3!;
     for (let i = 0; i < keys.length; i += 1000) {
-      await s3.send(
+      const result = await s3.send(
         new DeleteObjectsCommand({
           Bucket: bucket,
           Delete: {
@@ -314,6 +315,8 @@ export class PublishStorageService {
           },
         }),
       );
+      if (result.Errors?.length)
+        throw new Error('Could not delete all published objects');
     }
   }
 }

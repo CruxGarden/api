@@ -580,3 +580,51 @@ describe('DomainsService', () => {
     expect(await svc.sweepTenants()).toBe(0);
   });
 });
+
+describe('Explicit domain teardown failures', () => {
+  it('refuses an unreadable domain list', async () => {
+    const repo = fakeRepo();
+    repo.findByCrux.mockResolvedValueOnce({
+      data: null,
+      error: new Error('Database unavailable'),
+    } as never);
+    const svc = new DomainsService(repo as never, logger);
+    await expect(svc.removeAllForCrux('c1')).rejects.toThrow('Could not read');
+  });
+  it('keeps a failed edge removal retryable and propagates a failed domain record removal', async () => {
+    const repo = fakeRepo();
+    const row = (
+      await repo.create({
+        crux_id: 'c1',
+        author_id: 'a1',
+        hostname: 'example.test',
+        tenant_id: 'tenant',
+        status: 'active',
+      })
+    ).data;
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider();
+    svc.useProviders(edge, {
+      cnameTargets: async () => [],
+      txtValues: async () => [],
+      addresses: async () => [],
+    });
+    const remove = jest
+      .spyOn(edge, 'deleteTenant')
+      .mockRejectedValueOnce(new Error('Edge unavailable'))
+      .mockResolvedValue('deleted');
+    await expect(svc.removeAllForCrux('c1')).rejects.toThrow();
+    expect(repo.rows.get(row.id)!.deleted).toBeNull();
+    expect(repo.rows.get(row.id)!.tenant_id).toBe('tenant');
+    repo.remove.mockResolvedValueOnce({
+      data: null,
+      error: new Error('Database unavailable'),
+    } as never);
+    await expect(svc.removeAllForCrux('c1')).rejects.toThrow(
+      'Could not remove',
+    );
+    await svc.removeAllForCrux('c1');
+    expect(repo.rows.get(row.id)!.deleted).toBeTruthy();
+    expect(remove).toHaveBeenCalledTimes(2);
+  });
+});
