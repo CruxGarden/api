@@ -1,4 +1,5 @@
 import { assertGardenMoodAssociations } from './garden-mood-policy';
+import { stageContentInBatches } from './content-batches';
 import {
   copySourceChain,
   copyParentOwner,
@@ -641,7 +642,7 @@ export class GraphTransferService {
       throw new Error(
         'Private graph content inventory is incomplete or contains unexpected objects',
       );
-    for (const fp of captured.fingerprints) {
+    await stageContentInBatches(captured.fingerprints, async (fp) => {
       const bytes = await incoming.read(fp);
       if (!(bytes instanceof Uint8Array) || hash(bytes) !== fp)
         throw new Error(
@@ -652,7 +653,7 @@ export class GraphTransferService {
       const persisted = await destination.read(fp);
       if (!(persisted instanceof Uint8Array) || hash(persisted) !== fp)
         throw new Error(`Imported private content did not persist: ${fp}`);
-    }
+    });
     if (prepare) {
       const manifest = new FileManifest(destination);
       const folders = new Set<string>(

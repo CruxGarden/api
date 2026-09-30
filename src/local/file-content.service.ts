@@ -1,4 +1,5 @@
 import { EditRetentionService } from './edit-retention.service';
+import { stageContentInBatches } from './content-batches';
 import { createHash } from 'crypto';
 import {
   ConflictException,
@@ -326,26 +327,15 @@ export class FileContentService {
     // mergeId is supplied only by the checked Task merge command, never captured
     // from a renderer file-edit request.
     const before = await this.admit(input, mergeId);
-    // Immutable payloads are independent. Bound disk work while retaining the
-    // durability barrier: every admitted write settles before a head can change
-    // or a refused operation releases its owner transaction.
-    for (let offset = 0; offset < input.files.length; offset += 8) {
-      const results = await Promise.allSettled(
-        input.files.slice(offset, offset + 8).map(async (file) => {
-          const existing = await store.read(file.fingerprint);
-          if (existing === null)
-            await store.write(file.fingerprint, file.bytes);
-          else if (
-            !(existing instanceof Uint8Array) ||
-            createHash('sha256').update(existing).digest('hex') !==
-              file.fingerprint
-          )
-            throw new Error('Existing file content failed integrity check');
-        }),
-      );
-      const failure = results.find((result) => result.status === 'rejected');
-      if (failure) throw failure.reason;
-    }
+    await stageContentInBatches(input.files, async (file) => {
+      const existing = await store.read(file.fingerprint);
+      if (existing === null) await store.write(file.fingerprint, file.bytes);
+      else if (
+        !(existing instanceof Uint8Array) ||
+        createHash('sha256').update(existing).digest('hex') !== file.fingerprint
+      )
+        throw new Error('Existing file content failed integrity check');
+    });
     const tree = new FileManifest(store);
     // apply verifies every introduced payload, traversed node and newly staged
     // node. Unchanged subtrees already belong to the admitted immutable head;

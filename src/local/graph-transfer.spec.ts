@@ -274,6 +274,126 @@ describe('private selected graph transfer through the API owner', () => {
       expect(await target.all(`SELECT * FROM ${table}`)).toEqual([]);
   }
 
+  async function manyFilesFixture() {
+    const f = await fixture();
+    const changes = Array.from({ length: 17 }, (_, index) => {
+      const bytes = Buffer.from(`Imported file ${index}`);
+      return {
+        put: {
+          id: `batch-${index}`,
+          path: `batch/${index}.txt`,
+          fingerprint: hash(bytes),
+          size: bytes.length,
+          mimeType: 'text/plain',
+          encoding: 'utf-8',
+          mode: 0o644,
+          attributes: {},
+        },
+        bytes,
+      };
+    });
+    await source.editFileContent(
+      {
+        cruxId: f.work,
+        expected: await source.fileContentHead(f.work),
+        changes,
+      },
+      incoming,
+    );
+    f.request.graph = await source.exportPrivateGraph(
+      { roots: [f.garden], includeMembers: true },
+      incoming,
+    );
+    return f;
+  }
+
+  it('stages imported content with bounded concurrency before admitting the graph', async () => {
+    const f = await manyFilesFixture();
+    let active = 0;
+    let peak = 0;
+    const result = await target.importPrivateGraph(f.request, incoming, {
+      read: destination.read,
+      write: async (fp, bytes) => {
+        active++;
+        peak = Math.max(peak, active);
+        try {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          await destination.write(fp, bytes);
+        } finally {
+          active--;
+        }
+      },
+    });
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(8);
+    expect(active).toBe(0);
+    expect(result.roots).toHaveLength(1);
+    for (const fp of f.request.graph.fingerprints)
+      expect(hash(targetObjects.get(fp)!)).toBe(fp);
+  });
+
+  it('drains started import writes before refusing admission and permits a clean retry', async () => {
+    const f = await manyFilesFixture();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let refused!: () => void;
+    const refusal = new Promise<void>((resolve) => {
+      refused = resolve;
+    });
+    let writes = 0;
+    let finished = false;
+    const operation = target
+      .importPrivateGraph(f.request, incoming, {
+        read: destination.read,
+        write: async (fp, bytes) => {
+          const index = writes++;
+          if (index === 0) await held;
+          if (index === 1) {
+            refused();
+            throw new Error('Import disk refused');
+          }
+          await destination.write(fp, bytes);
+        },
+      })
+      .then(
+        () => {
+          finished = true;
+          return null;
+        },
+        (error: Error) => {
+          finished = true;
+          return error;
+        },
+      );
+    try {
+      await Promise.race([
+        refusal,
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('import writes remained serial')),
+            500,
+          ),
+        ),
+      ]);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(finished).toBe(false);
+    } finally {
+      release();
+      await operation;
+    }
+    expect((await operation)?.message).toBe('Import disk refused');
+    expect(writes).toBeLessThanOrEqual(8);
+    await emptyTarget();
+    await target.close();
+    target = await LocalGraphRuntime.open(join(dir, 'target.db'));
+    await emptyTarget();
+    await expect(
+      target.importPrivateGraph(f.request, incoming, destination),
+    ).resolves.toBeDefined();
+  });
+
   it('refuses a second placement in incoming graph content without committing any destination state', async () => {
     const f = await fixture();
     const before = await target.all('SELECT id FROM cruxes');
@@ -634,16 +754,18 @@ describe('private selected graph transfer through the API owner', () => {
 
   it('checks all staged destination objects again before committing', async () => {
     const f = await fixture();
-    let previous: string | undefined;
     await expect(
-      target.importPrivateGraph(f.request, incoming, {
-        read: destination.read,
-        write: async (fp, bytes) => {
-          if (previous) targetObjects.delete(previous);
-          previous = fp;
-          await destination.write(fp, bytes);
+      target.importPrivateGraph(
+        f.request,
+        incoming,
+        destination,
+        async (workspace) => {
+          // Folder preparation follows successful payload staging/read-back.
+          // Simulate content disappearing before the final admission barrier.
+          targetObjects.delete(f.fingerprint);
+          return join(dir, workspace.id);
         },
-      }),
+      ),
     ).rejects.toThrow('Missing content');
     await emptyTarget();
     await expect(
