@@ -92,11 +92,9 @@ export function parseCron(expr: string): CronFields {
       'A schedule is five cron fields (minute hour day month weekday) or "every <n>m|h|d"',
     );
   const [mi, h, d, mo, w] = parts;
-  const dow = parseField(
-    names(w, DAYS, 0).replace(/\b7\b/g, '0'),
-    0,
-    6,
-    'weekday',
+  // Expand 0..7 first: replacing input text also corrupts ranges and steps.
+  const dow = new Set(
+    [...parseField(names(w, DAYS, 0), 0, 7, 'weekday')].map((day) => day % 7),
   );
   return {
     minute: parseField(mi, 0, 59, 'minute'),
