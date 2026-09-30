@@ -261,6 +261,104 @@ describe('API file content publication', () => {
     );
     expect(await owner.all('SELECT * FROM artifacts')).toEqual([]);
   });
+  it('stages a bounded number of independent files together before admitting their head', async () => {
+    const changes = Array.from({ length: 24 }, (_, i) =>
+      put(`file-${i}`, `bytes-${i}`),
+    );
+    let active = 0;
+    let peak = 0;
+    const concurrent: DesktopContentStore = {
+      read: store.read,
+      write: async (fp, bytes) => {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        await store.write(fp, bytes);
+        active--;
+      },
+    };
+    const head = await owner.editFileContent(
+      { cruxId: id, expected: null, changes },
+      concurrent,
+    );
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(8);
+    expect(active).toBe(0);
+    expect(
+      (await tree.entries(head.root)).map((entry) => entry.fingerprint).sort(),
+    ).toEqual(changes.map((change) => change.put.fingerprint).sort());
+  });
+
+  it('drains admitted writes after a staging refusal and preserves the old head for restart/retry', async () => {
+    const first = await owner.editFileContent(
+      { cruxId: id, expected: null, changes: [put('original', 'original')] },
+      store,
+    );
+    const changes = Array.from({ length: 16 }, (_, i) =>
+      put(`new-${i}`, `new bytes-${i}`),
+    );
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let refused!: () => void;
+    const refusal = new Promise<void>((resolve) => {
+      refused = resolve;
+    });
+    let writes = 0;
+    let finished = false;
+    const operation = owner
+      .editFileContent(
+        { cruxId: id, expected: first, changes },
+        {
+          read: store.read,
+          write: async (fp, bytes) => {
+            writes++;
+            if (fp === changes[0].put.fingerprint) await slow;
+            if (fp === changes[1].put.fingerprint) {
+              refused();
+              throw new Error('Disk refused');
+            }
+            await store.write(fp, bytes);
+          },
+        },
+      )
+      .then(
+        () => {
+          finished = true;
+          return null;
+        },
+        (error: Error) => {
+          finished = true;
+          return error;
+        },
+      );
+    try {
+      await Promise.race([
+        refusal,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('writes remained serial')), 500),
+        ),
+      ]);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(finished).toBe(false);
+    } finally {
+      release();
+      await operation;
+    }
+    expect((await operation)?.message).toBe('Disk refused');
+    expect(writes).toBeLessThanOrEqual(8);
+    expect(await owner.fileContentHead(id)).toEqual(first);
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    expect(await owner.fileContentHead(id)).toEqual(first);
+    const next = await owner.editFileContent(
+      { cruxId: id, expected: first, changes },
+      store,
+    );
+    expect(await tree.entries(next.root)).toHaveLength(17);
+  });
+
   it.each(['payload', 'manifest', 'existing node'])(
     'refuses an unverified changed %s and preserves the prior head for retry',
     async (failure) => {
