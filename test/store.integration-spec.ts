@@ -154,6 +154,7 @@ class FakeStoreRepository {
 
 describe('Crux Store Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let store: FakeStoreRepository;
   let usage: Record<string, jest.Mock>;
 
@@ -171,9 +172,15 @@ describe('Crux Store Integration Tests', () => {
       process.env.JWT_SECRET || 'test-secret',
       { expiresIn: '1h' },
     );
-  const auth = (accountId: string) => ({
-    Authorization: `Bearer ${token(accountId)}`,
-  });
+  const auth = (accountId: string) => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
+    return {
+      Authorization: `Bearer ${token(accountId)}`,
+    };
+  };
   const url = (key: string) => `/store/${CRUX}/${key}`;
 
   beforeAll(async () => {
@@ -232,7 +239,7 @@ describe('Crux Store Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(CruxRepository)

@@ -59,6 +59,38 @@ export class StripeBillingProvider implements BillingProvider {
     return { url: session.url, sessionId: session.id };
   }
 
+  async closeAccount(input: {
+    accountId: string;
+    customerId?: string;
+    pendingSessionId?: string;
+  }) {
+    const customers = new Set(input.customerId ? [input.customerId] : []);
+    if (input.pendingSessionId) {
+      let session = await this.stripe.checkout.sessions.retrieve(
+        input.pendingSessionId,
+      );
+      if (session.client_reference_id !== input.accountId)
+        throw new Error('Checkout belongs to a different account');
+      if (session.status === 'open') {
+        try {
+          session = await this.stripe.checkout.sessions.expire(session.id);
+        } catch (error) {
+          session = await this.stripe.checkout.sessions.retrieve(session.id);
+          if (session.status === 'open') throw error;
+        }
+      }
+      const customer =
+        typeof session.customer === 'string'
+          ? session.customer
+          : session.customer?.id;
+      if (customer) customers.add(customer);
+    }
+    for (const id of customers) {
+      const customer = await this.stripe.customers.retrieve(id);
+      if (!customer.deleted) await this.stripe.customers.del(id);
+    }
+  }
+
   async portalUrl(customerId: string, returnUrl: string) {
     const s = await this.stripe.billingPortal.sessions.create({
       customer: customerId,

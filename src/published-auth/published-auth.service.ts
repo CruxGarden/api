@@ -175,6 +175,10 @@ export class PublishedAuthService {
       );
     await this.assertPublishedOrigin(cruxId, session.origin);
     if (
+      !(await this.authors.findByAccountId(session.accountId).catch(() => null))
+    )
+      throw new UnauthorizedException('Account is closed');
+    if (
       session.parentGrant &&
       !(await this.auth.getEmailByGrantId(session.parentGrant))
     )

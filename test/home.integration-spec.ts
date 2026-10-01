@@ -14,6 +14,7 @@ import HomeRaw from '../src/home/entities/home-raw.entity';
 
 describe('Home Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockHomeRepository: jest.Mocked<HomeRepository>;
 
   const testAdminAccountId = 'admin-account-123';
@@ -37,6 +38,10 @@ describe('Home Integration Tests', () => {
     accountId: string,
     role: string = 'author',
   ): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role },
       process.env.JWT_SECRET || 'test-secret',
@@ -60,7 +65,7 @@ describe('Home Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(HomeRepository)

@@ -1,3 +1,5 @@
+import { DbService } from '../common/services/db.service';
+import { MockDbService } from '../../test/mocks/db.mock';
 import { PublishedAuthService } from '../published-auth/published-auth.service';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -25,9 +27,15 @@ describe('Function HTTP response boundary', () => {
   beforeAll(async () => {
     process.env.JWT_SECRET = secret;
     delete process.env.NURSERY_MODE;
+    const tokenDb = new MockDbService();
+    tokenDb.setTable('accounts', [
+      { id: 'owner', deleted: null },
+      { id: 'other', deleted: null },
+    ]);
     const module = await Test.createTestingModule({
       controllers: [FunctionsController],
       providers: [
+        { provide: DbService, useValue: tokenDb },
         { provide: PublishedAuthService, useValue: {} },
         { provide: FunctionsService, useValue: functions },
         {

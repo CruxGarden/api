@@ -17,6 +17,7 @@ import AuthorRaw from '../src/author/entities/author-raw.entity';
 
 describe('Dimension Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockDimensionRepository: jest.Mocked<DimensionRepository>;
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
 
@@ -52,6 +53,10 @@ describe('Dimension Integration Tests', () => {
   };
 
   const generateToken = (accountId: string): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role: 'author' },
       process.env.JWT_SECRET || 'test-secret',
@@ -85,7 +90,7 @@ describe('Dimension Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(DimensionRepository)

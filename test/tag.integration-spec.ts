@@ -16,6 +16,7 @@ import { ResourceType } from '../src/common/types/enums';
 
 describe('Tag Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockTagRepository: jest.Mocked<TagRepository>;
 
   const testAccountId = 'account-123';
@@ -41,6 +42,10 @@ describe('Tag Integration Tests', () => {
     accountId: string,
     role: string = 'author',
   ): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role },
       process.env.JWT_SECRET || 'test-secret',
@@ -71,7 +76,7 @@ describe('Tag Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(TagRepository)

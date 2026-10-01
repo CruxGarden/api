@@ -1,3 +1,6 @@
+import { Optional } from '@nestjs/common';
+import { DbService } from '../services/db.service';
+import { activeTokenAccount } from './token-account';
 import { ForbiddenException } from '@nestjs/common';
 import { isAccountOrigin } from './account-origin.guard';
 import {
@@ -15,7 +18,10 @@ import { nurseryAccount } from './nursery-account';
 export class AuthGuard implements CanActivate {
   private readonly logger: LoggerService;
 
-  constructor(private readonly loggerService: LoggerService) {
+  constructor(
+    private readonly loggerService: LoggerService,
+    @Optional() private readonly db?: DbService,
+  ) {
     this.logger = this.loggerService.createChildLogger('AuthGuard');
   }
 
@@ -38,7 +44,7 @@ export class AuthGuard implements CanActivate {
           tokenPrefix: token.substring(0, 10) + '...',
         });
       }
-      if (!payload)
+      if (!payload || !(await activeTokenAccount(this.db, payload)))
         throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
       request.account = payload;
       return true;

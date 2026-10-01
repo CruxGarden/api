@@ -1,7 +1,9 @@
+import { DbService } from '../common/services/db.service';
 import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  Optional,
   ForbiddenException,
 } from '@nestjs/common';
 import { OptionalAuthGuard } from '../common/guards/optional-auth.guard';
@@ -16,6 +18,7 @@ export class VisitorAuthGuard implements CanActivate {
   constructor(
     private readonly published: PublishedAuthService,
     private readonly logger: LoggerService,
+    @Optional() private readonly db?: DbService,
   ) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthRequest>();
@@ -36,6 +39,6 @@ export class VisitorAuthGuard implements CanActivate {
       throw new ForbiddenException(
         'Published pages require visitor credentials',
       );
-    return new OptionalAuthGuard(this.logger).canActivate(context);
+    return new OptionalAuthGuard(this.logger, this.db).canActivate(context);
   }
 }

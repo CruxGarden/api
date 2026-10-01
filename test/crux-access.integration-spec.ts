@@ -36,6 +36,14 @@ describe('Crux access policy', () => {
     process.env.BASE_URL = 'http://localhost';
     db = new DbService(new LoggerService(), sqliteGraphConfig(':memory:'));
     const sql = db.query();
+    await sql.schema.createTable('accounts', (t) => {
+      t.string('id').primary();
+      t.timestamp('deleted');
+    });
+    await sql('accounts').insert([
+      { id: `account-${alice}` },
+      { id: `account-${bob}` },
+    ]);
     // Only columns used by these hosted routes. No desktop profile or schema migration.
     await sql.schema.createTable('authors', (t) => {
       t.string('id').primary();

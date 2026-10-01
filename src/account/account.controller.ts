@@ -60,6 +60,12 @@ export class AccountController {
     return this.accountService.update(req.account.id, updateAccountDto);
   }
 
+  /** Versioned safety contract: old servers do not expose the closure UI. */
+  @Get('closure')
+  closure() {
+    return { version: 1, confirmationText: 'DELETE MY ACCOUNT' };
+  }
+
   @Delete()
   @HttpCode(HttpStatus.NO_CONTENT)
   @AccountSwagger.DeleteAccount()

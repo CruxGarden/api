@@ -1,3 +1,6 @@
+import { BillingService } from '../src/billing/billing.service';
+import { CruxService } from '../src/crux/crux.service';
+import { StoreService } from '../src/common/services/store.service';
 import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
@@ -17,6 +20,7 @@ import AccountRaw from '../src/account/entities/account-raw.entity';
 
 describe('Account Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockAccountRepository: jest.Mocked<AccountRepository>;
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
   let mockCruxRepository: jest.Mocked<CruxRepository>;
@@ -35,6 +39,10 @@ describe('Account Integration Tests', () => {
   };
 
   const generateToken = (accountId: string, email: string): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email, role: 'author' },
       process.env.JWT_SECRET || 'test-secret',
@@ -74,8 +82,14 @@ describe('Account Integration Tests', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
+      .overrideProvider(BillingService)
+      .useValue({ closeAccount: jest.fn() })
+      .overrideProvider(CruxService)
+      .useValue({ removePublication: jest.fn() })
+      .overrideProvider(StoreService)
+      .useValue({ deleteByPrefix: jest.fn() })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(AccountRepository)

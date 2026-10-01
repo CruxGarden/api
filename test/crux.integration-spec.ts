@@ -23,6 +23,7 @@ import { ResourceType } from '../src/common/types/enums';
 
 describe('Crux Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockCruxRepository: jest.Mocked<CruxRepository>;
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
   let mockDimensionRepository: jest.Mocked<DimensionRepository>;
@@ -59,6 +60,10 @@ describe('Crux Integration Tests', () => {
   };
 
   const generateToken = (accountId: string): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role: 'author' },
       process.env.JWT_SECRET || 'test-secret',
@@ -118,7 +123,7 @@ describe('Crux Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(CruxRepository)

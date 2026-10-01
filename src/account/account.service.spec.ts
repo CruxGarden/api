@@ -1,3 +1,6 @@
+import { BillingService } from '../billing/billing.service';
+import { CruxService } from '../crux/crux.service';
+import { StoreService } from '../common/services/store.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -82,6 +85,9 @@ describe('AccountService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AccountService,
+        { provide: BillingService, useValue: { closeAccount: jest.fn() } },
+        { provide: CruxService, useValue: { removePublication: jest.fn() } },
+        { provide: StoreService, useValue: { deleteByPrefix: jest.fn() } },
         { provide: AccountRepository, useValue: mockRepository },
         { provide: AuthorRepository, useValue: mockAuthorRepository },
         { provide: CruxRepository, useValue: mockCruxRepository },
@@ -414,6 +420,37 @@ describe('AccountService', () => {
       (dbService.query as jest.Mock).mockReturnValue({
         transaction: jest.fn().mockResolvedValue(mockTrx),
       });
+    });
+
+    it('retains the account when external cleanup fails, then retries and revokes its grant', async () => {
+      repository.findById.mockResolvedValue({
+        data: mockAccountRaw,
+        error: null,
+      });
+      authorRepository.findBy.mockResolvedValue({ data: null, error: null });
+      authorRepository.deleteByAccountId.mockResolvedValue({
+        data: null,
+        error: null,
+      });
+      repository.delete.mockResolvedValue({ data: null, error: null });
+      redisService.get.mockResolvedValue('retained-grant');
+      const cleanup = jest
+        .spyOn(service['store'], 'deleteByPrefix')
+        .mockRejectedValueOnce(new Error('storage unavailable'))
+        .mockResolvedValueOnce(2);
+      await expect(service.delete('account-id-123', deleteDto)).rejects.toThrow(
+        'storage unavailable',
+      );
+      expect(repository.delete).not.toHaveBeenCalled();
+      await service.delete('account-id-123', deleteDto);
+      expect(cleanup).toHaveBeenLastCalledWith({
+        namespace: process.env.AWS_S3_SYNC_BUCKET || 'sync.crux.garden',
+        prefix: 'sync/account-id-123/',
+      });
+      expect(redisService.del).toHaveBeenCalledWith(
+        'crux:auth:grant:id:retained-grant',
+      );
+      expect(repository.delete).toHaveBeenCalledTimes(1);
     });
 
     it('should delete an account successfully with no author', async () => {

@@ -455,6 +455,14 @@ describe('Path ownership and marker transactions on PostgreSQL', () => {
   });
 
   it('rejects missing author, invalid authentication and malformed creation', async () => {
+    await db
+      .query()('accounts')
+      .insert({
+        id: id(999),
+        email: 'without-author@example.test',
+        role: 'author',
+        home_id: home,
+      });
     await request(app.getHttpServer())
       .post('/paths')
       .set('Authorization', token(id(999)))

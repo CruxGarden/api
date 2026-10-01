@@ -22,6 +22,9 @@ export class MockDbService {
   }
 
   private createMockQueryBuilder() {
+    let table: string;
+    let selected: Record<string, unknown> = {};
+    const nulls: string[] = [];
     const mockTrx = {
       from: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
@@ -33,9 +36,18 @@ export class MockDbService {
 
     const builder: any = {
       select: jest.fn().mockReturnThis(),
-      from: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      whereNull: jest.fn().mockReturnThis(),
+      from: jest.fn((name: string) => {
+        table = name;
+        return builder;
+      }),
+      where: jest.fn((filter: Record<string, unknown>) => {
+        selected = filter;
+        return builder;
+      }),
+      whereNull: jest.fn((name: string) => {
+        nulls.push(name);
+        return builder;
+      }),
       whereNotNull: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orWhere: jest.fn().mockReturnThis(),
@@ -43,7 +55,15 @@ export class MockDbService {
       update: jest.fn().mockReturnThis(),
       delete: jest.fn().mockReturnThis(),
       returning: jest.fn().mockResolvedValue([]),
-      first: jest.fn().mockResolvedValue(null),
+      first: jest.fn(
+        async () =>
+          this.getTable(table).find(
+            (row) =>
+              Object.entries(selected).every(
+                ([key, value]) => row[key] === value,
+              ) && nulls.every((key) => row[key] == null),
+          ) ?? null,
+      ),
       orderBy: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
       offset: jest.fn().mockReturnThis(),

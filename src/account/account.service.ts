@@ -1,3 +1,6 @@
+import { BillingService } from '../billing/billing.service';
+import { CruxService } from '../crux/crux.service';
+import { StoreService } from '../common/services/store.service';
 import {
   Injectable,
   NotFoundException,
@@ -32,6 +35,9 @@ export class AccountService {
     private readonly redisService: RedisService,
     private readonly keyMaster: KeyMaster,
     private readonly loggerService: LoggerService,
+    private readonly billing: BillingService,
+    private readonly publications: CruxService,
+    private readonly store: StoreService,
   ) {
     this.logger = this.loggerService.createChildLogger('AccountService');
   }
@@ -186,38 +192,38 @@ export class AccountService {
       });
     }
 
-    // 4) Cascade delete all associated data in a transaction
+    const cruxes = authorResult.data
+      ? await this.cruxRepository.findAllByAuthorId(authorResult.data.id)
+      : { data: [], error: null };
+    if (cruxes.error)
+      throw new InternalServerErrorException('Error fetching cruxes', {
+        cause: cruxes.error,
+      });
+
+    // External cleanup is acknowledged before removing the account. These steps
+    // are retryable: a failed close may already have canceled billing or unshared
+    // some sites, but must leave the account available to finish the operation.
+    await this.billing.closeAccount(accountId);
+    for (const crux of cruxes.data || [])
+      await this.publications.removePublication(crux.id);
+    await this.store.deleteByPrefix({
+      namespace: process.env.AWS_S3_SYNC_BUCKET || 'sync.crux.garden',
+      prefix: `sync/${accountId}/`,
+    });
+    const grantId = await this.redisService.get(
+      this.grantEmailKey(accountToDelete.email),
+    );
+    if (grantId) await this.redisService.del(this.grantIdKey(String(grantId)));
+    await this.redisService.del(this.grantEmailKey(accountToDelete.email));
+
     const trx = await this.dbService.query().transaction();
-
     try {
-      // If account has an author, delete all their content
-      if (authorResult.data) {
-        const author = authorResult.data;
-
-        // Get all cruxes by this author
-        const cruxesResult = await this.cruxRepository.findAllByAuthorId(
-          author.id,
-        );
-        if (cruxesResult.error) {
-          throw new InternalServerErrorException('Error fetching cruxes', {
-            cause: cruxesResult.error,
+      for (const crux of cruxes.data || []) {
+        const removed = await this.cruxRepository.delete(crux.id, trx);
+        if (removed.error)
+          throw new InternalServerErrorException('Error deleting crux', {
+            cause: removed.error,
           });
-        }
-
-        // Delete each crux (which also deletes associated dimensions)
-        if (cruxesResult.data && cruxesResult.data.length > 0) {
-          for (const crux of cruxesResult.data) {
-            const deleteCruxResult = await this.cruxRepository.delete(
-              crux.id,
-              trx,
-            );
-            if (deleteCruxResult.error) {
-              throw new InternalServerErrorException('Error deleting crux', {
-                cause: deleteCruxResult.error,
-              });
-            }
-          }
-        }
       }
 
       // Delete all authors for this account

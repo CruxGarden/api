@@ -18,6 +18,7 @@ import AuthorRaw from '../src/author/entities/author-raw.entity';
 
 describe('Artifact Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockArtifactRepository: jest.Mocked<ArtifactRepository>;
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
   let mockStoreService: jest.Mocked<StoreService>;
@@ -56,6 +57,10 @@ describe('Artifact Integration Tests', () => {
   };
 
   const generateToken = (accountId: string): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role: 'author' },
       process.env.JWT_SECRET || 'test-secret',
@@ -99,7 +104,7 @@ describe('Artifact Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(ArtifactRepository)

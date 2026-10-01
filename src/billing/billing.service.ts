@@ -282,6 +282,31 @@ export class BillingService {
     return { url };
   }
 
+  async closeAccount(accountId: string): Promise<void> {
+    const row = await this.subscriptionFor(accountId);
+    if (!row) return;
+    if (row.provider !== this.provider.name)
+      throw new BadRequestException(
+        'Restore the original billing provider before closing this account.',
+      );
+    await this.provider.closeAccount({
+      accountId,
+      customerId: row.customer_id || undefined,
+      pendingSessionId: row.pending_session_id || undefined,
+    });
+    const result = await this.repo.upsert({
+      ...row,
+      plan_id: 'free',
+      status: 'canceled',
+      cancel_at_period_end: false,
+      pending_session_id: null,
+    });
+    if (result.error)
+      throw new InternalServerErrorException(
+        'Could not save billing cancellation. Retry account closure.',
+      );
+  }
+
   async portal(accountId: string): Promise<{ url: string }> {
     const row = await this.subscriptionFor(accountId);
     if (!row?.customer_id)

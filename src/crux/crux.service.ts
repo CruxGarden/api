@@ -445,7 +445,7 @@ export class CruxService extends CruxGraphService {
    * Each operation is idempotent so a partial failure can be retried safely.
    * CDN invalidation acknowledges submission; propagation is asynchronous.
    */
-  private async removePublication(cruxId: string): Promise<void> {
+  async removePublication(cruxId: string): Promise<void> {
     try {
       const removing =
         await this.cruxRepository.beginPublicationRemoval(cruxId);

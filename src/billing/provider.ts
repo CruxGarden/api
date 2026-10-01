@@ -72,6 +72,12 @@ export interface BillingProvider {
     req: CheckoutRequest,
   ): Promise<{ url: string; sessionId: string }>;
   portalUrl(customerId: string, returnUrl: string): Promise<string>;
+  /** Stop billing and pending checkout before an account is closed. Must be retryable. */
+  closeAccount(input: {
+    accountId: string;
+    customerId?: string;
+    pendingSessionId?: string;
+  }): Promise<void>;
   /** Verify and normalize a webhook. Throws on a bad signature. */
   parseWebhook(
     rawBody: Buffer,
@@ -154,6 +160,23 @@ export class MockBillingProvider implements BillingProvider {
   }
   async fetchCheckoutSession(sessionId: string) {
     return this.sessions.get(sessionId) ?? null;
+  }
+  async closeAccount(input: {
+    accountId: string;
+    customerId?: string;
+    pendingSessionId?: string;
+  }) {
+    for (const [id, subscription] of this.subscriptions) {
+      if (
+        subscription.accountId === input.accountId ||
+        subscription.customerId === input.customerId
+      )
+        this.subscriptions.set(id, {
+          ...subscription,
+          status: 'canceled',
+          cancelAtPeriodEnd: false,
+        });
+    }
   }
   async portalUrl(customerId: string, returnUrl: string) {
     return `https://billing.mock/portal/${customerId}?return=${encodeURIComponent(returnUrl)}`;

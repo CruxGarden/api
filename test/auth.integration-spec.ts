@@ -459,6 +459,7 @@ describe('Auth Integration Tests', () => {
       const jwt = require('jsonwebtoken');
 
       // Create a valid JWT token
+      mockDb.setTable('accounts', [{ id: 'test-account-id', deleted: null }]);
       const token = jwt.sign(
         {
           id: 'test-account-id',
@@ -523,6 +524,7 @@ describe('Auth Integration Tests', () => {
       await mockRedis.set(`crux:auth:grant:id:${grantId}`, testEmail);
 
       // Create a valid JWT token
+      mockDb.setTable('accounts', [{ id: 'test-account-id', deleted: null }]);
       const token = jwt.sign(
         {
           id: 'test-account-id',

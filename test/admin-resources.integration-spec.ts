@@ -34,6 +34,11 @@ describe('Home and Tag administration boundary', () => {
     process.env.BASE_URL = 'https://api.example.test';
     process.env.NURSERY_MODE = 'false';
     db = new DbService(new LoggerService(), sqliteGraphConfig(':memory:'));
+    await db.query().schema.createTable('accounts', (t) => {
+      t.string('id').primary();
+      t.timestamp('deleted');
+    });
+    await db.query()('accounts').insert({ id: 'account' });
     await db.query().schema.createTable('homes', (t) => {
       t.string('id').primary();
       t.string('name');

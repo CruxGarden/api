@@ -175,6 +175,20 @@ export class SimulationBillingProvider implements BillingProvider {
   prices(ids: string[]) {
     return this.mock.prices(ids);
   }
+  async closeAccount(input: { accountId: string; customerId?: string }) {
+    if (
+      !input.customerId ||
+      !(await this.fetchCustomerSubscription(input.customerId))
+    )
+      return;
+    unwrap(
+      await this.repo.change(input.accountId, (current) => ({
+        ...current,
+        status: 'canceled',
+        cancelAtPeriodEnd: false,
+      })),
+    );
+  }
   async portalUrl(): Promise<string> {
     throw new BadRequestException(
       'Use simulation controls to manage simulated billing',
