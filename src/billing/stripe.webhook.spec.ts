@@ -41,7 +41,6 @@ function fakeRepo() {
       rows.set(row.account_id, saved);
       return ok(saved);
     }),
-    setCustomer: jest.fn(() => ok(undefined)),
     setPendingSession: jest.fn(() => ok(undefined)),
     accountEmail: jest.fn(() => ok('d@example.com')),
     eventSeen: jest.fn((id: string) => ok(events.has(id))),
@@ -119,6 +118,7 @@ describe('Stripe webhooks, signed end to end', () => {
     jest
       .spyOn(provider, 'fetchSubscription')
       .mockImplementation(async () => null);
+    jest.spyOn(provider, 'fetchCustomerSubscription').mockResolvedValue(null);
     repo = fakeRepo();
     svc = new BillingService(repo as never, logger, email as never);
     svc.useProvider(provider, PRICES);
@@ -243,5 +243,32 @@ describe('Stripe webhooks, signed end to end', () => {
       handled: 'ignored',
     });
     expect(repo.rows.size).toBe(0);
+  });
+});
+
+describe('Stripe subscription lookup failures', () => {
+  it('distinguishes a missing subscription from a provider outage', async () => {
+    const retrieve = jest.fn();
+    const provider = new StripeBillingProvider(
+      { subscriptions: { retrieve } } as never,
+      SECRET,
+      false,
+    );
+    retrieve.mockRejectedValueOnce({
+      code: 'resource_missing',
+      statusCode: 404,
+    });
+    await expect(provider.fetchSubscription('sub_missing')).resolves.toBeNull();
+    for (const error of [
+      new Error('network unavailable'),
+      { statusCode: 429 },
+      { statusCode: 401 },
+      { statusCode: 500 },
+    ]) {
+      retrieve.mockRejectedValueOnce(error);
+      await expect(
+        provider.fetchSubscription('sub_unavailable'),
+      ).rejects.toEqual(error);
+    }
   });
 });

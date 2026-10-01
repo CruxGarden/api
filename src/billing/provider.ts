@@ -83,7 +83,7 @@ export interface BillingProvider {
     rawBody: Buffer,
     signature: string | undefined,
   ): Promise<BillingEvent>;
-  /** Pull the current state of a subscription (re-sync after checkout, admin repair). */
+  /** Pull current state. Return null only for confirmed absence; unavailability throws. */
   fetchSubscription(
     subscriptionId: string,
   ): Promise<SubscriptionSnapshot | null>;

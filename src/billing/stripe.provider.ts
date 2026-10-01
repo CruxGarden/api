@@ -177,8 +177,13 @@ export class StripeBillingProvider implements BillingProvider {
     try {
       const sub = await this.stripe.subscriptions.retrieve(subscriptionId);
       return snapshot(sub);
-    } catch {
-      return null;
+    } catch (error) {
+      // Absence is a fact; transport, credentials and provider failures must
+      // propagate so callers retry instead of applying stale webhook data.
+      const failure = error as { code?: string; statusCode?: number };
+      if (failure.code === 'resource_missing' && failure.statusCode === 404)
+        return null;
+      throw error;
     }
   }
 

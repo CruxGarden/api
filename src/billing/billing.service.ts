@@ -328,21 +328,21 @@ export class BillingService {
   private async syncAccount(accountId: string): Promise<BillingMe> {
     const row = await this.subscriptionFor(accountId);
     let snap: SubscriptionSnapshot | null = null;
+    let checkoutComplete = false;
     if (row?.subscription_id)
       snap = await this.provider.fetchSubscription(row.subscription_id);
-    // A canceled subscription says nothing about a newer one on the same customer
-    if (snap && (snap.status === 'canceled' || snap.status === 'incomplete'))
-      snap = null;
-    if (!snap && row?.customer_id)
+    // Prefer a successor, but retain cancellation when none exists. Otherwise
+    // a missed webhook would leave the old paid entitlement active forever.
+    const previous = snap;
+    if ((!snap || !isLive(snap.status)) && row?.customer_id)
       snap = await this.provider.fetchCustomerSubscription(row.customer_id);
     // No webhook yet (local API, missed delivery): the checkout session we
     // opened knows the customer and the subscription it created.
     if (!snap && row?.pending_session_id) {
-      const session = await this.provider
-        .fetchCheckoutSession(row.pending_session_id)
-        .catch(() => null);
-      if (session?.customerId)
-        await this.repo.setCustomer(accountId, session.customerId);
+      const session = await this.provider.fetchCheckoutSession(
+        row.pending_session_id,
+      );
+      checkoutComplete = session?.complete ?? false;
       if (session?.subscriptionId)
         snap = await this.provider.fetchSubscription(session.subscriptionId);
       else if (session?.customerId)
@@ -354,6 +354,7 @@ export class BillingService {
       const cus = this.provider.customersByAccount.get(accountId);
       if (cus) snap = await this.provider.fetchCustomerSubscription(cus);
     }
+    snap ??= previous;
     if (snap) {
       if (snap.accountId && snap.accountId !== accountId)
         throw new BadRequestException(
@@ -363,8 +364,13 @@ export class BillingService {
         ...snap,
         accountId: snap.accountId ?? accountId,
       });
-      if (row?.pending_session_id)
-        await this.repo.setPendingSession(accountId, null);
+      if (row?.pending_session_id && checkoutComplete) {
+        const cleared = await this.repo.setPendingSession(accountId, null);
+        if (cleared.error)
+          throw new ServiceUnavailableException(
+            'Could not save checkout synchronization',
+          );
+      }
     }
     return this.me(accountId);
   }
@@ -420,9 +426,9 @@ export class BillingService {
         // provider's current state over the payload's.
         const fresh =
           event.type === 'subscription.changed'
-            ? await this.provider
-                .fetchSubscription(event.subscription.subscriptionId)
-                .catch(() => null)
+            ? await this.provider.fetchSubscription(
+                event.subscription.subscriptionId,
+              )
             : null;
         const base = fresh
           ? {
@@ -430,27 +436,49 @@ export class BillingService {
               accountId: fresh.accountId ?? event.subscription.accountId,
             }
           : event.subscription;
-        const snap =
+        let snap =
           event.type === 'subscription.deleted'
             ? { ...base, status: 'canceled' as const }
             : base;
+        // A terminal event can arrive after the customer has subscribed again.
+        // Resolve the successor before writing the account's single projection.
+        if (!isLive(snap.status)) {
+          const successor = await this.provider.fetchCustomerSubscription(
+            snap.customerId,
+          );
+          if (successor && successor.subscriptionId !== snap.subscriptionId)
+            snap = {
+              ...successor,
+              accountId: successor.accountId ?? snap.accountId,
+            };
+        }
         accountId = await this.applySnapshot(snap);
         break;
       }
       case 'payment.failed': {
-        const row =
-          (event.subscriptionId &&
-            (await this.repo.bySubscription(event.subscriptionId)).data) ||
-          (await this.repo.byCustomer(event.customerId)).data;
-        if (row) {
+        // An invoice names its subscription. Never fall back to the customer's
+        // replacement subscription when that identity is no longer current.
+        const found = event.subscriptionId
+          ? await this.repo.bySubscription(event.subscriptionId)
+          : await this.repo.byCustomer(event.customerId);
+        if (found.error)
+          throw new ServiceUnavailableException(
+            'Could not resolve payment subscription',
+          );
+        const row = this.matchingProvider(found.data);
+        if (row && isLive(row.status)) {
           accountId = row.account_id;
           const firstFailure = row.status !== 'past_due';
-          await this.repo.upsert({
+          const saved = await this.repo.upsert({
             ...stripUpdated(row),
             status: 'past_due',
             // the grace clock starts once; retries do not restart it
             past_due_since: row.past_due_since ?? new Date(),
           });
+          if (saved.error)
+            throw new ServiceUnavailableException(
+              'Could not save payment status',
+            );
           this.logger.warn('Payment failed', { accountId });
           if (firstFailure)
             await this.notify(
@@ -472,8 +500,12 @@ export class BillingService {
   ): Promise<string | null> {
     let accountId = snap.accountId;
     if (!accountId) {
-      const byCus = (await this.repo.byCustomer(snap.customerId)).data;
-      accountId = byCus?.account_id ?? null;
+      const result = await this.repo.byCustomer(snap.customerId);
+      if (result.error)
+        throw new ServiceUnavailableException(
+          'Could not resolve subscription account',
+        );
+      accountId = result.data?.account_id ?? null;
     }
     if (!accountId) {
       this.logger.warn('Subscription for unknown account', {

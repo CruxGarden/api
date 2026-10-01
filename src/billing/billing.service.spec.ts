@@ -31,11 +31,6 @@ function fakeRepo() {
       rows.set(row.account_id, saved);
       return ok(saved);
     }),
-    setCustomer: jest.fn((accountId: string, customerId: string) => {
-      const row = rows.get(accountId);
-      if (row) rows.set(accountId, { ...row, customer_id: customerId });
-      return ok(undefined);
-    }),
     setPendingSession: jest.fn(
       (accountId: string, sessionId: string | null) => {
         const row = rows.get(accountId) ?? {
@@ -360,6 +355,119 @@ describe('BillingService', () => {
     const t = new Date(since as Date).getTime();
     expect(effectivePlanId(row, new Date(t + 6 * 86_400_000))).toBe('gardener');
     expect(effectivePlanId(row, new Date(t + 8 * 86_400_000))).toBe('free');
+  });
+
+  it('sync saves cancellation when there is no replacement subscription', async () => {
+    const repo = fakeRepo();
+    const svc = new BillingService(repo as never, logger, email as never);
+    const provider = new MockBillingProvider();
+    svc.useProvider(provider, PRICES);
+    await svc.checkout('acct-1', 'gardener', 'month');
+    const id = repo.rows.get('acct-1')!.subscription_id!;
+    provider.subscriptions.set(id, {
+      ...provider.subscriptions.get(id)!,
+      status: 'canceled',
+    });
+    expect(await svc.sync('acct-1')).toMatchObject({
+      status: 'canceled',
+      plan: { id: 'free' },
+    });
+  });
+
+  it.each(['subscription.deleted', 'subscription.changed'] as const)(
+    'a delayed %s for an old subscription preserves the replacement',
+    async (type) => {
+      const repo = fakeRepo();
+      const svc = new BillingService(repo as never, logger, email as never);
+      const provider = new MockBillingProvider();
+      svc.useProvider(provider, PRICES);
+      await svc.checkout('acct-1', 'gardener', 'month');
+      const current = repo.rows.get('acct-1')!;
+      const old = {
+        ...provider.subscriptions.get(current.subscription_id!)!,
+        subscriptionId: 'sub_old',
+        status: 'canceled' as const,
+      };
+      provider.subscriptions.set(old.subscriptionId, old);
+      provider.emit({ id: 'evt_old', type, subscription: old });
+      await svc.handleWebhook(Buffer.from('{}'), 'sig');
+      expect(repo.rows.get('acct-1')).toMatchObject({
+        subscription_id: current.subscription_id,
+        status: 'active',
+        plan_id: 'gardener',
+      });
+    },
+  );
+
+  it('an invoice from an obsolete subscription cannot mark its replacement past due', async () => {
+    const repo = fakeRepo();
+    const svc = new BillingService(repo as never, logger, email as never);
+    const provider = new MockBillingProvider();
+    svc.useProvider(provider, PRICES);
+    await svc.checkout('acct-1', 'gardener', 'month');
+    const current = repo.rows.get('acct-1')!;
+    provider.emit({
+      id: 'evt_old_invoice',
+      type: 'payment.failed',
+      subscriptionId: 'sub_old',
+      customerId: current.customer_id!,
+    });
+    await svc.handleWebhook(Buffer.from('{}'), 'sig');
+    expect(repo.rows.get('acct-1')).toMatchObject({
+      status: 'active',
+      subscription_id: current.subscription_id,
+    });
+  });
+
+  it('a failed payment projection is not acknowledged and the same event can retry', async () => {
+    const repo = fakeRepo();
+    const svc = new BillingService(repo as never, logger, email as never);
+    const provider = new MockBillingProvider();
+    svc.useProvider(provider, PRICES);
+    await svc.checkout('acct-1', 'gardener', 'month');
+    const current = repo.rows.get('acct-1')!;
+    const event = {
+      id: 'evt_write_retry',
+      type: 'payment.failed' as const,
+      subscriptionId: current.subscription_id!,
+      customerId: current.customer_id!,
+    };
+    repo.upsert.mockResolvedValueOnce({
+      data: null,
+      error: new Error('write unavailable'),
+    } as never);
+    provider.emit(event);
+    await expect(svc.handleWebhook(Buffer.from('{}'), 'sig')).rejects.toThrow();
+    expect(repo.recordEvent).not.toHaveBeenCalled();
+    expect((await svc.me('acct-1')).status).toBe('active');
+    provider.emit(event);
+    await expect(svc.handleWebhook(Buffer.from('{}'), 'sig')).resolves.toEqual({
+      handled: 'payment.failed',
+    });
+    expect((await svc.me('acct-1')).status).toBe('past_due');
+  });
+
+  it('provider unavailability cannot apply an old webhook payload', async () => {
+    const repo = fakeRepo();
+    const svc = new BillingService(repo as never, logger, email as never);
+    const provider = new MockBillingProvider();
+    svc.useProvider(provider, PRICES);
+    await svc.checkout('acct-1', 'gardener', 'year');
+    const current = repo.rows.get('acct-1')!;
+    const snap = provider.subscriptions.get(current.subscription_id!)!;
+    jest
+      .spyOn(provider, 'fetchSubscription')
+      .mockRejectedValue(new Error('provider unavailable'));
+    provider.emit({
+      id: 'evt_outage',
+      type: 'subscription.changed',
+      subscription: { ...snap, priceId: 'price_g_m' },
+    });
+    await expect(svc.handleWebhook(Buffer.from('{}'), 'sig')).rejects.toThrow(
+      'provider unavailable',
+    );
+    expect((await svc.me('acct-1')).interval).toBe('year');
+    expect(repo.recordEvent).not.toHaveBeenCalled();
   });
 
   it('sync sees a new subscription after the stored one was canceled', async () => {

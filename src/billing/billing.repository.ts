@@ -127,30 +127,6 @@ export class BillingRepository {
     }
   }
 
-  async setCustomer(
-    accountId: string,
-    customerId: string,
-  ): Promise<RepositoryResponse<void>> {
-    try {
-      await this.dbService
-        .query()
-        .from('subscriptions')
-        .insert({
-          account_id: accountId,
-          customer_id: customerId,
-          plan_id: 'free',
-          status: 'none',
-          updated: new Date(),
-        })
-        .onConflict('account_id')
-        .merge({ customer_id: customerId, updated: new Date() });
-      return success(undefined);
-    } catch (error) {
-      this.logger.error('setCustomer failed', error as Error);
-      return failure(error);
-    }
-  }
-
   async accountEmail(
     accountId: string,
   ): Promise<RepositoryResponse<string | null>> {
