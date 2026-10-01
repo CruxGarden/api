@@ -28,6 +28,11 @@ export class EmailService {
     }
   }
 
+  /** Operational health must distinguish delivery from the development log sink. */
+  get deliveryMode(): 'ses' | 'logging' {
+    return this.mockMode ? 'logging' : 'ses';
+  }
+
   private hasAwsCredentials(): boolean {
     const placeholders = ['dummy', 'your-key', 'your-secret', ''];
     const key = process.env.AWS_ACCESS_KEY_ID ?? '';
@@ -72,6 +77,8 @@ export class EmailService {
       },
     });
 
-    return this.sesClient.send(emailCommand);
+    return this.sesClient.send(emailCommand, {
+      abortSignal: AbortSignal.timeout(10_000),
+    });
   }
 }

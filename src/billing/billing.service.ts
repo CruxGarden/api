@@ -1,4 +1,9 @@
 import {
+  type NoticeCondition,
+  BillingOperationsRepository,
+} from './operations.repository';
+import { operationResult, billingFailureCode } from './operations';
+import {
   reserveCheckout,
   resumeCheckout as resumePendingCheckout,
   cancelCheckout as cancelPendingCheckout,
@@ -44,6 +49,7 @@ import {
 interface BillingNotification {
   accountId: string;
   message: { subject: string; body: string };
+  condition?: NoticeCondition;
 }
 
 /** What the app shows on Settings → Plan. */
@@ -97,6 +103,7 @@ export class BillingService {
     loggerService: LoggerService,
     private readonly email: EmailService,
     @Optional() simulationRepo?: BillingSimulationRepository,
+    @Optional() private readonly operations?: BillingOperationsRepository,
   ) {
     this.logger = loggerService.createChildLogger('BillingService');
     if (process.env.BILLING_PROVIDER === 'simulation') {
@@ -314,6 +321,58 @@ export class BillingService {
     });
   }
 
+  /** A local missing result is never proof of provider absence. Only an admin's
+   * documented provider review can release an old ambiguous attempt. */
+  async resolveAbsentCheckout(
+    accountId: string,
+    attemptId: string,
+    operatorId: string,
+    reviewReference: string,
+  ) {
+    if (!this.operations)
+      throw new ServiceUnavailableException(
+        'Billing recovery audit is unavailable',
+      );
+    return this.withAccount(accountId, async () => {
+      const attempt = operationResult(
+        await this.repo.checkoutAttempt(accountId),
+      );
+      const row = operationResult(await this.repo.byAccount(accountId));
+      if (
+        !attempt ||
+        attempt.id !== attemptId ||
+        attempt.provider !== this.provider.name ||
+        attempt.status !== 'preparing' ||
+        attempt.session_id ||
+        Date.now() - new Date(attempt.created_at).getTime() <
+          23 * 60 * 60_000 ||
+        row?.pending_session_id ||
+        (row?.subscription_id && row.status !== 'canceled')
+      )
+        throw new BadRequestException(
+          'Only the exact old ambiguous checkout can be resolved as absent',
+        );
+      operationResult(
+        await this.operations!.recordAbsentCheckout(
+          attemptId,
+          accountId,
+          operatorId,
+          this.provider.name,
+          reviewReference,
+        ),
+      );
+      operationResult(
+        await this.repo.saveCheckoutAttempt({ ...attempt, status: 'expired' }),
+      );
+      this.logger.info('Operator resolved provider-reviewed absent checkout', {
+        accountId,
+        attemptId,
+        operatorId,
+      });
+      return this.me(accountId);
+    });
+  }
+
   private async checkoutRequest(
     accountId: string,
     planId: string,
@@ -506,6 +565,42 @@ export class BillingService {
       );
     }
     if (event.type === 'ignored') return { handled: 'ignored' };
+    try {
+      const result = await this.processEvent(event);
+      if (this.operations)
+        operationResult(
+          await this.operations.delivery(
+            event.id,
+            this.provider.name,
+            event.type,
+            null,
+          ),
+        );
+      return result;
+    } catch (error) {
+      if (this.operations) {
+        const recorded = await this.operations.delivery(
+          event.id,
+          this.provider.name,
+          event.type,
+          billingFailureCode(error),
+        );
+        if (recorded.error)
+          this.logger.error(
+            'Billing delivery monitoring unavailable',
+            undefined,
+            {
+              eventId: event.id,
+            },
+          );
+      }
+      throw error;
+    }
+  }
+
+  private async processEvent(
+    event: Exclude<BillingEvent, { type: 'ignored' }>,
+  ): Promise<{ handled: string }> {
     const completed = await this.repo.eventCompleted(
       event.id,
       this.provider.name,
@@ -569,11 +664,25 @@ export class BillingService {
     work: (notifications: BillingNotification[]) => Promise<T>,
   ): Promise<T> {
     const notifications: BillingNotification[] = [];
-    const result = await this.repo.forAccount(accountId, () =>
-      work(notifications),
-    );
-    for (const { accountId: recipient, message } of notifications)
-      await this.notify(recipient, message);
+    const result = await this.repo.forAccount(accountId, async () => {
+      const value = await work(notifications);
+      if (this.operations && this.provider.name !== 'simulation') {
+        for (const notice of notifications)
+          operationResult(
+            await this.operations.enqueue(
+              notice.accountId,
+              notice.message,
+              undefined,
+              notice.condition,
+            ),
+          );
+      }
+      return value;
+    });
+    // Production uses the durable outbox; isolated legacy unit fixtures omit it.
+    if (!this.operations)
+      for (const { accountId: recipient, message } of notifications)
+        await this.notify(recipient, message);
     return result;
   }
 
@@ -666,13 +775,6 @@ export class BillingService {
             { ...current, accountId: expectedAccountId },
             notifications,
           );
-          if (current.status === 'past_due' && row.status !== 'past_due') {
-            this.logger.warn('Payment failed', { accountId });
-            notifications.push({
-              accountId,
-              message: paymentFailedEmail(planById(row.plan_id).name),
-            });
-          }
         }
         break;
       }
@@ -739,6 +841,14 @@ export class BillingService {
       planId,
       status: snap.status,
     });
+    if (snap.status === 'past_due' && before?.status !== 'past_due') {
+      this.logger.warn('Payment failed', { accountId });
+      notifications.push({
+        accountId,
+        message: paymentFailedEmail(planById(planId).name),
+        condition: { subscriptionId: snap.subscriptionId, status: 'past_due' },
+      });
+    }
     const beforePlan = effectivePlanId(before);
     const afterPlan = effectivePlanId(r.data);
     if (beforePlan !== afterPlan) {
@@ -747,7 +857,11 @@ export class BillingService {
         planById(afterPlan).name,
         snap.currentPeriodEnd,
       );
-      notifications.push({ accountId, message });
+      notifications.push({
+        accountId,
+        message,
+        condition: { subscriptionId: snap.subscriptionId, planId: afterPlan },
+      });
     }
     return accountId;
   }
@@ -817,7 +931,10 @@ export class BillingService {
   }
 
   async listAll(): Promise<Record<string, unknown>[]> {
-    return ((await this.repo.list()).data ?? []).map((r) =>
+    const result = await this.repo.list();
+    if (result.error)
+      throw new ServiceUnavailableException('Subscription list is unavailable');
+    return result.data.map((r) =>
       toEntityFields(r as unknown as Record<string, unknown>),
     );
   }

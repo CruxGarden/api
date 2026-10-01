@@ -1,3 +1,4 @@
+import { BillingOperationsService } from './operations.service';
 import {
   BadRequestException,
   Body,
@@ -8,6 +9,8 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Optional,
+  ServiceUnavailableException,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -66,6 +69,31 @@ export class RecoverCheckoutDto {
   sessionId!: string;
 }
 
+export class ResolveAbsentCheckoutDto {
+  @ApiProperty()
+  @IsUUID()
+  accountId!: string;
+  @ApiProperty()
+  @IsUUID()
+  attemptId!: string;
+  @ApiProperty({
+    description:
+      'Provider request-log or support-case reference; never include credentials',
+  })
+  @IsString()
+  @Matches(/^[A-Za-z0-9:/._#-]{1,255}$/)
+  reviewReference!: string;
+  @ApiProperty({ enum: ['provider-reviewed-no-checkout-or-subscription'] })
+  @IsIn(['provider-reviewed-no-checkout-or-subscription'])
+  confirmation!: string;
+}
+
+export class ReconcileDto {
+  @ApiProperty()
+  @IsUUID()
+  accountId!: string;
+}
+
 export class SimulationDto {
   @ApiProperty({ enum: SIMULATION_ACTIONS })
   @IsIn(SIMULATION_ACTIONS)
@@ -85,7 +113,10 @@ export class SimulationDto {
 @ApiTags('billing')
 @Controller('billing')
 export class BillingController {
-  constructor(private readonly billing: BillingService) {}
+  constructor(
+    private readonly billing: BillingService,
+    @Optional() private readonly operations?: BillingOperationsService,
+  ) {}
 
   @Get('plans')
   @ApiOperation({ summary: 'Plans and prices (public)' })
@@ -149,6 +180,59 @@ export class BillingController {
     return this.billing.recoverCheckout(dto.accountId, dto.sessionId);
   }
 
+  @Post('checkout/resolve-absent')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Admin: audit provider-confirmed absence before releasing an old ambiguous checkout',
+  })
+  resolveAbsentCheckout(
+    @Body() dto: ResolveAbsentCheckoutDto,
+    @Req() req: AuthRequest,
+  ) {
+    if (!isAdmin(req.account.role)) throw new ForbiddenException('Admins only');
+    return this.billing.resolveAbsentCheckout(
+      dto.accountId,
+      dto.attemptId,
+      req.account.id,
+      dto.reviewReference,
+    );
+  }
+
+  @Get('operations')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @ApiOperation({
+    summary:
+      'Admin: billing configuration, queue health and recovery identifiers',
+  })
+  operationsHealth(@Req() req: AuthRequest) {
+    if (!isAdmin(req.account.role)) throw new ForbiddenException('Admins only');
+    if (!this.operations)
+      throw new ServiceUnavailableException(
+        'Billing monitoring is unavailable',
+      );
+    return this.operations.health();
+  }
+
+  @Post('operations/reconcile')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Admin: retry provider reconciliation for one account',
+  })
+  reconcile(@Body() dto: ReconcileDto, @Req() req: AuthRequest) {
+    if (!isAdmin(req.account.role)) throw new ForbiddenException('Admins only');
+    if (!this.operations)
+      throw new ServiceUnavailableException(
+        'Billing monitoring is unavailable',
+      );
+    return this.operations.reconcile(dto.accountId, true);
+  }
+
   @Post('portal')
   @ApiBearerAuth()
   @UseGuards(AuthGuard)
@@ -197,6 +281,7 @@ export class BillingController {
       ...state,
       canSimulate:
         this.billing.providerName === 'simulation' && isAdmin(req.account.role),
+      canMonitor: !!this.operations && isAdmin(req.account.role),
     };
   }
 

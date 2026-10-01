@@ -1,5 +1,5 @@
 import { runInNewContext } from 'vm';
-import { toError } from './repository-helpers';
+import { success, toError } from './repository-helpers';
 
 describe('repository error normalization', () => {
   it('preserves a native driver constraint code across JavaScript realms', () => {
@@ -19,5 +19,14 @@ describe('repository error normalization', () => {
     expect(toError(error)).toBe(error);
     expect(toError(null).message).toBe('null');
     expect(toError('failed').message).toBe('failed');
+  });
+});
+
+describe('repository success values', () => {
+  it('preserves valid false, zero and empty values while normalizing absence', () => {
+    expect(success(false)).toEqual({ data: false, error: null });
+    expect(success(0)).toEqual({ data: 0, error: null });
+    expect(success('')).toEqual({ data: '', error: null });
+    expect(success(undefined)).toEqual({ data: null, error: null });
   });
 });

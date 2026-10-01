@@ -4,7 +4,7 @@ import { RepositoryResponse } from '../types/interfaces';
  * Converts undefined to null for repository responses
  */
 export function toNullable<T>(value: T | undefined): T | null {
-  return value || null;
+  return value ?? null;
 }
 
 /**

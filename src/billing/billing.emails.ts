@@ -24,3 +24,10 @@ export function paymentFailedEmail(plan: string) {
     body: `We couldn't charge your card for the ${plan} plan. Your plan stays active for 7 days while Stripe retries. To fix it now, open Crux Garden → Settings → Plan → Manage billing and update the card.\n\n— Crux Garden`,
   };
 }
+
+export function trialEndingEmail(end: Date) {
+  return {
+    subject: 'Your Crux Garden trial ends soon',
+    body: `Your trial ends on ${end.toISOString().slice(0, 10)}. Open Settings → Plan → Manage billing to review the price, add a payment method, or cancel. Check your plan after returning. Everything you have published stays up.\n\n— Crux Garden`,
+  };
+}
