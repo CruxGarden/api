@@ -1,3 +1,4 @@
+import { billingAccountTransaction } from './account-transaction';
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
@@ -32,6 +33,13 @@ export class BillingRepository {
     loggerService: LoggerService,
   ) {
     this.logger = loggerService.createChildLogger('BillingRepository');
+  }
+
+  /** One account's provider observation, projection and receipt commit together.
+   * Provider calls in this operation must be bounded; notification delivery runs afterward.
+   */
+  async forAccount<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+    return billingAccountTransaction(this.dbService, accountId, work);
   }
 
   async byAccount(
@@ -144,9 +152,9 @@ export class BillingRepository {
   }
 
   /**
-   * Claim a webhook event before acting on it: the INSERT is the idempotency
-   * lock, so two deliveries (Stripe retries, two API instances) cannot both
-   * run. Returns true when this caller owns the event.
+   * Called inside forAccount: claim, projection and payload completion share
+   * one transaction. A process exit rolls them back. An old null-payload claim
+   * from the former nontransactional handler is recoverable on redelivery.
    */
   async claimEvent(
     id: string,
@@ -156,43 +164,14 @@ export class BillingRepository {
     try {
       const rows = await this.dbService.query().raw(
         `INSERT INTO billing_events (id, provider, type) VALUES (?, ?, ?)
-         ON CONFLICT (id) DO NOTHING RETURNING id`,
+         ON CONFLICT (id) DO UPDATE SET type = EXCLUDED.type
+         WHERE billing_events.payload IS NULL RETURNING id`,
         [id, provider, type],
       );
       const list = (rows.rows ?? rows) as unknown[];
       return success(list.length > 0);
     } catch (error) {
       this.logger.error('claimEvent failed', error as Error);
-      return failure(error);
-    }
-  }
-
-  /** Give a claim back when processing threw, so the provider's retry gets another go. */
-  async releaseEvent(id: string): Promise<RepositoryResponse<void>> {
-    try {
-      await this.dbService
-        .query()
-        .from('billing_events')
-        .where({ id })
-        .delete();
-      return success(undefined);
-    } catch (error) {
-      this.logger.error('releaseEvent failed', error as Error);
-      return failure(error);
-    }
-  }
-
-  /** true when this event id was already processed (idempotency) */
-  async eventSeen(id: string): Promise<RepositoryResponse<boolean>> {
-    try {
-      const row = await this.dbService
-        .query()
-        .from('billing_events')
-        .where({ id })
-        .first('id');
-      return success(!!row);
-    } catch (error) {
-      this.logger.error('eventSeen failed', error as Error);
       return failure(error);
     }
   }

@@ -100,6 +100,10 @@ describe('billing lifecycle persistence', () => {
 
   it('refuses and retries a payment event after an actual database write failure', async () => {
     const row = (await repository.byAccount(accountId)).data!;
+    provider.subscriptions.set(row.subscription_id!, {
+      ...provider.subscriptions.get(row.subscription_id!)!,
+      status: 'past_due',
+    });
     const event = {
       id: 'evt_write_refusal',
       type: 'payment.failed' as const,
@@ -114,7 +118,7 @@ describe('billing lifecycle persistence', () => {
     provider.emit(event);
     await expect(
       service.handleWebhook(Buffer.from('{}'), 'fixture'),
-    ).rejects.toThrow('Could not save payment status');
+    ).rejects.toThrow('Could not save subscription');
     expect((await service.me(accountId)).status).toBe('active');
     expect(
       await db.query()('billing_events').where({ id: event.id }),

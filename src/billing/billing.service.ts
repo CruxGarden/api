@@ -33,6 +33,11 @@ import {
   type Plan,
 } from '../usage/plans';
 
+interface BillingNotification {
+  accountId: string;
+  message: { subject: string; body: string };
+}
+
 /** What the app shows on Settings → Plan. */
 export interface BillingMe {
   plan: Plan;
@@ -81,7 +86,7 @@ export class BillingService {
     private readonly repo: BillingRepository,
     loggerService: LoggerService,
     private readonly email: EmailService,
-    @Optional() private readonly simulationRepo?: BillingSimulationRepository,
+    @Optional() simulationRepo?: BillingSimulationRepository,
   ) {
     this.logger = loggerService.createChildLogger('BillingService');
     if (process.env.BILLING_PROVIDER === 'simulation') {
@@ -226,8 +231,8 @@ export class BillingService {
     planId: string,
     interval: BillingInterval,
   ): Promise<{ url: string }> {
-    return this.withSimulationAccount(accountId, () =>
-      this.startCheckout(accountId, planId, interval),
+    return this.withAccount(accountId, (notifications) =>
+      this.startCheckout(accountId, planId, interval, notifications),
     );
   }
 
@@ -235,6 +240,7 @@ export class BillingService {
     accountId: string,
     planId: string,
     interval: BillingInterval,
+    notifications: BillingNotification[],
   ): Promise<{ url: string }> {
     const entry = [...this.priceMap.entries()].find(
       ([, v]) => v.planId === planId && v.interval === interval,
@@ -278,11 +284,16 @@ export class BillingService {
     );
     if (pending.error)
       throw new InternalServerErrorException('Could not save checkout');
-    if (this.provider.instantCheckout) await this.syncAccount(accountId);
+    if (this.provider.instantCheckout)
+      await this.syncAccount(accountId, notifications);
     return { url };
   }
 
   async closeAccount(accountId: string): Promise<void> {
+    return this.withAccount(accountId, () => this.cancelAccount(accountId));
+  }
+
+  private async cancelAccount(accountId: string): Promise<void> {
     const row = await this.subscriptionFor(accountId);
     if (!row) return;
     if (row.provider !== this.provider.name)
@@ -320,12 +331,15 @@ export class BillingService {
 
   /** Re-pull from the provider (after a checkout return, or when a webhook was missed). */
   async sync(accountId: string): Promise<BillingMe> {
-    return this.withSimulationAccount(accountId, () =>
-      this.syncAccount(accountId),
+    return this.withAccount(accountId, (notifications) =>
+      this.syncAccount(accountId, notifications),
     );
   }
 
-  private async syncAccount(accountId: string): Promise<BillingMe> {
+  private async syncAccount(
+    accountId: string,
+    notifications: BillingNotification[],
+  ): Promise<BillingMe> {
     const row = await this.subscriptionFor(accountId);
     let snap: SubscriptionSnapshot | null = null;
     let checkoutComplete = false;
@@ -360,10 +374,13 @@ export class BillingService {
         throw new BadRequestException(
           'Subscription belongs to another account',
         );
-      await this.applySnapshot({
-        ...snap,
-        accountId: snap.accountId ?? accountId,
-      });
+      await this.applySnapshot(
+        {
+          ...snap,
+          accountId: snap.accountId ?? accountId,
+        },
+        notifications,
+      );
       if (row?.pending_session_id && checkoutComplete) {
         const cleared = await this.repo.setPendingSession(accountId, null);
         if (cleared.error)
@@ -389,35 +406,76 @@ export class BillingService {
       );
     }
     if (event.type === 'ignored') return { handled: 'ignored' };
-    const claimed = await this.repo.claimEvent(
-      event.id,
-      this.provider.name,
-      event.type,
+    const accountId = await this.eventAccount(event);
+    return this.withAccount(accountId, async (notifications) => {
+      if ((await this.eventAccount(event)) !== accountId)
+        throw new ServiceUnavailableException(
+          'Billing event ownership changed; retry',
+        );
+      const claimed = await this.repo.claimEvent(
+        event.id,
+        this.provider.name,
+        event.type,
+      );
+      if (claimed.error)
+        throw new ServiceUnavailableException('Could not claim billing event');
+      if (!claimed.data) return { handled: 'duplicate' };
+      await this.applyEvent(event, accountId, notifications);
+      const recorded = await this.repo.recordEvent(
+        event.id,
+        this.provider.name,
+        event.type,
+        accountId,
+        event,
+      );
+      if (recorded.error)
+        throw new ServiceUnavailableException(
+          'Could not complete billing event',
+        );
+      return { handled: event.type };
+    });
+  }
+
+  private async eventAccount(
+    event: Exclude<BillingEvent, { type: 'ignored' }>,
+  ): Promise<string> {
+    if (event.type !== 'payment.failed' && event.subscription.accountId)
+      return event.subscription.accountId;
+    const customerId =
+      event.type === 'payment.failed'
+        ? event.customerId
+        : event.subscription.customerId;
+    const result = await this.repo.byCustomer(customerId);
+    if (result.error || !result.data)
+      throw new ServiceUnavailableException(
+        'Could not resolve billing event account',
+      );
+    this.matchingProvider(result.data);
+    return result.data.account_id;
+  }
+
+  /** Keep receipt/projection atomic and serialize observers of the same account.
+   * Email is deliberately outside the database transaction, after durable success.
+   */
+  private async withAccount<T>(
+    accountId: string,
+    work: (notifications: BillingNotification[]) => Promise<T>,
+  ): Promise<T> {
+    const notifications: BillingNotification[] = [];
+    const result = await this.repo.forAccount(accountId, () =>
+      work(notifications),
     );
-    if (claimed.error)
-      throw new ServiceUnavailableException('Could not claim billing event', {
-        cause: claimed.error,
-      });
-    if (!claimed.data) return { handled: 'duplicate' };
-    let accountId: string | null = null;
-    try {
-      accountId = await this.applyEvent(event);
-    } catch (err) {
-      await this.repo.releaseEvent(event.id);
-      throw err;
-    }
-    await this.repo.recordEvent(
-      event.id,
-      this.provider.name,
-      event.type,
-      accountId,
-      event,
-    );
-    return { handled: event.type };
+    for (const { accountId: recipient, message } of notifications)
+      await this.notify(recipient, message);
+    return result;
   }
 
   /** Apply one normalized event; returns the account it touched. */
-  private async applyEvent(event: BillingEvent): Promise<string | null> {
+  private async applyEvent(
+    event: BillingEvent,
+    expectedAccountId: string,
+    notifications: BillingNotification[],
+  ): Promise<string | null> {
     let accountId: string | null = null;
     switch (event.type) {
       case 'subscription.changed':
@@ -442,7 +500,12 @@ export class BillingService {
             : base;
         // A terminal event can arrive after the customer has subscribed again.
         // Resolve the successor before writing the account's single projection.
-        if (!isLive(snap.status)) {
+        const stored = await this.subscriptionFor(expectedAccountId);
+        if (
+          !isLive(snap.status) ||
+          (stored?.subscription_id &&
+            stored.subscription_id !== snap.subscriptionId)
+        ) {
           const successor = await this.provider.fetchCustomerSubscription(
             snap.customerId,
           );
@@ -452,39 +515,57 @@ export class BillingService {
               accountId: successor.accountId ?? snap.accountId,
             };
         }
-        accountId = await this.applySnapshot(snap);
+        if (snap.accountId && snap.accountId !== expectedAccountId)
+          throw new ServiceUnavailableException(
+            'Subscription account differs from event owner',
+          );
+        accountId = await this.applySnapshot(
+          { ...snap, accountId: expectedAccountId },
+          notifications,
+        );
         break;
       }
       case 'payment.failed': {
         // An invoice names its subscription. Never fall back to the customer's
         // replacement subscription when that identity is no longer current.
-        const found = event.subscriptionId
-          ? await this.repo.bySubscription(event.subscriptionId)
-          : await this.repo.byCustomer(event.customerId);
+        // A standalone invoice is not evidence about any subscription.
+        if (!event.subscriptionId) break;
+        const found = await this.repo.bySubscription(event.subscriptionId);
         if (found.error)
           throw new ServiceUnavailableException(
             'Could not resolve payment subscription',
           );
         const row = this.matchingProvider(found.data);
+        if (row && row.account_id !== expectedAccountId)
+          throw new ServiceUnavailableException(
+            'Payment subscription ownership changed',
+          );
         if (row && isLive(row.status)) {
           accountId = row.account_id;
-          const firstFailure = row.status !== 'past_due';
-          const saved = await this.repo.upsert({
-            ...stripUpdated(row),
-            status: 'past_due',
-            // the grace clock starts once; retries do not restart it
-            past_due_since: row.past_due_since ?? new Date(),
-          });
-          if (saved.error)
+          // Invoice events can be delayed until after payment recovered. Read
+          // the subscription now instead of replaying a historical failure.
+          const current = await this.provider.fetchSubscription(
+            row.subscription_id!,
+          );
+          if (!current)
             throw new ServiceUnavailableException(
-              'Could not save payment status',
+              'Payment subscription is unavailable',
             );
-          this.logger.warn('Payment failed', { accountId });
-          if (firstFailure)
-            await this.notify(
+          if (current.accountId && current.accountId !== expectedAccountId)
+            throw new ServiceUnavailableException(
+              'Payment subscription ownership changed',
+            );
+          await this.applySnapshot(
+            { ...current, accountId: expectedAccountId },
+            notifications,
+          );
+          if (current.status === 'past_due' && row.status !== 'past_due') {
+            this.logger.warn('Payment failed', { accountId });
+            notifications.push({
               accountId,
-              paymentFailedEmail(planById(row.plan_id).name),
-            );
+              message: paymentFailedEmail(planById(row.plan_id).name),
+            });
+          }
         }
         break;
       }
@@ -497,6 +578,7 @@ export class BillingService {
   /** Write a normalized subscription to the account it belongs to. Returns the account id. */
   private async applySnapshot(
     snap: SubscriptionSnapshot,
+    notifications: BillingNotification[],
   ): Promise<string | null> {
     let accountId = snap.accountId;
     if (!accountId) {
@@ -511,9 +593,15 @@ export class BillingService {
       this.logger.warn('Subscription for unknown account', {
         subscriptionId: snap.subscriptionId,
       });
-      return null;
+      throw new ServiceUnavailableException(
+        'Subscription account is unresolved',
+      );
     }
     const mapped = snap.priceId ? this.priceMap.get(snap.priceId) : undefined;
+    if (!mapped && snap.status !== 'canceled')
+      throw new ServiceUnavailableException(
+        'Subscription price is not configured',
+      );
     const planId =
       snap.status === 'canceled' ? 'free' : (mapped?.planId ?? 'free');
     const before = await this.subscriptionFor(accountId);
@@ -532,7 +620,9 @@ export class BillingService {
       trial_end: snap.trialEnd,
       past_due_since:
         snap.status === 'past_due'
-          ? (before?.past_due_since ?? new Date())
+          ? before?.subscription_id === snap.subscriptionId
+            ? (before.past_due_since ?? new Date())
+            : new Date()
           : null,
     });
     if (r.error)
@@ -544,15 +634,14 @@ export class BillingService {
     });
     const beforePlan = effectivePlanId(before);
     const afterPlan = effectivePlanId(r.data);
-    if (beforePlan !== afterPlan)
-      await this.notify(
-        accountId,
-        planChangedEmail(
-          planById(beforePlan).name,
-          planById(afterPlan).name,
-          snap.currentPeriodEnd,
-        ),
+    if (beforePlan !== afterPlan) {
+      const message = planChangedEmail(
+        planById(beforePlan).name,
+        planById(afterPlan).name,
+        snap.currentPeriodEnd,
       );
+      notifications.push({ accountId, message });
+    }
     return accountId;
   }
 
@@ -595,15 +684,6 @@ export class BillingService {
     return row;
   }
 
-  private withSimulationAccount<T>(
-    accountId: string,
-    work: () => Promise<T>,
-  ): Promise<T> {
-    return this.provider.name === 'simulation'
-      ? this.simulationRepo.forAccount(accountId, work)
-      : work();
-  }
-
   async simulate(
     accountId: string,
     action: SimulationAction,
@@ -613,7 +693,7 @@ export class BillingService {
     if (!(this.provider instanceof SimulationBillingProvider))
       throw new BadRequestException('Billing simulation is not enabled');
     const provider = this.provider;
-    return this.withSimulationAccount(accountId, async () => {
+    return this.withAccount(accountId, async (notifications) => {
       await this.subscriptionFor(accountId);
       const priceId =
         action === 'change_plan'
@@ -624,7 +704,7 @@ export class BillingService {
       if (action === 'change_plan' && !priceId)
         throw new BadRequestException('Choose an available plan and interval');
       const next = await provider.change(accountId, action, priceId);
-      await this.applySnapshot(next);
+      await this.applySnapshot(next, notifications);
       return this.me(accountId);
     });
   }
@@ -656,12 +736,6 @@ export function effectivePlanId(
       : 'free';
   }
   return 'free';
-}
-
-function stripUpdated(row: SubscriptionRow): Omit<SubscriptionRow, 'updated'> {
-  const rest: Partial<SubscriptionRow> = { ...row };
-  delete rest.updated;
-  return rest as Omit<SubscriptionRow, 'updated'>;
 }
 
 function trialDays(): number {

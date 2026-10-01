@@ -296,7 +296,7 @@ export function stripeProviderFromEnv(): StripeBillingProvider | null {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!key || !secret) return null;
   return new StripeBillingProvider(
-    new Stripe(key),
+    new Stripe(key, { timeout: 10_000, maxNetworkRetries: 0 }),
     secret,
     process.env.STRIPE_AUTOMATIC_TAX === '1',
   );

@@ -1,3 +1,4 @@
+import { billingAccountTransaction } from './account-transaction';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DbService } from '../common/services/db.service';
@@ -31,14 +32,7 @@ export class BillingSimulationRepository {
     accountId: string,
     operation: () => Promise<T>,
   ): Promise<T> {
-    return this.db.transaction(async () => {
-      const db = this.db.query();
-      let query = db('accounts').where({ id: accountId });
-      if (db.client.dialect !== 'sqlite3') query = query.forUpdate();
-      if (!(await query.first('id')))
-        throw new NotFoundException('Account not found');
-      return operation();
-    });
+    return billingAccountTransaction(this.db, accountId, operation);
   }
 
   async change(

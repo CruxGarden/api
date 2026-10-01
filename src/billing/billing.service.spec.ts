@@ -17,6 +17,21 @@ function fakeRepo() {
   const events = new Set<string>();
   const ok = <T>(data: T) => Promise.resolve({ data, error: null });
   return {
+    forAccount: jest.fn(
+      async (_accountId: string, work: () => Promise<unknown>) => {
+        const beforeRows = new Map(rows);
+        const beforeEvents = new Set(events);
+        try {
+          return await work();
+        } catch (error) {
+          rows.clear();
+          for (const [id, row] of beforeRows) rows.set(id, row);
+          events.clear();
+          for (const id of beforeEvents) events.add(id);
+          throw error;
+        }
+      },
+    ),
     rows,
     events,
     byAccount: jest.fn((a: string) => ok(rows.get(a) ?? null)),
@@ -58,15 +73,10 @@ function fakeRepo() {
     accountEmail: jest.fn((a: string) =>
       ok(a === 'acct-1' ? 'd@example.com' : null),
     ),
-    eventSeen: jest.fn((id: string) => ok(events.has(id))),
     claimEvent: jest.fn((id: string) => {
       if (events.has(id)) return ok(false);
       events.add(id);
       return ok(true);
-    }),
-    releaseEvent: jest.fn((id: string) => {
-      events.delete(id);
-      return ok(undefined);
     }),
     recordEvent: jest.fn((id: string) => {
       events.add(id);
@@ -110,6 +120,10 @@ describe('BillingService', () => {
     svc.useProvider(provider, PRICES);
     await svc.checkout('acct-1', 'gardener', 'month');
     const row = repo.rows.get('acct-1')!;
+    provider.subscriptions.set(row.subscription_id!, {
+      ...provider.subscriptions.get(row.subscription_id!)!,
+      status: 'past_due',
+    });
     const event = {
       id: 'evt_claim_retry',
       type: 'payment.failed' as const,
@@ -231,6 +245,11 @@ describe('BillingService', () => {
     await svc.handleWebhook(Buffer.from('{}'), 'sig');
     expect(await svc.planIdFor('acct-1')).toBe('gardener');
 
+    provider.subscriptions.set('sub_1', {
+      ...base,
+      priceId: 'price_g_y',
+      status: 'past_due',
+    });
     // payment failed → past_due keeps the plan for a week, then free
     provider.emit({
       id: 'evt_3',
@@ -283,7 +302,7 @@ describe('BillingService', () => {
     );
   });
 
-  it('a webhook that throws releases its claim so the retry is processed; stale payloads defer to the provider', async () => {
+  it('a webhook that throws rolls back its claim so the retry is processed; stale payloads defer to the provider', async () => {
     const repo = fakeRepo();
     const svc = new BillingService(repo as never, logger, email as never);
     const provider = new MockBillingProvider();
@@ -313,7 +332,7 @@ describe('BillingService', () => {
     await expect(svc.handleWebhook(Buffer.from('{}'), 'sig')).rejects.toThrow(
       'db down',
     );
-    expect(repo.releaseEvent).toHaveBeenCalledWith('evt_1');
+    expect(repo.events.has('evt_1')).toBe(false);
     // Stripe retries with the same id → processed this time, from live state
     provider.emit({
       id: 'evt_1',
@@ -334,6 +353,10 @@ describe('BillingService', () => {
     await svc.checkout('acct-1', 'gardener', 'month');
     const subId = repo.rows.get('acct-1')!.subscription_id!;
     const custId = repo.rows.get('acct-1')!.customer_id!;
+    provider.subscriptions.set(subId, {
+      ...provider.subscriptions.get(subId)!,
+      status: 'past_due',
+    });
     const fail = (id: string) =>
       provider.emit({
         id,
@@ -426,6 +449,10 @@ describe('BillingService', () => {
     svc.useProvider(provider, PRICES);
     await svc.checkout('acct-1', 'gardener', 'month');
     const current = repo.rows.get('acct-1')!;
+    provider.subscriptions.set(current.subscription_id!, {
+      ...provider.subscriptions.get(current.subscription_id!)!,
+      status: 'past_due',
+    });
     const event = {
       id: 'evt_write_retry',
       type: 'payment.failed' as const,

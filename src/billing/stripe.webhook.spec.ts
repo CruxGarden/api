@@ -28,6 +28,21 @@ function fakeRepo() {
   const rows = new Map<string, SubscriptionRow>();
   const events = new Set<string>();
   return {
+    forAccount: jest.fn(
+      async (_accountId: string, work: () => Promise<unknown>) => {
+        const beforeRows = new Map(rows);
+        const beforeEvents = new Set(events);
+        try {
+          return await work();
+        } catch (error) {
+          rows.clear();
+          for (const [id, row] of beforeRows) rows.set(id, row);
+          events.clear();
+          for (const id of beforeEvents) events.add(id);
+          throw error;
+        }
+      },
+    ),
     rows,
     byAccount: jest.fn((a: string) => ok(rows.get(a) ?? null)),
     byCustomer: jest.fn((c: string) =>
@@ -43,15 +58,10 @@ function fakeRepo() {
     }),
     setPendingSession: jest.fn(() => ok(undefined)),
     accountEmail: jest.fn(() => ok('d@example.com')),
-    eventSeen: jest.fn((id: string) => ok(events.has(id))),
     claimEvent: jest.fn((id: string) => {
       if (events.has(id)) return ok(false);
       events.add(id);
       return ok(true);
-    }),
-    releaseEvent: jest.fn((id: string) => {
-      events.delete(id);
-      return ok(undefined);
     }),
     recordEvent: jest.fn(() => ok(undefined)),
     list: jest.fn(() => ok([...rows.values()])),
@@ -183,6 +193,16 @@ describe('Stripe webhooks, signed end to end', () => {
         subscription_details: { subscription: 'sub_1' },
       },
     };
+    const state = signed(
+      'customer.subscription.updated',
+      subscription({ status: 'past_due' }),
+    );
+    const normalized = await provider.parseWebhook(state.body, state.signature);
+    if (normalized.type !== 'subscription.changed')
+      throw new Error('Invalid test fixture');
+    jest
+      .mocked(provider.fetchSubscription)
+      .mockResolvedValue(normalized.subscription);
     const failed = signed('invoice.payment_failed', invoice);
     expect(await svc.handleWebhook(failed.body, failed.signature)).toEqual({
       handled: 'payment.failed',
@@ -206,6 +226,7 @@ describe('Stripe webhooks, signed end to end', () => {
     expect(repo.rows.get('acct-1')!.past_due_since).toEqual(row.past_due_since);
     expect(email.send.mock.calls.length).toBe(mails);
 
+    jest.mocked(provider.fetchSubscription).mockResolvedValue(null);
     // payment recovered: Stripe sends the subscription active again
     const active = signed(
       'customer.subscription.updated',

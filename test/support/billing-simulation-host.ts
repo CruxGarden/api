@@ -22,6 +22,7 @@ export async function prepareBillingFixture(db: DbService) {
   await db.query().schema.createTable('accounts', (t) => {
     t.uuid('id').primary();
     t.text('email');
+    t.timestamp('deleted');
   });
   await db
     .query()('accounts')
