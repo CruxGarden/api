@@ -1,4 +1,11 @@
 import {
+  reserveCheckout,
+  resumeCheckout as resumePendingCheckout,
+  cancelCheckout as cancelPendingCheckout,
+  requireOpenAccount,
+  recoverCheckout as recoverPendingCheckout,
+} from './checkout-attempts';
+import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
@@ -17,6 +24,7 @@ import {
   type BillingProvider,
   type PriceInfo,
   type SubscriptionSnapshot,
+  type CheckoutRequest,
 } from './provider';
 import { BillingSimulationRepository } from './simulation.repository';
 import {
@@ -47,6 +55,7 @@ export interface BillingMe {
   cancelAtPeriodEnd: boolean;
   trialEndsAt: string | null;
   graceEndsAt: string | null;
+  pendingCheckout: boolean;
   /** the account has a provider customer → the portal can be opened */
   canManage: boolean;
   provider: string;
@@ -172,7 +181,16 @@ export class BillingService {
       );
     const row = this.matchingProvider(result.data);
     const planId = effectivePlanId(row, now);
+    const attempt = await this.repo.checkoutAttempt(accountId);
+    if (attempt.error)
+      throw new ServiceUnavailableException('Checkout status is unavailable');
+    const pendingCheckout =
+      !isLive(row?.status ?? 'none') &&
+      (!!row?.pending_session_id ||
+        (!!attempt.data &&
+          ['preparing', 'open'].includes(attempt.data.status)));
     return {
+      pendingCheckout,
       plan: planById(planId),
       status: row?.status ?? 'none',
       interval: (row?.interval as BillingInterval | null) ?? null,
@@ -233,17 +251,75 @@ export class BillingService {
     planId: string,
     interval: BillingInterval,
   ): Promise<{ url: string }> {
-    return this.withAccount(accountId, (notifications) =>
-      this.startCheckout(accountId, planId, interval, notifications),
-    );
+    // Commit provider observations even when the requested purchase is refused.
+    // Validation below still runs under the account lock against that projection.
+    await this.sync(accountId);
+    if (this.provider.instantCheckout)
+      return this.withAccount(accountId, async (notifications) => {
+        const request = await this.checkoutRequest(accountId, planId, interval);
+        const result = await this.provider.createCheckout(request);
+        const pending = await this.repo.setPendingSession(
+          accountId,
+          result.sessionId,
+          this.provider.name,
+        );
+        if (pending.error)
+          throw new ServiceUnavailableException('Could not save checkout');
+        await this.syncAccount(accountId, notifications);
+        return { url: result.url };
+      });
+    // Commit the intent before any external checkout creation. The second account
+    // transaction can roll back its result without losing the provider retry key.
+    await this.withAccount(accountId, async () => {
+      const request = await this.checkoutRequest(accountId, planId, interval);
+      await reserveCheckout(this.repo, this.provider, request);
+    });
+    return this.resumeCheckout(accountId);
   }
 
-  private async startCheckout(
+  async resumeCheckout(accountId: string): Promise<{ url: string }> {
+    return this.withAccount(accountId, async () => {
+      const result = await resumePendingCheckout(
+        this.repo,
+        this.provider,
+        accountId,
+      );
+      return { url: result.url };
+    });
+  }
+
+  async cancelCheckout(accountId: string): Promise<BillingMe> {
+    return this.withAccount(accountId, async (notifications) => {
+      await cancelPendingCheckout(this.repo, this.provider, accountId);
+      return this.syncAccount(accountId, notifications);
+    });
+  }
+
+  async recoverCheckout(
+    accountId: string,
+    sessionId: string,
+  ): Promise<BillingMe> {
+    return this.withAccount(accountId, async (notifications) => {
+      await recoverPendingCheckout(
+        this.repo,
+        this.provider,
+        accountId,
+        sessionId,
+      );
+      this.logger.info('Checkout recovered by operator', {
+        accountId,
+        sessionId,
+      });
+      return this.syncAccount(accountId, notifications);
+    });
+  }
+
+  private async checkoutRequest(
     accountId: string,
     planId: string,
     interval: BillingInterval,
-    notifications: BillingNotification[],
-  ): Promise<{ url: string }> {
+  ): Promise<CheckoutRequest> {
+    await requireOpenAccount(this.repo, accountId);
     const entry = [...this.priceMap.entries()].find(
       ([, v]) => v.planId === planId && v.interval === interval,
     );
@@ -260,15 +336,18 @@ export class BillingService {
       throw new BadRequestException(
         'That plan price is unavailable or misconfigured',
       );
-    const email = (await this.repo.accountEmail(accountId)).data;
+    const emailResult = await this.repo.accountEmail(accountId);
+    if (emailResult.error)
+      throw new ServiceUnavailableException('Account is unavailable');
+    const email = emailResult.data;
     if (!email) throw new NotFoundException('Account not found');
     const existing = await this.subscriptionFor(accountId);
-    if (existing && isLive(existing.status) && existing.plan_id !== 'free')
+    if (existing?.subscription_id && existing.status !== 'canceled')
       throw new BadRequestException(
         'You already have a plan — use “Manage billing” to change it',
       );
     const base = returnBase();
-    const { url, sessionId } = await this.provider.createCheckout({
+    return {
       accountId,
       email,
       customerId: existing?.customer_id ?? null,
@@ -276,26 +355,24 @@ export class BillingService {
       successUrl: `${base}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${base}/billing/cancel`,
       trialDays: trialDays(),
-    });
-    this.logger.info('Checkout started', { accountId, planId, interval });
-    // Persist recovery before synchronizing either instant provider.
-    const pending = await this.repo.setPendingSession(
-      accountId,
-      sessionId,
-      this.provider.name,
-    );
-    if (pending.error)
-      throw new InternalServerErrorException('Could not save checkout');
-    if (this.provider.instantCheckout)
-      await this.syncAccount(accountId, notifications);
-    return { url };
+    };
   }
 
   async closeAccount(accountId: string): Promise<void> {
+    // Commit the fence before external cleanup. If cleanup fails, another
+    // checkout cannot start while AccountService retries the remaining closure.
+    await this.repo.forAccount(accountId, async () => {
+      const closing = await this.repo.markClosing(accountId);
+      if (closing.error)
+        throw new ServiceUnavailableException(
+          'Could not start account closure',
+        );
+    });
     return this.withAccount(accountId, () => this.cancelAccount(accountId));
   }
 
   private async cancelAccount(accountId: string): Promise<void> {
+    await cancelPendingCheckout(this.repo, this.provider, accountId);
     const row = await this.subscriptionFor(accountId);
     if (!row) return;
     if (row.provider !== this.provider.name)
@@ -344,7 +421,7 @@ export class BillingService {
   ): Promise<BillingMe> {
     const row = await this.subscriptionFor(accountId);
     let snap: SubscriptionSnapshot | null = null;
-    let checkoutComplete = false;
+    let checkoutStatus: 'open' | 'complete' | 'expired' | null = null;
     if (row?.subscription_id) {
       snap = await this.provider.fetchSubscription(row.subscription_id);
       // A confirmed missing subscription must not leave its old paid projection alive.
@@ -357,14 +434,16 @@ export class BillingService {
       snap = await this.provider.fetchCustomerSubscription(row.customer_id);
     // No webhook yet (local API, missed delivery): the checkout session we
     // opened knows the customer and the subscription it created.
-    if (!snap && row?.pending_session_id) {
+    if (row?.pending_session_id) {
       const session = await this.provider.fetchCheckoutSession(
         row.pending_session_id,
       );
-      checkoutComplete = session?.complete ?? false;
-      if (session?.subscriptionId)
+      if (session && session.accountId !== accountId)
+        throw new BadRequestException('Checkout belongs to another account');
+      checkoutStatus = session?.status ?? null;
+      if ((!snap || !isLive(snap.status)) && session?.subscriptionId)
         snap = await this.provider.fetchSubscription(session.subscriptionId);
-      else if (session?.customerId)
+      else if ((!snap || !isLive(snap.status)) && session?.customerId)
         snap = await this.provider.fetchCustomerSubscription(
           session.customerId,
         );
@@ -386,13 +465,29 @@ export class BillingService {
         },
         notifications,
       );
-      if (row?.pending_session_id && checkoutComplete) {
-        const cleared = await this.repo.setPendingSession(accountId, null);
-        if (cleared.error)
+    }
+    if (
+      row?.pending_session_id &&
+      (checkoutStatus === 'complete' || checkoutStatus === 'expired')
+    ) {
+      const attempt = await this.repo.checkoutAttempt(accountId);
+      if (attempt.error)
+        throw new ServiceUnavailableException('Could not read checkout status');
+      if (attempt.data?.session_id === row.pending_session_id) {
+        const saved = await this.repo.saveCheckoutAttempt({
+          ...attempt.data,
+          status: checkoutStatus === 'complete' ? 'completed' : 'expired',
+        });
+        if (saved.error)
           throw new ServiceUnavailableException(
-            'Could not save checkout synchronization',
+            'Could not save checkout status',
           );
       }
+      const cleared = await this.repo.setPendingSession(accountId, null);
+      if (cleared.error)
+        throw new ServiceUnavailableException(
+          'Could not save checkout synchronization',
+        );
     }
     return this.me(accountId);
   }

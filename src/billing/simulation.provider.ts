@@ -95,6 +95,11 @@ export class SimulationBillingProvider implements BillingProvider {
   async fetchCheckoutSession(id: string) {
     return unwrap(await this.repo.read<CheckoutSessionInfo>('session', id));
   }
+  async expireCheckout(id: string) {
+    const session = await this.fetchCheckoutSession(id);
+    if (!session) throw new BadRequestException('Checkout session not found');
+    return session; // simulation completes inside its transaction; no open external checkout
+  }
   async fetchSubscription(id: string) {
     return snapshot(
       unwrap(await this.repo.read<SubscriptionSnapshot>('subscription', id)),

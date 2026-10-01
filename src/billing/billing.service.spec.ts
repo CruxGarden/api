@@ -15,17 +15,37 @@ const logger = {
 function fakeRepo() {
   const rows = new Map<string, SubscriptionRow>();
   const events = new Set<string>();
+  const attempts = new Map<
+    string,
+    import('./billing.repository').CheckoutAttempt
+  >();
+  const closing = new Set<string>();
   const ok = <T>(data: T) => Promise.resolve({ data, error: null });
   return {
+    isClosing: jest.fn((id: string) => ok(closing.has(id))),
+    markClosing: jest.fn((id: string) => {
+      closing.add(id);
+      return ok(undefined);
+    }),
+    checkoutAttempt: jest.fn((id: string) => ok(attempts.get(id) ?? null)),
+    saveCheckoutAttempt: jest.fn(
+      (attempt: import('./billing.repository').CheckoutAttempt) => {
+        attempts.set(attempt.account_id, attempt);
+        return ok(undefined);
+      },
+    ),
     forAccount: jest.fn(
       async (_accountId: string, work: () => Promise<unknown>) => {
         const beforeRows = new Map(rows);
         const beforeEvents = new Set(events);
+        const beforeAttempts = new Map(attempts);
         try {
           return await work();
         } catch (error) {
           rows.clear();
           for (const [id, row] of beforeRows) rows.set(id, row);
+          attempts.clear();
+          for (const [id, attempt] of beforeAttempts) attempts.set(id, attempt);
           events.clear();
           for (const id of beforeEvents) events.add(id);
           throw error;

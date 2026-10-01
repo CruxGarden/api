@@ -23,38 +23,43 @@ export class StripeBillingProvider implements BillingProvider {
   ) {}
 
   async createCheckout(req: CheckoutRequest) {
-    const session = await this.stripe.checkout.sessions.create({
-      mode: 'subscription',
-      line_items: [{ price: req.priceId, quantity: 1 }],
-      ...(req.customerId
-        ? {
-            customer: req.customerId,
-            customer_update: { address: 'auto', name: 'auto' },
-          }
-        : { customer_email: req.email }),
-      client_reference_id: req.accountId,
-      success_url: req.successUrl,
-      cancel_url: req.cancelUrl,
-      allow_promotion_codes: true,
-      billing_address_collection: 'auto',
-      automatic_tax: { enabled: this.automaticTax },
-      subscription_data: {
-        metadata: { accountId: req.accountId },
-        ...(req.trialDays > 0
+    if (!req.idempotencyKey)
+      throw new Error('A durable checkout identity is required');
+    const session = await this.stripe.checkout.sessions.create(
+      {
+        mode: 'subscription',
+        line_items: [{ price: req.priceId, quantity: 1 }],
+        ...(req.customerId
           ? {
-              trial_period_days: req.trialDays,
-              // card-free trial: when it ends without a payment method, end it — never
-              // leave a paused subscription that reads as a paid plan
-              trial_settings: {
-                end_behavior: { missing_payment_method: 'cancel' as const },
-              },
+              customer: req.customerId,
+              customer_update: { address: 'auto', name: 'auto' },
             }
-          : {}),
+          : { customer_email: req.email }),
+        client_reference_id: req.accountId,
+        success_url: req.successUrl,
+        cancel_url: req.cancelUrl,
+        allow_promotion_codes: true,
+        billing_address_collection: 'auto',
+        automatic_tax: { enabled: this.automaticTax },
+        subscription_data: {
+          metadata: { accountId: req.accountId },
+          ...(req.trialDays > 0
+            ? {
+                trial_period_days: req.trialDays,
+                // card-free trial: when it ends without a payment method, end it — never
+                // leave a paused subscription that reads as a paid plan
+                trial_settings: {
+                  end_behavior: { missing_payment_method: 'cancel' as const },
+                },
+              }
+            : {}),
+        },
+        // A card-free trial when trials are on; otherwise collect up front.
+        payment_method_collection: req.trialDays > 0 ? 'if_required' : 'always',
+        metadata: { accountId: req.accountId, attemptId: req.idempotencyKey },
       },
-      // A card-free trial when trials are on; otherwise collect up front.
-      payment_method_collection: req.trialDays > 0 ? 'if_required' : 'always',
-      metadata: { accountId: req.accountId },
-    });
+      { idempotencyKey: req.idempotencyKey },
+    );
     if (!session.url) throw new Error('Stripe did not return a checkout URL');
     return { url: session.url, sessionId: session.id };
   }
@@ -208,8 +213,25 @@ export class StripeBillingProvider implements BillingProvider {
     return {
       customerId: id(s.customer),
       subscriptionId: id(s.subscription),
-      complete: s.status === 'complete',
+      status: s.status ?? 'open',
+      accountId: s.client_reference_id,
+      attemptId: s.metadata?.attemptId ?? null,
+      url: s.url,
     };
+  }
+
+  async expireCheckout(sessionId: string) {
+    let current = await this.fetchCheckoutSession(sessionId);
+    if (current.status === 'open') {
+      try {
+        await this.stripe.checkout.sessions.expire(sessionId);
+      } catch (error) {
+        current = await this.fetchCheckoutSession(sessionId);
+        if (current.status === 'open') throw error;
+      }
+      current = await this.fetchCheckoutSession(sessionId);
+    }
+    return current;
   }
 
   async prices(priceIds: string[]): Promise<PriceInfo[]> {

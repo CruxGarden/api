@@ -18,7 +18,14 @@ import {
   ApiTags,
   ApiProperty,
 } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 import { SkipThrottle } from '@nestjs/throttler';
 import { isAdmin } from '../common/helpers/role-helpers';
 import { AuthGuard } from '../common/guards/auth.guard';
@@ -43,6 +50,20 @@ export class CheckoutDto {
   @IsString()
   @IsIn(['month', 'year'])
   interval!: 'month' | 'year';
+}
+
+export class RecoverCheckoutDto {
+  @ApiProperty()
+  @IsUUID()
+  accountId!: string;
+
+  @ApiProperty({
+    description: 'Session identified in the payment provider dashboard',
+  })
+  @IsString()
+  @Matches(/^cs_[A-Za-z0-9_]+$/)
+  @MaxLength(255)
+  sessionId!: string;
 }
 
 export class SimulationDto {
@@ -87,6 +108,45 @@ export class BillingController {
   @ApiOperation({ summary: 'Start a hosted checkout; returns the URL to open' })
   checkout(@Body() dto: CheckoutDto, @Req() req: AuthRequest) {
     return this.billing.checkout(req.account.id, dto.planId, dto.interval);
+  }
+
+  @Post('checkout/resume')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resume the existing checkout without creating another',
+  })
+  resumeCheckout(@Req() req: AuthRequest) {
+    return this.billing.resumeCheckout(req.account.id);
+  }
+
+  @Post('checkout/cancel')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Expire pending checkout; an already completed payment is synchronized',
+  })
+  async cancelCheckout(@Req() req: AuthRequest) {
+    return this.withCapabilities(
+      await this.billing.cancelCheckout(req.account.id),
+      req,
+    );
+  }
+
+  @Post('checkout/recover')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Admin: recover an ambiguous checkout using verified provider metadata',
+  })
+  recoverCheckout(@Body() dto: RecoverCheckoutDto, @Req() req: AuthRequest) {
+    if (!isAdmin(req.account.role)) throw new ForbiddenException('Admins only');
+    return this.billing.recoverCheckout(dto.accountId, dto.sessionId);
   }
 
   @Post('portal')

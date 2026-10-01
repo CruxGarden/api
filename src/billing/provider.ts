@@ -48,6 +48,8 @@ export type BillingEvent =
   | { id: string; type: 'ignored'; raw: string };
 
 export interface CheckoutRequest {
+  /** Persisted before external creation; required by the Stripe adapter. */
+  idempotencyKey?: string;
   accountId: string;
   email: string;
   /** existing provider customer, so a returning account never gets a second one */
@@ -96,6 +98,8 @@ export interface BillingProvider {
    * it completed. Lets sync recover an account whose webhook never arrived.
    */
   fetchCheckoutSession(sessionId: string): Promise<CheckoutSessionInfo | null>;
+  /** Expire an open session and return its confirmed state; never cancels a paid plan. */
+  expireCheckout(sessionId: string): Promise<CheckoutSessionInfo>;
   /** Amounts for the catalog. */
   prices(priceIds: string[]): Promise<PriceInfo[]>;
 }
@@ -108,8 +112,10 @@ export interface BillingProvider {
 export interface CheckoutSessionInfo {
   customerId: string | null;
   subscriptionId: string | null;
-  /** the session finished and payment (or trial) is in place */
-  complete: boolean;
+  status: 'open' | 'complete' | 'expired';
+  accountId: string | null;
+  attemptId: string | null;
+  url: string | null;
 }
 
 export class MockBillingProvider implements BillingProvider {
@@ -151,7 +157,10 @@ export class MockBillingProvider implements BillingProvider {
     this.sessions.set(sessionId, {
       customerId,
       subscriptionId,
-      complete: true,
+      status: 'complete',
+      accountId: req.accountId,
+      attemptId: req.idempotencyKey ?? null,
+      url: req.successUrl.replace('{CHECKOUT_SESSION_ID}', sessionId),
     });
     return {
       url: `${req.successUrl.replace('{CHECKOUT_SESSION_ID}', sessionId)}`,
@@ -160,6 +169,15 @@ export class MockBillingProvider implements BillingProvider {
   }
   async fetchCheckoutSession(sessionId: string) {
     return this.sessions.get(sessionId) ?? null;
+  }
+  async expireCheckout(sessionId: string) {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error('Checkout session not found');
+    if (session.status === 'open') {
+      session.status = 'expired';
+      session.url = null;
+    }
+    return session;
   }
   async closeAccount(input: {
     accountId: string;

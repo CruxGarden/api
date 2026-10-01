@@ -1,3 +1,4 @@
+import type { CheckoutRequest } from './provider';
 import { billingAccountTransaction } from './account-transaction';
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../common/services/db.service';
@@ -25,6 +26,18 @@ export interface SubscriptionRow {
   updated: Date | string;
 }
 
+export interface CheckoutAttempt {
+  account_id: string;
+  id: string;
+  provider: string;
+  request: CheckoutRequest;
+  status: 'preparing' | 'open' | 'completed' | 'expired';
+  session_id: string | null;
+  session_url: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
 @Injectable()
 export class BillingRepository {
   private readonly logger: LoggerService;
@@ -40,6 +53,67 @@ export class BillingRepository {
    */
   async forAccount<T>(accountId: string, work: () => Promise<T>): Promise<T> {
     return billingAccountTransaction(this.dbService, accountId, work);
+  }
+
+  async isClosing(accountId: string): Promise<RepositoryResponse<boolean>> {
+    try {
+      const state = await this.dbService
+        .query()('billing_account_state')
+        .where({ account_id: accountId })
+        .first();
+      return success(!!state?.closing_at);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  async markClosing(accountId: string): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()('billing_account_state')
+        .insert({ account_id: accountId, closing_at: new Date() })
+        .onConflict('account_id')
+        .merge({ closing_at: new Date() });
+      return success(undefined);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  async checkoutAttempt(
+    accountId: string,
+  ): Promise<RepositoryResponse<CheckoutAttempt | null>> {
+    try {
+      const row = await this.dbService
+        .query()('billing_checkout_attempts')
+        .where({ account_id: accountId })
+        .first();
+      if (row && typeof row.request === 'string')
+        row.request = JSON.parse(row.request);
+      return success(row ?? null);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  async saveCheckoutAttempt(
+    attempt: CheckoutAttempt,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      const row = {
+        ...attempt,
+        request: JSON.stringify(attempt.request),
+        updated_at: new Date(),
+      };
+      await this.dbService
+        .query()('billing_checkout_attempts')
+        .insert(row)
+        .onConflict('account_id')
+        .merge(row);
+      return success(undefined);
+    } catch (error) {
+      return failure(error);
+    }
   }
 
   async byAccount(

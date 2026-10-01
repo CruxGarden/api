@@ -1,3 +1,4 @@
+import { up as checkoutSchema } from '../../db/migrations/20261001010000_billing_checkout_attempts';
 /** Test-only HTTP fixture: real billing controller/service/repositories + disposable SQLite.
  * Authentication and unrelated API routes are synthetic. Never loaded by AppModule.
  */
@@ -28,6 +29,7 @@ export async function prepareBillingFixture(db: DbService) {
     .query()('accounts')
     .insert({ id: simulationAccountId, email: 'local@example.test' });
   await up(db.query());
+  await checkoutSchema(db.query());
   await db.query().schema.createTable('subscriptions', (t) => {
     t.uuid('account_id').primary();
     t.text('provider').notNullable().defaultTo('stripe');

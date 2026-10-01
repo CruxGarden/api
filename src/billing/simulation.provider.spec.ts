@@ -299,7 +299,7 @@ describe('persistent local billing simulation', () => {
       trialDays: 0,
     });
     const session = await provider.fetchCheckoutSession(checkout.sessionId);
-    expect(session.complete).toBe(true);
+    expect(session.status).toBe('complete');
     const subscription = await provider.fetchSubscription(
       session.subscriptionId,
     );

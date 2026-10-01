@@ -128,7 +128,10 @@ export class BillingSimulationRepository {
           const session: CheckoutSessionInfo = {
             customerId: snapshot.customerId,
             subscriptionId: snapshot.subscriptionId,
-            complete: true,
+            status: 'complete',
+            accountId,
+            attemptId: null,
+            url: null,
           };
           await db('billing_simulation').insert([
             {
