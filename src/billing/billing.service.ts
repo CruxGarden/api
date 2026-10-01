@@ -46,6 +46,7 @@ export interface BillingMe {
   renewsAt: string | null;
   cancelAtPeriodEnd: boolean;
   trialEndsAt: string | null;
+  graceEndsAt: string | null;
   /** the account has a provider customer → the portal can be opened */
   canManage: boolean;
   provider: string;
@@ -182,6 +183,7 @@ export class BillingService {
       trialEndsAt: row?.trial_end
         ? new Date(row.trial_end).toISOString()
         : null,
+      graceEndsAt: graceDeadline(row)?.toISOString() ?? null,
       canManage: !!row?.customer_id && this.provider.name !== 'simulation',
       provider: this.provider.name,
     };
@@ -343,8 +345,11 @@ export class BillingService {
     const row = await this.subscriptionFor(accountId);
     let snap: SubscriptionSnapshot | null = null;
     let checkoutComplete = false;
-    if (row?.subscription_id)
+    if (row?.subscription_id) {
       snap = await this.provider.fetchSubscription(row.subscription_id);
+      // A confirmed missing subscription must not leave its old paid projection alive.
+      if (!snap) snap = canceledSnapshot(row);
+    }
     // Prefer a successor, but retain cancellation when none exists. Otherwise
     // a missed webhook would leave the old paid entitlement active forever.
     const previous = snap;
@@ -406,6 +411,13 @@ export class BillingService {
       );
     }
     if (event.type === 'ignored') return { handled: 'ignored' };
+    const completed = await this.repo.eventCompleted(
+      event.id,
+      this.provider.name,
+    );
+    if (completed.error)
+      throw new ServiceUnavailableException('Could not read billing receipt');
+    if (completed.data) return { handled: 'duplicate' };
     const accountId = await this.eventAccount(event);
     return this.withAccount(accountId, async (notifications) => {
       if ((await this.eventAccount(event)) !== accountId)
@@ -493,7 +505,7 @@ export class BillingService {
               ...fresh,
               accountId: fresh.accountId ?? event.subscription.accountId,
             }
-          : event.subscription;
+          : { ...event.subscription, status: 'canceled' as const };
         let snap =
           event.type === 'subscription.deleted'
             ? { ...base, status: 'canceled' as const }
@@ -730,12 +742,36 @@ export function effectivePlanId(
   if (!row) return 'free';
   if (row.status === 'active' || row.status === 'trialing') return row.plan_id;
   if (row.status === 'past_due') {
-    const since = new Date(row.past_due_since ?? row.updated).getTime();
-    return now.getTime() - since <= PAST_DUE_GRACE_DAYS * 86_400_000
+    const deadline = graceDeadline(row);
+    return deadline && now.getTime() <= deadline.getTime()
       ? row.plan_id
       : 'free';
   }
   return 'free';
+}
+
+function graceDeadline(row: SubscriptionRow | null | undefined): Date | null {
+  if (row?.status !== 'past_due') return null;
+  const since = new Date(row.past_due_since ?? row.updated).getTime();
+  return Number.isFinite(since)
+    ? new Date(since + PAST_DUE_GRACE_DAYS * 86_400_000)
+    : null;
+}
+
+function canceledSnapshot(row: SubscriptionRow): SubscriptionSnapshot {
+  const date = (value: Date | string | null) =>
+    value ? new Date(value) : null;
+  return {
+    accountId: row.account_id,
+    customerId: row.customer_id ?? '',
+    subscriptionId: row.subscription_id!,
+    priceId: row.price_id,
+    status: 'canceled',
+    cancelAtPeriodEnd: false,
+    currentPeriodStart: date(row.current_period_start),
+    currentPeriodEnd: date(row.current_period_end),
+    trialEnd: date(row.trial_end),
+  };
 }
 
 function trialDays(): number {

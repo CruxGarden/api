@@ -151,6 +151,24 @@ export class BillingRepository {
     }
   }
 
+  /** A completed receipt remains a duplicate even after its account is closed. */
+  async eventCompleted(
+    id: string,
+    provider: string,
+  ): Promise<RepositoryResponse<boolean>> {
+    try {
+      const row = await this.dbService
+        .query()('billing_events')
+        .where({ id, provider })
+        .whereNotNull('payload')
+        .first('id');
+      return success(!!row);
+    } catch (error) {
+      this.logger.error('eventCompleted failed', error as Error);
+      return failure(error);
+    }
+  }
+
   /**
    * Called inside forAccount: claim, projection and payload completion share
    * one transaction. A process exit rolls them back. An old null-payload claim

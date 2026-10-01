@@ -73,6 +73,7 @@ function fakeRepo() {
     accountEmail: jest.fn((a: string) =>
       ok(a === 'acct-1' ? 'd@example.com' : null),
     ),
+    eventCompleted: jest.fn((id: string) => ok(events.has(id))),
     claimEvent: jest.fn((id: string) => {
       if (events.has(id)) return ok(false);
       events.add(id);
@@ -209,6 +210,7 @@ describe('BillingService', () => {
       trialEnd: null,
       accountId: 'acct-1',
     };
+    provider.subscriptions.set(base.subscriptionId, base);
     provider.emit({
       id: 'evt_1',
       type: 'subscription.changed',
@@ -236,6 +238,10 @@ describe('BillingService', () => {
     });
     expect(await svc.planIdFor('acct-1')).toBe('gardener');
 
+    provider.subscriptions.set(base.subscriptionId, {
+      ...base,
+      priceId: 'price_g_y',
+    });
     // upgrade arrives with no accountId on the payload → resolved via customer
     provider.emit({
       id: 'evt_2',

@@ -58,6 +58,7 @@ function fakeRepo() {
     }),
     setPendingSession: jest.fn(() => ok(undefined)),
     accountEmail: jest.fn(() => ok('d@example.com')),
+    eventCompleted: jest.fn((id: string) => ok(events.has(id))),
     claimEvent: jest.fn((id: string) => {
       if (events.has(id)) return ok(false);
       events.add(id);
@@ -123,12 +124,23 @@ describe('Stripe webhooks, signed end to end', () => {
   beforeEach(() => {
     // The provider only needs the Stripe SDK for signature checks here; no network.
     provider = new StripeBillingProvider(stripe, SECRET, false);
-    // `subscription.changed` re-fetches live state; return "the same" so the
-    // payload is what counts.
+    // These signed transport fixtures model the provider still being at the
+    // delivered state. Separate lifecycle tests cover delayed/stale deliveries.
     jest
       .spyOn(provider, 'fetchSubscription')
       .mockImplementation(async () => null);
     jest.spyOn(provider, 'fetchCustomerSubscription').mockResolvedValue(null);
+    const parse = provider.parseWebhook.bind(provider);
+    jest
+      .spyOn(provider, 'parseWebhook')
+      .mockImplementation(async (body, signature) => {
+        const event = await parse(body, signature);
+        if (event.type === 'subscription.changed')
+          jest
+            .mocked(provider.fetchSubscription)
+            .mockResolvedValue(event.subscription);
+        return event;
+      });
     repo = fakeRepo();
     svc = new BillingService(repo as never, logger, email as never);
     svc.useProvider(provider, PRICES);

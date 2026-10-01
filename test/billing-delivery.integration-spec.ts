@@ -211,6 +211,56 @@ describe('durable billing delivery', () => {
     );
   });
 
+  it('acknowledges a completed receipt after its account has been closed', async () => {
+    const event = await failureEvent('evt_before_close');
+    provider.emit(event);
+    await service.handleWebhook(body, 'fixture');
+    await fixture.db
+      .query()('accounts')
+      .where({ id: account })
+      .update({ deleted: new Date() });
+    try {
+      provider.emit(event);
+      await expect(service.handleWebhook(body, 'fixture')).resolves.toEqual({
+        handled: 'duplicate',
+      });
+    } finally {
+      await fixture.db
+        .query()('accounts')
+        .where({ id: account })
+        .update({ deleted: null });
+    }
+  });
+
+  it('never restores paid access from a payload after confirmed provider absence', async () => {
+    const row = (await repository.byAccount(account)).data!;
+    const stale = provider.subscriptions.get(row.subscription_id!)!;
+    provider.subscriptions.delete(stale.subscriptionId);
+    expect((await service.sync(account)).plan.id).toBe('free');
+    provider.emit({
+      id: 'evt_missing_subscription',
+      type: 'subscription.changed',
+      subscription: stale,
+    });
+    await service.handleWebhook(body, 'fixture');
+    expect((await service.me(account)).plan.id).toBe('free');
+  });
+
+  it('exposes the same grace deadline used by entitlement enforcement', async () => {
+    const event = await failureEvent('evt_grace');
+    provider.emit(event);
+    await service.handleWebhook(body, 'fixture');
+    const me = await service.me(account);
+    expect(me.graceEndsAt).toBeTruthy();
+    expect(me.plan.id).toBe('gardener');
+    const after = await service.me(
+      account,
+      new Date(new Date(me.graceEndsAt!).getTime() + 1),
+    );
+    expect(after.plan.id).toBe('free');
+    expect(after.graceEndsAt).toBe(me.graceEndsAt);
+  });
+
   it('commits billing even when post-commit email delivery fails', async () => {
     const event = await failureEvent('evt_email_failure');
     email.send.mockRejectedValueOnce(new Error('email unavailable'));
