@@ -56,8 +56,9 @@ export class CruxGraphService {
 
   findPublicByAuthorQuery(
     authorId: string,
+    kind?: 'tool' | 'mood' | 'creations',
   ): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
-    return this.cruxRepository.findPublicByAuthorQuery(authorId);
+    return this.cruxRepository.findPublicByAuthorQuery(authorId, kind);
   }
 
   async findById(id: string): Promise<Crux> {

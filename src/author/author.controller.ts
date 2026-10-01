@@ -252,7 +252,20 @@ export class AuthorController {
   ): Promise<Crux[]> {
     const author = await this.resolveAuthor(identifier);
 
-    const query = this.cruxService.findPublicByAuthorQuery(author.id);
+    const kind = req.query?.kind;
+    if (
+      kind !== undefined &&
+      kind !== 'tool' &&
+      kind !== 'mood' &&
+      kind !== 'creations'
+    )
+      throw new BadRequestException('kind must be tool, mood or creations');
+    const query = this.cruxService.findPublicByAuthorQuery(
+      author.id,
+      kind === 'tool' || kind === 'mood' || kind === 'creations'
+        ? kind
+        : undefined,
+    );
     const cruxes = (await this.dbService.paginate<CruxRaw, Crux>({
       model: Crux,
       query,

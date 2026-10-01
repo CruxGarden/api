@@ -40,8 +40,9 @@ export class CruxRepository {
 
   findPublicByAuthorQuery(
     authorId: string,
+    kind?: 'tool' | 'mood' | 'creations',
   ): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
-    return this.dbService
+    const query = this.dbService
       .query()
       .from<CruxRaw>(CruxRepository.TABLE_NAME)
       .select<CruxRaw[]>(CruxRepository.BASE_SELECT)
@@ -49,6 +50,12 @@ export class CruxRepository {
       .where('visibility', 'public')
       .whereNull('deleted')
       .orderBy('created', 'desc') as Knex.QueryBuilder<CruxRaw, CruxRaw[]>;
+    if (kind === 'creations')
+      query.where((q) =>
+        q.whereNull('kind').orWhereNotIn('kind', ['tool', 'mood']),
+      );
+    else if (kind) query.where('kind', kind);
+    return query;
   }
 
   async findBy(
