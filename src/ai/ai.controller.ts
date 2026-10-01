@@ -34,7 +34,7 @@ export class AiController {
       throw new BadRequestException('x-anthropic-key header is required');
     }
 
-    const model = chatDto.model || 'claude-sonnet-4-20250514';
+    const model = chatDto.model || 'claude-sonnet-5-5';
     const author = await this.authorService.findByAccountId(req.account.id);
 
     await this.aiService.streamChat(

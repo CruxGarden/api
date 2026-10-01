@@ -82,6 +82,7 @@ async function* completed() {
 }
 describe('Included request policy', () => {
   it('prices cache creation and reads independently, with conservative reservation', () => {
+    expect(SONNET).toBe('claude-sonnet-5-5');
     const tokens = { input: 100, output: 50, cacheRead: 200, cacheWrite: 40 };
     expect(cost(SONNET, tokens)).toBe(840);
     expect(reservation(SONNET, 100, 1000)).toBeGreaterThan(6000);
@@ -90,6 +91,10 @@ describe('Included request policy', () => {
     for (const extra of [
       { model: 'claude-opus-5' },
       { max_tokens: 8193 },
+      { temperature: 0.5 },
+      { top_p: 0.7 },
+      { tool_choice: { type: 'any' } },
+      { tool_choice: { type: 'tool', name: 'write_file' } },
       { stream: false },
       { thinking: { type: 'enabled' } },
       { tools: [{ type: 'web_search_20250305', name: 'web_search' }] },

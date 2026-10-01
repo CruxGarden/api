@@ -119,7 +119,6 @@ export class AiService {
         model,
         ctx,
         anthropicClient,
-        crux,
       );
     } catch (error: any) {
       if (clientDisconnected) return;
@@ -143,10 +142,8 @@ export class AiService {
     model: string,
     ctx: StreamContext,
     anthropicClient: Anthropic,
-    crux: any,
   ): Promise<void> {
     const MAX_TOOL_ROUNDS = 10;
-    let currentSystemPrompt = systemPrompt;
     const recentlyReadFiles = new Set<string>();
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -159,7 +156,7 @@ export class AiService {
 
       try {
         response = await this.streamResponse(
-          currentSystemPrompt,
+          systemPrompt,
           messages,
           model,
           ctx,
@@ -217,11 +214,13 @@ export class AiService {
         content: toolResults,
       });
 
-      // Refresh system prompt with updated file list after mutations
+      // Keep the prefix signed by Claude's thinking blocks unchanged.
+      // Fresh file state follows the tool results instead of rewriting history.
       if (hadFileMutation) {
-        currentSystemPrompt = await buildSystemPrompt(crux, () =>
-          this.toolListFiles(ctx),
-        );
+        messages.push({
+          role: 'user',
+          content: `Updated workspace files:\n${await this.toolListFiles(ctx)}`,
+        });
       }
     }
   }
