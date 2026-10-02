@@ -1,6 +1,10 @@
 # Contributing to Crux Garden API
 
-Thank you for your interest in contributing to Crux Garden API! This document provides guidelines and instructions for contributing to this project.
+This repository contains the hosted API and the packaged local runtime used by the
+Electron desktop app. Start with the [local-runtime source map and decision
+boundaries](README.md#local-runtime) and the public [app architecture guide](https://github.com/CruxGarden/app/blob/main/docs/architecture.md).
+These references include the necessary vocabulary and ownership rules; no private
+parent workspace is needed.
 
 ## Table of Contents
 
@@ -9,6 +13,7 @@ Thank you for your interest in contributing to Crux Garden API! This document pr
 - [Development Setup](#development-setup)
 - [How to Contribute](#how-to-contribute)
 - [Coding Standards](#coding-standards)
+- [Local Runtime Changes](#local-runtime-changes)
 - [Testing Guidelines](#testing-guidelines)
 - [Commit Guidelines](#commit-guidelines)
 - [Pull Request Process](#pull-request-process)
@@ -79,13 +84,16 @@ The API will be available at `http://localhost:3000`. Visit `http://localhost:30
 ### Environment Variables
 
 **Required:**
+
 - `JWT_SECRET` - JWT token signing secret (minimum 32 characters)
 
 **Database & Cache** (auto-configured with Docker):
+
 - `DATABASE_URL` - PostgreSQL connection string
 - `REDIS_URL` - Redis connection string
 
 **AWS Services** (optional - runs in mock mode if not configured):
+
 - `AWS_ACCESS_KEY_ID` - AWS access key
 - `AWS_SECRET_ACCESS_KEY` - AWS secret key
 - `AWS_REGION` - AWS region (e.g., `us-east-1`)
@@ -156,6 +164,32 @@ npm run lint
 - Guards: Handle authentication/authorization
 - Swagger: API documentation decorators
 
+## Local Runtime Changes
+
+Use [src/local/index.ts](src/local/index.ts) as the package boundary and
+[graph-runtime.ts](src/local/graph-runtime.ts) as the lifecycle/command entry point.
+Keep validation and transactions inside the runtime; the desktop supplies trusted
+filesystem hosts through the typed contract. Do not implement a competing renderer
+SQL writer or silently fall back to a different store when a command is unavailable.
+
+Preserve owner/revision capture, file integrity, retained Task/history references,
+refusal-before-mutation and restart/recovery behavior. Add focused regressions to
+the native suites under `src/local/` for a changed contract. Use actual SQLite and
+filesystem boundaries for persistence/fault assertions; mocks are appropriate for
+external providers, not substitutes for the database owner under test.
+
+Run `npm run verify`: lint, unit tests, HTTP integration tests, build and the actual
+packaged-runtime smoke check. HTTP/PostgreSQL integration fixtures require Docker;
+they start disposable databases rather than using a developer's existing database.
+`npm run build:local` produces the runtime package directory; `npm run verify:local`
+checks a compiled package. Keep provenance and license materials with the archive.
+
+When the exported contract changes, coordinate the app's typed IPC adapter,
+renderer consumer and actual-desktop journey. Install the same runtime archive in
+both app and Electron manifests/lockfiles and verify both environments; Node and
+Electron native binaries must remain separate. Publishing an HTTP deployment and
+installing a desktop runtime are independent release actions.
+
 ## Testing Guidelines
 
 ### Test Coverage
@@ -184,7 +218,7 @@ npm run test:watch
 npm run test:module <module-name>
 
 # Run tests with coverage (excludes .spec, swagger, DTOs, entities)
-npm run test:cov
+npm run test:coverage
 ```
 
 ### Test Structure
@@ -297,7 +331,7 @@ improving coverage from 88% to 93%.
 1. Ensure your code follows the coding standards
 2. Run the linter and formatter: `npm run lint && npm run format`
 3. Write or update tests for your changes
-4. Ensure all tests pass: `npm run test:all`
+4. Run the complete gate: `npm run verify`; include affected desktop acceptance for runtime changes
 5. Update documentation if needed
 6. Rebase your branch on the latest main branch
 
@@ -317,22 +351,27 @@ Include the following in your PR description:
 
 ```markdown
 ## Summary
+
 Brief description of the changes
 
 ## Motivation
+
 Why are these changes needed?
 
 ## Changes
+
 - Change 1
 - Change 2
 - Change 3
 
 ## Testing
+
 - [ ] Unit tests added/updated
 - [ ] All tests passing
 - [ ] Manual testing completed
 
 ## Checklist
+
 - [ ] Code follows project style guidelines
 - [ ] Self-review completed
 - [ ] Comments added for complex code

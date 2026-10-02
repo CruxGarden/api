@@ -12,13 +12,82 @@ its version history. Gardens organize related Cruxes.
 
 This repository contains the NestJS API and the packaged local runtime used by the
 [desktop app](https://github.com/CruxGarden/app). The hosted API owns account authentication,
-sync, publication, and server-side Crux Store/Function access. The local runtime owns the
-desktop SQLite database and content manifests. Provider credentials belong to the configured
-AI integration; this service is not an AI proxy.
+sync, publication, server-side Crux Store/Function access, and configured included
+collaboration. The local runtime owns the desktop SQLite database and content manifests.
+BYOK calls go directly from the app to the person's selected provider; included
+collaboration uses the metered [inference service](src/inference/inference.service.ts).
 
 The HTTP service uses PostgreSQL, Knex, and Redis. Hosted authentication and publication
 need the corresponding deployment configuration; development email/storage mocks do not
 prove live delivery. See `.env.example`, `CONTRIBUTING.md`, and `SECURITY.md`.
+
+## Local runtime
+
+This repository ships two deployment boundaries. The hosted NestJS application uses
+PostgreSQL/Redis and exposes authenticated HTTP services. The desktop's
+`@cruxgarden/local-api` package runs in-process inside Electron with native SQLite;
+it does not start the hosted HTTP application or require cloud credentials for
+local creation. Neither deployment is a second synchronized writer for the other's
+live database.
+
+| Responsibility                                                            | Source                                                                                                                             |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Public local package exports                                              | [src/local/index.ts](src/local/index.ts)                                                                                           |
+| Connection ownership, command queue, lifecycle and change notifications   | [graph-runtime.ts](src/local/graph-runtime.ts)                                                                                     |
+| File selection, immutable heads and admitted write/delete/rename commands | [file-content.service.ts](src/local/file-content.service.ts), [file-content.repository.ts](src/local/file-content.repository.ts)   |
+| Automatic edit retention and marked versions                              | [edit-retention.service.ts](src/local/edit-retention.service.ts), [growth-content.service.ts](src/local/growth-content.service.ts) |
+| Task review/merge and retained states                                     | [task-merge.service.ts](src/local/task-merge.service.ts), [working-copy-create.ts](src/local/working-copy-create.ts)               |
+| Private graph archive and admission                                       | [private-graph-archive.ts](src/local/private-graph-archive.ts), [graph-transfer.service.ts](src/local/graph-transfer.service.ts)   |
+| Installation recovery inspection                                          | [desktop-recovery.ts](src/local/desktop-recovery.ts), [desktop-content.ts](src/local/desktop-content.ts)                           |
+| Packaging and packaged-runtime smoke check                                | [package-local-runtime.mjs](scripts/package-local-runtime.mjs), [check-local-runtime.cjs](scripts/check-local-runtime.cjs)         |
+
+The host supplies exact Project Folder grants and filesystem projection. Native
+commands validate expected heads/file selections and own the database transaction.
+A guarded file mutation records its committed head and durable projection intent
+together; the host finishes that admitted operation and retains recovery bytes.
+External file changes are indexed through ingestion. A retry finishes an existing
+intent, rather than repeating a destructive command with new implicit consent.
+See the public [app architecture guide](https://github.com/CruxGarden/app/blob/main/docs/architecture.md)
+for IPC, Project Folder recovery, workspace lifetime, previews and editor behavior.
+
+These are the contributor decision boundaries:
+
+- Keep one local runtime owner for the working database; renderer stores project
+  state and issue named commands, never parallel raw SQL mutations.
+- Preserve captured owner, revision and account context across asynchronous work.
+  A stale selection or matching UUID does not authorize replacement.
+- Private graph transfer, complete installation recovery and public output have
+  distinct scopes. Keep credentials, machine paths and unrelated operational
+  state outside portable project content.
+- Retained file roots and fingerprints must remain readable through refusal,
+  retry and restart. Routine autosave retention is distinct from marked versions
+  and explicit destructive-operation safety states.
+- Filesystem projection belongs to the trusted desktop host; downloaded editor
+  packages do not install privileged host code.
+
+These public summaries and their source links stand alone. A contributor does not
+need a private parent workspace or unpublished ADRs to identify the current owner.
+Describe proposed boundary changes, alternatives and preservation tests in the PR,
+and update the relevant public guide when behavior changes.
+
+To produce the local package from this checkout:
+
+```bash
+nvm use
+npm ci
+npm run build:local
+npm run verify:local
+```
+
+`build:local` builds the API and writes `build/local-runtime/` with compiled code,
+declarations, license and provenance. `verify:local` packages the existing build
+and smoke-tests the actual runtime. The package version includes the API source
+revision and artifact hash. The app vendors the resulting npm archive in
+`electron/vendor/`; both its Node test fixture and Electron dependency must select
+that same archive. Keep their native SQLite installations separate. A source-only
+API change is not installed in the app until those consumer dependencies change.
+Full API verification and affected app/host/actual-desktop checks remain required
+for a changed runtime; see [CONTRIBUTING.md](CONTRIBUTING.md#local-runtime-changes).
 
 ## Getting Started
 
