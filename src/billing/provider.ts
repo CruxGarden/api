@@ -31,6 +31,13 @@ export interface SubscriptionSnapshot {
 export type BillingEvent =
   | {
       id: string;
+      type: 'checkout.completed';
+      accountId: string | null;
+      customerId: string;
+      subscriptionId: string;
+    }
+  | {
+      id: string;
       type: 'subscription.changed';
       subscription: SubscriptionSnapshot;
     }
@@ -80,7 +87,10 @@ export interface BillingProvider {
     customerId?: string;
     pendingSessionId?: string;
   }): Promise<void>;
-  /** Verify and normalize a webhook. Throws on a bad signature. */
+  /** Verify and normalize without network calls. Provider enrichment belongs
+   * after durable receipt deduplication, inside monitored event processing.
+   * Throws on a bad signature.
+   */
   parseWebhook(
     rawBody: Buffer,
     signature: string | undefined,

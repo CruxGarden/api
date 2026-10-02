@@ -122,11 +122,15 @@ export class StripeBillingProvider implements BillingProvider {
             ? session.subscription
             : session.subscription?.id;
         if (!subId) return { id: event.id, type: 'ignored', raw: event.type };
-        const sub = await this.stripe.subscriptions.retrieve(subId);
         return {
           id: event.id,
-          type: 'subscription.changed',
-          subscription: snapshot(sub, session.client_reference_id ?? undefined),
+          type: 'checkout.completed',
+          subscriptionId: subId,
+          customerId:
+            typeof session.customer === 'string'
+              ? session.customer
+              : (session.customer?.id ?? ''),
+          accountId: session.client_reference_id ?? null,
         };
       }
       case 'customer.subscription.created':
@@ -282,10 +286,7 @@ function status(s: Stripe.Subscription.Status): SubscriptionStatus {
 }
 
 /** Normalize a Stripe subscription; period fields moved onto items in newer API versions. */
-function snapshot(
-  sub: Stripe.Subscription,
-  accountIdHint?: string,
-): SubscriptionSnapshot {
+function snapshot(sub: Stripe.Subscription): SubscriptionSnapshot {
   const item = sub.items?.data?.[0];
   const legacy = sub as unknown as {
     current_period_start?: number;
@@ -308,7 +309,7 @@ function snapshot(
     currentPeriodEnd: end ? new Date(end * 1000) : null,
     cancelAtPeriodEnd: !!sub.cancel_at_period_end,
     trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
-    accountId: sub.metadata?.accountId || accountIdHint || null,
+    accountId: sub.metadata?.accountId || null,
   };
 }
 

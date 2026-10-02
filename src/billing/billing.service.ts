@@ -609,44 +609,80 @@ export class BillingService {
       throw new ServiceUnavailableException('Could not read billing receipt');
     if (completed.data) return { handled: 'duplicate' };
     const accountId = await this.eventAccount(event);
-    return this.withAccount(accountId, async (notifications) => {
-      if ((await this.eventAccount(event)) !== accountId)
-        throw new ServiceUnavailableException(
-          'Billing event ownership changed; retry',
+    return this.withAccount(
+      accountId,
+      async (notifications, closed) => {
+        if ((await this.eventAccount(event)) !== accountId)
+          throw new ServiceUnavailableException(
+            'Billing event ownership changed; retry',
+          );
+        if (closed) await this.requireClosedOwner(event, accountId);
+        const claimed = await this.repo.claimEvent(
+          event.id,
+          this.provider.name,
+          event.type,
         );
-      const claimed = await this.repo.claimEvent(
-        event.id,
-        this.provider.name,
-        event.type,
-      );
-      if (claimed.error)
-        throw new ServiceUnavailableException('Could not claim billing event');
-      if (!claimed.data) return { handled: 'duplicate' };
-      await this.applyEvent(event, accountId, notifications);
-      const recorded = await this.repo.recordEvent(
-        event.id,
-        this.provider.name,
-        event.type,
-        accountId,
-        event,
-      );
-      if (recorded.error)
-        throw new ServiceUnavailableException(
-          'Could not complete billing event',
+        if (claimed.error)
+          throw new ServiceUnavailableException(
+            'Could not claim billing event',
+          );
+        if (!claimed.data) return { handled: 'duplicate' };
+        if (!closed) await this.applyEvent(event, accountId, notifications);
+        const recorded = await this.repo.recordEvent(
+          event.id,
+          this.provider.name,
+          event.type,
+          accountId,
+          closed ? { ...event, outcome: 'account.closed' } : event,
         );
-      return { handled: event.type };
-    });
+        if (recorded.error)
+          throw new ServiceUnavailableException(
+            'Could not complete billing event',
+          );
+        return { handled: closed ? 'account.closed' : event.type };
+      },
+      'retained',
+    );
+  }
+
+  /** Closing an account retains its billing identities and committed fence.
+   * Those facts, not event metadata alone, authorize a receipt without mutation.
+   */
+  private async requireClosedOwner(
+    event: Exclude<BillingEvent, { type: 'ignored' }>,
+    accountId: string,
+  ): Promise<void> {
+    const row = await this.subscriptionFor(accountId);
+    const identity = 'subscription' in event ? event.subscription : event;
+    const closing = await this.repo.isClosing(accountId);
+    if (
+      closing.error ||
+      !closing.data ||
+      !row ||
+      row.provider !== this.provider.name ||
+      row.status !== 'canceled' ||
+      row.plan_id !== 'free' ||
+      !identity.customerId ||
+      !identity.subscriptionId ||
+      row.customer_id !== identity.customerId ||
+      row.subscription_id !== identity.subscriptionId
+    )
+      throw new ServiceUnavailableException(
+        'Closed billing owner could not be verified',
+      );
   }
 
   private async eventAccount(
     event: Exclude<BillingEvent, { type: 'ignored' }>,
   ): Promise<string> {
-    if (event.type !== 'payment.failed' && event.subscription.accountId)
+    if ('subscription' in event && event.subscription.accountId)
       return event.subscription.accountId;
+    if (event.type === 'checkout.completed' && event.accountId)
+      return event.accountId;
     const customerId =
-      event.type === 'payment.failed'
-        ? event.customerId
-        : event.subscription.customerId;
+      'subscription' in event
+        ? event.subscription.customerId
+        : event.customerId;
     const result = await this.repo.byCustomer(customerId);
     if (result.error || !result.data)
       throw new ServiceUnavailableException(
@@ -661,24 +697,29 @@ export class BillingService {
    */
   private async withAccount<T>(
     accountId: string,
-    work: (notifications: BillingNotification[]) => Promise<T>,
+    work: (notifications: BillingNotification[], closed: boolean) => Promise<T>,
+    scope: 'live' | 'retained' = 'live',
   ): Promise<T> {
     const notifications: BillingNotification[] = [];
-    const result = await this.repo.forAccount(accountId, async () => {
-      const value = await work(notifications);
-      if (this.operations && this.provider.name !== 'simulation') {
-        for (const notice of notifications)
-          operationResult(
-            await this.operations.enqueue(
-              notice.accountId,
-              notice.message,
-              undefined,
-              notice.condition,
-            ),
-          );
-      }
-      return value;
-    });
+    const result = await this.repo.forAccount(
+      accountId,
+      async (closed) => {
+        const value = await work(notifications, closed);
+        if (this.operations && this.provider.name !== 'simulation') {
+          for (const notice of notifications)
+            operationResult(
+              await this.operations.enqueue(
+                notice.accountId,
+                notice.message,
+                undefined,
+                notice.condition,
+              ),
+            );
+        }
+        return value;
+      },
+      scope,
+    );
     // Production uses the durable outbox; isolated legacy unit fixtures omit it.
     if (!this.operations)
       for (const { accountId: recipient, message } of notifications)
@@ -694,22 +735,33 @@ export class BillingService {
   ): Promise<string | null> {
     let accountId: string | null = null;
     switch (event.type) {
+      case 'checkout.completed':
       case 'subscription.changed':
       case 'subscription.deleted': {
         // Deliveries are not ordered; for a live subscription prefer the
         // provider's current state over the payload's.
+        const identity = 'subscription' in event ? event.subscription : event;
         const fresh =
-          event.type === 'subscription.changed'
-            ? await this.provider.fetchSubscription(
-                event.subscription.subscriptionId,
-              )
+          event.type !== 'subscription.deleted'
+            ? await this.provider.fetchSubscription(identity.subscriptionId)
             : null;
-        const base = fresh
-          ? {
-              ...fresh,
-              accountId: fresh.accountId ?? event.subscription.accountId,
-            }
-          : { ...event.subscription, status: 'canceled' as const };
+        if (
+          fresh &&
+          identity.customerId &&
+          fresh.customerId !== identity.customerId
+        )
+          throw new ServiceUnavailableException(
+            'Subscription customer differs from event owner',
+          );
+        let base: SubscriptionSnapshot;
+        if (fresh)
+          base = { ...fresh, accountId: fresh.accountId ?? identity.accountId };
+        else if ('subscription' in event)
+          base = { ...event.subscription, status: 'canceled' };
+        else
+          throw new ServiceUnavailableException(
+            'Checkout subscription is unavailable',
+          );
         let snap =
           event.type === 'subscription.deleted'
             ? { ...base, status: 'canceled' as const }

@@ -51,8 +51,12 @@ export class BillingRepository {
   /** One account's provider observation, projection and receipt commit together.
    * Provider calls in this operation must be bounded; notification delivery runs afterward.
    */
-  async forAccount<T>(accountId: string, work: () => Promise<T>): Promise<T> {
-    return billingAccountTransaction(this.dbService, accountId, work);
+  async forAccount<T>(
+    accountId: string,
+    work: (closed: boolean) => Promise<T>,
+    scope: 'live' | 'retained' = 'live',
+  ): Promise<T> {
+    return billingAccountTransaction(this.dbService, accountId, work, scope);
   }
 
   async isClosing(accountId: string): Promise<RepositoryResponse<boolean>> {

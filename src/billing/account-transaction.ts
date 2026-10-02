@@ -8,18 +8,22 @@ import { DbService } from '../common/services/db.service';
 export function billingAccountTransaction<T>(
   database: DbService,
   accountId: string,
-  work: () => Promise<T>,
+  work: (closed: boolean) => Promise<T>,
+  scope: 'live' | 'retained' = 'live',
 ): Promise<T> {
   return database.transaction(async () => {
     const db = database.query();
-    let account = db('accounts').where({ id: accountId }).whereNull('deleted');
+    let account = db('accounts').where({ id: accountId });
+    // Only webhook receipts may inspect a retained, soft-deleted owner. The
+    // callback must prove closure and billing identities before acknowledging it.
+    if (scope === 'live') account = account.whereNull('deleted');
     if (db.client.dialect !== 'sqlite3') {
       await db.raw("SET LOCAL lock_timeout = '5s'");
       await db.raw("SET LOCAL statement_timeout = '15s'");
       account = account.forUpdate();
     }
-    if (!(await account.first('id')))
-      throw new NotFoundException('Account not found');
-    return work();
+    const row = await account.first('id', 'deleted');
+    if (!row) throw new NotFoundException('Account not found');
+    return work(row.deleted !== null);
   });
 }
