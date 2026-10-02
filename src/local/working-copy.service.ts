@@ -140,12 +140,17 @@ export class WorkingCopyService {
       throw new InternalServerErrorException(saved.error.message);
   }
 
-  async readBase(id: string, store: DesktopContentStore) {
+  async readBase(id: string, store: DesktopContentStore, cruxId?: string) {
     const result = await this.copies.find(id);
     if (result.error)
       throw new InternalServerErrorException(result.error.message);
     const copy = result.data;
     if (!copy) throw new NotFoundException('Working Copy not found.');
+    if (
+      cruxId !== undefined &&
+      (copy.crux_id !== cruxId || copy.role !== 'task')
+    )
+      throw new ConflictException('The Task belongs to another Crux');
     await this.crux.findById(copy.crux_id);
     const base = workingCopyBaseSchema.parse(
       JSON.parse(copy.base_state),

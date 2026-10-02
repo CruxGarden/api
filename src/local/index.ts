@@ -88,3 +88,5 @@ export type {
   GardenMoodSelection,
   SelectGardenMood,
 } from './garden-mood.service';
+
+export type { TaskHistorySelection } from './task-history';

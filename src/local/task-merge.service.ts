@@ -1,3 +1,4 @@
+import { TaskHistorySelection } from './task-history';
 import { WorkingCopyService } from './working-copy.service';
 import { workingCopyBaseSchema } from './working-copy-base';
 import {
@@ -33,6 +34,45 @@ export class TaskMergeService {
     private readonly workspace: WorkspaceStateService,
     private readonly copies: WorkingCopyService,
   ) {}
+  private async historyState(
+    input: TaskHistorySelection,
+    store: DesktopContentStore,
+  ) {
+    await this.crux.findById(input.cruxId);
+    if (input.part === 'base') {
+      return this.copies.readBase(input.id, store, input.cruxId);
+    }
+    const { merge, data } = await this.ownedState(input.id);
+    if (merge.crux_id !== input.cruxId || merge.phase !== 'merged')
+      throw new ConflictException('Completed Task history is unavailable');
+    return retainedWorkspaceSchema.parse(data[`${input.part}State`]);
+  }
+
+  async inspectHistory(
+    input: TaskHistorySelection,
+    store: DesktopContentStore,
+  ) {
+    const state = await this.historyState(input, store);
+    return {
+      ...state,
+      entries: await new FileManifest(store).entries(state.root),
+    };
+  }
+
+  async readHistoryFile(
+    input: TaskHistorySelection,
+    root: string,
+    path: string,
+    store: DesktopContentStore,
+  ) {
+    const state = await this.historyState(input, store);
+    if (state.root !== root)
+      throw new ConflictException(
+        'The selected Task history changed; reopen it',
+      );
+    return new FileManifest(store).readFile(state.root, path);
+  }
+
   private async ownedState(
     id: string,
     options: { closing?: boolean; draft?: MergeRow } = {},

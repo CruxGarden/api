@@ -1,3 +1,7 @@
+import {
+  TaskHistorySelection,
+  taskHistorySelectionSchema,
+} from './task-history';
 import { GardenMoodService, SelectGardenMood } from './garden-mood.service';
 import {
   isCredentialSetting,
@@ -816,6 +820,42 @@ export class LocalGraphRuntime {
     };
     return this.execute(({ workingCopy }) =>
       workingCopy.readBase(id, capturedStore),
+    );
+  }
+
+  async inspectTaskHistory(
+    input: TaskHistorySelection,
+    store: DesktopContentStore,
+  ) {
+    const captured = taskHistorySelectionSchema.parse(input);
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
+    return this.execute(({ taskMerge }) =>
+      taskMerge.inspectHistory(captured, capturedStore),
+    );
+  }
+
+  async readTaskHistoryFile(
+    input: TaskHistorySelection,
+    root: string,
+    path: string,
+    store: DesktopContentStore,
+  ) {
+    const captured = taskHistorySelectionSchema.parse(input);
+    if (
+      typeof root !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(root) ||
+      typeof path !== 'string'
+    )
+      throw new Error('Use a selected Task history root and file path');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
+    return this.execute(({ taskMerge }) =>
+      taskMerge.readHistoryFile(captured, root, path, capturedStore),
     );
   }
 

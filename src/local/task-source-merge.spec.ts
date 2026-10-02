@@ -142,6 +142,107 @@ describe('reviews returning work to its actual source Task', () => {
     await owner.close();
     rmSync(dir, { recursive: true, force: true });
   });
+  it('inspects retained Task states and reads their exact files after further edits and restart', async () => {
+    await owner.saveTaskReview(JSON.stringify(review), undefined, store);
+    await owner.beginTaskMerge(review.id, JSON.stringify(await saved()), store);
+    await owner.completeTaskMerge(review.id, store);
+    const selection = { cruxId: main, id: review.id, part: 'result' as const };
+    const retained = await owner.inspectTaskHistory(selection, store);
+    expect(retained.entries.map((f) => f.path)).toEqual(['work.txt']);
+    expect(
+      retained.workspace.messages.some((m: any) => m.taskMergeId === review.id),
+    ).toBe(true);
+    const original = await owner.readTaskHistoryFile(
+      selection,
+      retained.root,
+      'work.txt',
+      store,
+    );
+    await write(target, 'Later work');
+    await owner.close();
+    owner = await LocalGraphRuntime.open(join(dir, 'garden.db'));
+    expect(await owner.inspectTaskHistory(selection, store)).toEqual(retained);
+    expect(
+      await owner.readTaskHistoryFile(
+        selection,
+        retained.root,
+        'work.txt',
+        store,
+      ),
+    ).toEqual(original);
+    expect(Buffer.from(original!.bytes).toString()).not.toBe('Later work');
+    for (const part of ['source', 'target'] as const)
+      expect(
+        (await owner.inspectTaskHistory({ ...selection, part }, store)).root,
+      ).toBe((await saved())[`${part}State`].root);
+    const base = await owner.inspectTaskHistory(
+      { cruxId: main, id: worker, part: 'base' },
+      store,
+    );
+    expect(base.root).toBe((await owner.workingCopyBase(worker, store)).root);
+    expect(
+      await owner.readTaskHistoryFile(
+        selection,
+        retained.root,
+        'missing.txt',
+        store,
+      ),
+    ).toBeNull();
+    await expect(
+      owner.readTaskHistoryFile(selection, '0'.repeat(64), 'work.txt', store),
+    ).rejects.toThrow(/changed/);
+    await expect(
+      owner.readTaskHistoryFile(selection, retained.root, '../work.txt', store),
+    ).rejects.toThrow(/path/);
+  });
+
+  it('refuses uncompleted, foreign and malformed history selection without reading blobs', async () => {
+    await owner.saveTaskReview(JSON.stringify(review), undefined, store);
+    const read = jest.spyOn(store, 'read');
+    const selection = { cruxId: main, id: review.id, part: 'source' as const };
+    await expect(owner.inspectTaskHistory(selection, store)).rejects.toThrow(
+      /Completed/,
+    );
+    await expect(
+      owner.inspectTaskHistory({ ...selection, cruxId: randomUUID() }, store),
+    ).rejects.toThrow();
+    await expect(
+      owner.inspectTaskHistory(
+        { ...selection, part: 'base', id: candidate },
+        store,
+      ),
+    ).rejects.toThrow(/another Crux/);
+    await expect(
+      owner.inspectTaskHistory(
+        { ...selection, part: 'anything' } as any,
+        store,
+      ),
+    ).rejects.toThrow();
+    expect(read).not.toHaveBeenCalled();
+    read.mockRestore();
+  });
+
+  it('refuses corrupted retained file bytes instead of silently reading the live destination', async () => {
+    await owner.saveTaskReview(JSON.stringify(review), undefined, store);
+    await owner.beginTaskMerge(review.id, JSON.stringify(await saved()), store);
+    await owner.completeTaskMerge(review.id, store);
+    const selection = { cruxId: main, id: review.id, part: 'result' as const };
+    const retained = await owner.inspectTaskHistory(selection, store);
+    const fingerprint = retained.entries[0].fingerprint;
+    const originalRead = store.read.bind(store);
+    jest
+      .spyOn(store, 'read')
+      .mockImplementation((fp) =>
+        fp === fingerprint
+          ? Promise.resolve(Buffer.from('Corrupt'))
+          : originalRead(fp),
+      );
+    await expect(
+      owner.readTaskHistoryFile(selection, retained.root, 'work.txt', store),
+    ).rejects.toThrow(/integrity|fingerprint|hash/i);
+    jest.restoreAllMocks();
+  });
+
   it('merges and summarizes only into the parent Task, retaining recovery state and no Growth', async () => {
     const mainBefore = {
       head: await owner.fileContentHead(main),
