@@ -200,12 +200,14 @@ export class FunctionsService {
       throw new ServiceUnavailableException('Could not save the secret');
   }
   async deleteSecret(cruxId: string, name: string): Promise<void> {
-    await this.schedules.deleteSecret(cruxId, name);
+    const result = await this.schedules.deleteSecret(cruxId, name);
+    if (result.error)
+      throw new ServiceUnavailableException('Could not delete the secret');
   }
   async listSecretNames(
     cruxId: string,
   ): Promise<{ name: string; updated: string }[]> {
-    const rows = (await this.schedules.secretsFor(cruxId)).data ?? [];
+    const rows = await this.secretRows(cruxId);
     return rows
       .map((r) => ({
         name: r.name,
@@ -213,9 +215,16 @@ export class FunctionsService {
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
+  private async secretRows(cruxId: string) {
+    const result = await this.schedules.secretsFor(cruxId);
+    if (result.error)
+      throw new ServiceUnavailableException('Function secrets are unavailable');
+    return result.data ?? [];
+  }
+
   private async secretsMap(cruxId: string): Promise<Map<string, string>> {
     const out = new Map<string, string>();
-    for (const r of (await this.schedules.secretsFor(cruxId)).data ?? []) {
+    for (const r of await this.secretRows(cruxId)) {
       try {
         out.set(r.name, decryptSecret(r));
       } catch {
@@ -230,7 +239,12 @@ export class FunctionsService {
   /** What a published crux's handlers run on, with when-next, for the Share pane. */
   async listWithSchedules(cruxId: string): Promise<FunctionSource[]> {
     const loaded = await this.load(cruxId);
-    const rows = (await this.schedules.listSchedules(cruxId)).data ?? [];
+    const result = await this.schedules.listSchedules(cruxId);
+    if (result.error)
+      throw new ServiceUnavailableException(
+        'Function schedules are unavailable',
+      );
+    const rows = result.data ?? [];
     return loaded.sources.map((s) => {
       const row = rows.find((r) => r.name === s.name);
       return row
@@ -469,6 +483,7 @@ export class FunctionsService {
       );
       return { ...answerOf(outcome), logs, ms: Date.now() - started };
     } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
       if (
         error instanceof FunctionReject ||
         error instanceof IsolatedFunctionError

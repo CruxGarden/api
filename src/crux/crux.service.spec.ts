@@ -2,6 +2,7 @@ import { PUBLICATION_META_KEYS } from '../common/publish/publication-state';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
+  ConflictException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { CruxService } from './crux.service';
@@ -191,20 +192,16 @@ describe('CruxService', () => {
       authorId: 'author-123',
     };
 
-    it('keeps hosted publication replacement separate from ordinary graph creation', async () => {
+    it('refuses a hosted slug collision without deleting or creating anything', async () => {
       repository.findByAuthorAndSlug.mockResolvedValue({
         data: mockCruxRaw,
         error: null,
       });
-      repository.delete.mockResolvedValue({ data: null, error: null });
-      repository.create.mockResolvedValue({ data: mockCruxRaw, error: null });
-      await service.create({ ...createDto });
-      expect(repository.delete).toHaveBeenCalledWith(
-        mockCruxRaw.id,
-        undefined,
-        true,
+      await expect(service.create({ ...createDto })).rejects.toThrow(
+        ConflictException,
       );
-      expect(repository.create).toHaveBeenCalled();
+      expect(repository.delete).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
     });
 
     it('should create a crux successfully', async () => {
@@ -220,10 +217,16 @@ describe('CruxService', () => {
       const result = await service.create(createDto);
 
       expect(result.id).toBe('crux-id-123');
-      expect(repository.create).toHaveBeenCalledWith({
-        ...createDto,
-        id: 'generated-id',
-      });
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ...createDto,
+          id: 'generated-id',
+          status: 'living',
+          visibility: 'unlisted',
+          discoverable: false,
+        }),
+      );
+      expect(createDto).not.toHaveProperty('id');
     });
 
     it('should throw InternalServerErrorException on create error', async () => {

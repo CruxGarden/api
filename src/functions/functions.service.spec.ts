@@ -1,4 +1,5 @@
 import { FunctionsService, matches } from './functions.service';
+import { ServiceUnavailableException } from '@nestjs/common';
 import * as dns from 'node:dns/promises';
 import { createServer } from 'node:http';
 import { AddressInfo } from 'node:net';
@@ -177,6 +178,63 @@ function service(
 }
 
 describe('Crux Functions runner', () => {
+  it('refuses failed secret deletion, preserves the secret and permits retry', async () => {
+    const svc = service({});
+    svc.clock.vault.set('TOKEN', {
+      ciphertext: 'retained',
+      iv: 'iv',
+      tag: 'tag',
+    });
+    svc.clock.deleteSecret.mockResolvedValueOnce({
+      error: new Error('write refused'),
+    } as never);
+    await expect(svc.deleteSecret('crux-1', 'TOKEN')).rejects.toThrow(
+      ServiceUnavailableException,
+    );
+    expect(await svc.listSecretNames('crux-1')).toEqual([
+      expect.objectContaining({ name: 'TOKEN' }),
+    ]);
+    await expect(svc.deleteSecret('crux-1', 'TOKEN')).resolves.toBeUndefined();
+    expect(await svc.listSecretNames('crux-1')).toEqual([]);
+  });
+
+  it('reports secret and schedule read outages instead of an empty listing', async () => {
+    const svc = service({ 'functions/tick.js': 'export default () => true;' });
+    svc.clock.secretsFor.mockResolvedValueOnce({
+      error: new Error('read refused'),
+    } as never);
+    await expect(svc.listSecretNames('crux-1')).rejects.toThrow(
+      ServiceUnavailableException,
+    );
+    svc.clock.listSchedules.mockResolvedValueOnce({
+      error: new Error('read refused'),
+    } as never);
+    await expect(svc.listWithSchedules('crux-1')).rejects.toThrow(
+      ServiceUnavailableException,
+    );
+    expect(await svc.listWithSchedules('crux-1')).toEqual([
+      { name: 'tick', path: 'functions/tick.js', kind: 'http' },
+    ]);
+  });
+
+  it('refuses execution during a secret outage before the handler can mutate the Store', async () => {
+    const svc = service({
+      'functions/use-token.js':
+        'export default async (req, ctx) => { await ctx.store.set("ran", true); return ctx.secrets.get("TOKEN"); };',
+    });
+    svc.clock.secretsFor.mockResolvedValueOnce({
+      error: new Error('read refused'),
+    } as never);
+    await expect(
+      svc.call('crux-1', 'use-token', { body: null, visitorId: null }),
+    ).rejects.toThrow(ServiceUnavailableException);
+    expect(svc.kvStore.has('ran')).toBe(false);
+    expect(
+      await svc.call('crux-1', 'use-token', { body: null, visitorId: null }),
+    ).toMatchObject({ status: 200 });
+    expect(svc.kvStore.get('ran')).toBe(true);
+  });
+
   it.each(['shared', 'bucket-per-crux'])(
     'executes functions from the committed %s storage location',
     async (layout) => {

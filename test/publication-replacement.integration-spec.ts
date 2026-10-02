@@ -189,6 +189,133 @@ describe('Publication replacement and retry', () => {
       usage: await db('usage_storage').where({ crux_id: id }).first(),
     };
   }
+
+  const create = (id: string, slug: string) =>
+    request(app.getHttpServer())
+      .post('/cruxes')
+      .set('Authorization', `Bearer ${token()}`)
+      .send({ id, slug, title: 'New creation', type: 'webapp' });
+  it('rejects a live slug collision without deleting publication bytes, artifacts, dimensions or cleanup ownership', async () => {
+    process.env.PUBLISH_LAYOUT = 'shared';
+    const id = await seed(),
+      sibling = await seed();
+    await publish(id, 'live').expect(200);
+    await fixture.db.query()('dimensions').insert({
+      id: randomUUID(),
+      source_id: id,
+      target_id: sibling,
+      author_id: author,
+      home_id: home,
+      type: 'reference',
+    });
+    const before = await state(id),
+      related = await fixture.db.query()('dimensions').where({ source_id: id });
+    const bytes = new Map(objects);
+    await create(randomUUID(), id).expect(409);
+    expect(await state(id)).toEqual(before);
+    expect(
+      await fixture.db.query()('dimensions').where({ source_id: id }),
+    ).toEqual(related);
+    expect(objects).toEqual(bytes);
+  });
+  it('keeps the existing live owner even when a conflicting insertion would be refused', async () => {
+    const id = await seed();
+    await publish(id, 'preserved').expect(200);
+    const nextId = randomUUID(),
+      before = await state(id);
+    const db = fixture.db.query();
+    await db.raw(
+      `CREATE FUNCTION refuse_new_crux() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = '${nextId}'::uuid THEN RAISE EXCEPTION 'fixture insert refusal'; END IF; RETURN NEW; END $$`,
+    );
+    await db.raw(
+      'CREATE TRIGGER refuse_new_crux BEFORE INSERT ON cruxes FOR EACH ROW EXECUTE FUNCTION refuse_new_crux()',
+    );
+    try {
+      // A collision must be rejected before destructive replacement or INSERT.
+      await create(nextId, id).expect(409);
+      expect(await state(id)).toEqual(before);
+    } finally {
+      await db.raw('DROP TRIGGER refuse_new_crux ON cruxes');
+      await db.raw('DROP FUNCTION refuse_new_crux()');
+    }
+  });
+  it('refuses reusing a soft-deleted identity without erasing retained metadata', async () => {
+    const id = await seed();
+    await fixture.db
+      .query()('cruxes')
+      .where({ id })
+      .update({ deleted: new Date(), meta: { retained: 'recovery proof' } });
+    const before = await fixture.db.query()('cruxes').where({ id }).first();
+    await create(id, randomUUID()).expect(409);
+    expect(await fixture.db.query()('cruxes').where({ id }).first()).toEqual(
+      before,
+    );
+  });
+  it('reports concurrent fresh slug admission as one create and one conflict', async () => {
+    const slug = randomUUID();
+    const results = await Promise.all([
+      create(randomUUID(), slug),
+      create(randomUUID(), slug),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
+    expect(
+      await fixture.db.query()('cruxes').where({ author_id: author, slug }),
+    ).toHaveLength(1);
+  });
+
+  it('refuses failed secret deletion and listing, retains stored state, and succeeds on retry', async () => {
+    const id = await seed();
+    const authorization = `Bearer ${token()}`;
+    await request(app.getHttpServer())
+      .put(`/fn/${id}/secrets/API_KEY`)
+      .set('Authorization', authorization)
+      .send({ value: 'fixture-only-value' })
+      .expect(200);
+    const before = await fixture.db
+      .query()('crux_secrets')
+      .where({ crux_id: id });
+    const db = fixture.db.query();
+    await db.raw(
+      `CREATE FUNCTION refuse_secret_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture secret refusal'; END $$`,
+    );
+    await db.raw(
+      'CREATE TRIGGER refuse_secret_delete BEFORE DELETE ON crux_secrets FOR EACH ROW EXECUTE FUNCTION refuse_secret_delete()',
+    );
+    try {
+      await request(app.getHttpServer())
+        .delete(`/fn/${id}/secrets/API_KEY`)
+        .set('Authorization', authorization)
+        .expect(503);
+      expect(await db('crux_secrets').where({ crux_id: id })).toEqual(before);
+    } finally {
+      await db.raw('DROP TRIGGER refuse_secret_delete ON crux_secrets');
+      await db.raw('DROP FUNCTION refuse_secret_delete()');
+    }
+    // A real unavailable relation must not become a successful empty list.
+    await db.schema.renameTable('crux_secrets', 'crux_secrets_unavailable');
+    try {
+      await request(app.getHttpServer())
+        .get(`/fn/${id}/secrets`)
+        .set('Authorization', authorization)
+        .expect(503);
+    } finally {
+      await db.schema.renameTable('crux_secrets_unavailable', 'crux_secrets');
+    }
+    const listed = await request(app.getHttpServer())
+      .get(`/fn/${id}/secrets`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(listed.body.map((entry: { name: string }) => entry.name)).toEqual([
+      'API_KEY',
+    ]);
+    expect(JSON.stringify(listed.body)).not.toContain('fixture-only-value');
+    await request(app.getHttpServer())
+      .delete(`/fn/${id}/secrets/API_KEY`)
+      .set('Authorization', authorization)
+      .expect(200, { name: 'API_KEY', set: false });
+    expect(await db('crux_secrets').where({ crux_id: id })).toEqual([]);
+  });
+
   it.each(['shared', 'bucket-per-crux'])(
     '%s preserves live bytes, metadata, downloads and usage after upload refusal, then retries',
     async (layout) => {
@@ -221,6 +348,38 @@ describe('Publication replacement and retry', () => {
       );
     },
   );
+  it('Share, Unshare and Share can recreate the intentionally removed hosted copy', async () => {
+    process.env.PUBLISH_LAYOUT = 'shared';
+    const id = await seed();
+    await publish(id, 'first').expect(200);
+    const first = await state(id);
+    await request(app.getHttpServer())
+      .post(`/cruxes/${id}/unpublish`)
+      .set('Authorization', `Bearer ${token()}`)
+      .expect(200);
+    expect((await state(id)).crux).toBeUndefined();
+    await request(app.getHttpServer())
+      .post('/cruxes')
+      .set('Authorization', `Bearer ${token()}`)
+      .send({
+        id,
+        slug: id,
+        title: 'Published again',
+        type: 'webapp',
+        data: '',
+      })
+      .expect(201);
+    await publish(id, 'second').expect(200);
+    const second = await state(id);
+    expect(second.crux.id).toBe(id);
+    expect(second.crux.meta.publishStorageId).not.toBe(
+      first.crux.meta.publishStorageId,
+    );
+    expect(
+      objects.get(`${second.crux.meta.publishStorageId}/style.css`)?.toString(),
+    ).toBe('/* second */');
+  });
+
   it('publishing alone registers, updates and removes Function schedules', async () => {
     process.env.PUBLISH_LAYOUT = 'shared';
     const id = await seed();

@@ -125,6 +125,11 @@ export const CruxSwagger = {
       }),
       ApiUnauthorizedResponse({ description: 'Authentication required' }),
       ApiForbiddenResponse({ description: 'Insufficient permissions' }),
+      ApiResponse({
+        status: 409,
+        description:
+          'This identity or author slug already exists. Existing work is preserved; use update or publish to change it.',
+      }),
     ),
 
   GetByIdentifier: () =>

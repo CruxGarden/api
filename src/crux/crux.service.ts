@@ -74,51 +74,20 @@ export class CruxService extends CruxGraphService {
       : 'shared';
   }
 
-  /** Hosted publication ingestion retains its existing explicit replacement policy. */
+  /** Hosted defaults and server-owned metadata; creation shares the graph's
+   * non-destructive admission policy. Replacement belongs to publishCrux.
+   */
   override async create(
-    createCruxDto: CreateCruxDto,
+    input: CreateCruxDto,
     authorId?: string,
   ): Promise<Crux> {
-    createCruxDto.id = createCruxDto.id || this.keyMaster.generateId();
-
-    createCruxDto.meta = withoutPublicationState(createCruxDto.meta);
-    this.applyDefaults(createCruxDto);
-
-    // Hard-delete a soft-deleted record with the same ID and same author
-    // (e.g. from a previous unpublish) so the INSERT doesn't hit a duplicate PK.
-    // Scoped to authorId to avoid clobbering another author's crux.
-    if (createCruxDto.id && (authorId || createCruxDto.authorId)) {
-      const existing = await this.cruxRepository.findByIdIncludingDeleted(
-        createCruxDto.id,
-      );
-      if (
-        existing.data?.deleted &&
-        existing.data.author_id === (authorId || createCruxDto.authorId)
-      ) {
-        await this.cruxRepository.delete(createCruxDto.id, undefined, true);
-      }
-    }
-
-    // If the same author+slug already exists (stale from a previous publish),
-    // hard-delete it so the new crux can take its place.
-    const effectiveAuthorId = authorId || createCruxDto.authorId;
-    if (effectiveAuthorId && createCruxDto.slug) {
-      const existing = await this.cruxRepository.findByAuthorAndSlug(
-        effectiveAuthorId,
-        createCruxDto.slug,
-      );
-      if (existing.data) {
-        await this.cruxRepository.delete(existing.data.id, undefined, true);
-      }
-    }
-
-    const created = await this.cruxRepository.create(createCruxDto);
-    if (created.error)
-      throw new InternalServerErrorException('Crux creation error', {
-        cause: created.error,
-      });
-
-    return this.asCrux(created.data);
+    const dto: CreateCruxDto = {
+      ...input,
+      authorId: authorId ?? input.authorId,
+      meta: withoutPublicationState(input.meta),
+    };
+    this.applyDefaults(dto);
+    return super.create(dto);
   }
 
   async delete(cruxId: string, hard = false): Promise<null> {
