@@ -1,4 +1,12 @@
 import {
+  FileContentWrite,
+  FileContentDelete,
+  FileProjectionHost,
+  captureFileWrite,
+  captureFileDelete,
+} from './file-mutation';
+import { FileContentRename, captureFileRename } from './file-rename';
+import {
   TaskHistorySelection,
   taskHistorySelectionSchema,
 } from './task-history';
@@ -542,6 +550,72 @@ export class LocalGraphRuntime {
     );
   }
 
+  async renameFileContent(
+    input: FileContentRename,
+    store: DesktopContentStore,
+    host: FileProjectionHost,
+  ) {
+    const captured = captureFileRename(input);
+    if (
+      typeof store?.read !== 'function' ||
+      typeof store?.write !== 'function' ||
+      typeof host !== 'function'
+    )
+      throw new Error('Use the host content store and rename host');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
+    return this.executeChanged(
+      ({ fileContent }) => fileContent.rename(captured, capturedStore, host),
+      () => ({ entity: 'crux', id: captured.cruxId, fields: ['fileContent'] }),
+    );
+  }
+
+  async writeFileContent(
+    input: FileContentWrite,
+    store: DesktopContentStore,
+    host: FileProjectionHost,
+  ) {
+    const captured = captureFileWrite(input);
+    if (
+      typeof store?.read !== 'function' ||
+      typeof store?.write !== 'function' ||
+      typeof host !== 'function'
+    )
+      throw new Error('Use the host content store and file operation host');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
+    return this.executeChanged(
+      ({ fileContent }) => fileContent.write(captured, capturedStore, host),
+      () => ({ entity: 'crux', id: captured.cruxId, fields: ['fileContent'] }),
+    );
+  }
+
+  async deleteFileContent(
+    input: FileContentDelete,
+    store: DesktopContentStore,
+    host: FileProjectionHost,
+  ) {
+    const captured = captureFileDelete(input);
+    if (
+      typeof store?.read !== 'function' ||
+      typeof store?.write !== 'function' ||
+      typeof host !== 'function'
+    )
+      throw new Error('Use the host content store and file operation host');
+    const capturedStore = {
+      read: store.read.bind(store),
+      write: store.write.bind(store),
+    };
+    return this.executeChanged(
+      ({ fileContent }) => fileContent.delete(captured, capturedStore, host),
+      () => ({ entity: 'crux', id: captured.cruxId, fields: ['fileContent'] }),
+    );
+  }
+
   /** List the exact selected version's metadata without loading file payloads. */
   async listFileContent(
     input: FileContentSelection,
@@ -608,6 +682,7 @@ export class LocalGraphRuntime {
       folder: string,
       entries: import('./file-manifest').FileEntry[],
     ) => void | Promise<void>,
+    operation?: FileProjectionHost,
   ) {
     if (
       typeof id !== 'string' ||
@@ -624,7 +699,7 @@ export class LocalGraphRuntime {
     };
     return this.executeChanged(
       ({ fileContent }) =>
-        fileContent.finishProjection(id, capturedStore, apply),
+        fileContent.finishProjection(id, capturedStore, apply, operation),
       () => ({ entity: 'crux', id, fields: ['fileContent'] }),
     );
   }

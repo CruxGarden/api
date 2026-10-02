@@ -90,3 +90,18 @@ export type {
 } from './garden-mood.service';
 
 export type { TaskHistorySelection } from './task-history';
+
+export type {
+  FileContentRename,
+  FileRenameIntent,
+  FileRenameHost,
+} from './file-rename';
+
+export type {
+  FileContentWrite,
+  FileContentDelete,
+  FileWriteIntent,
+  FileDeleteIntent,
+  FileProjectionIntent,
+  FileProjectionHost,
+} from './file-mutation';

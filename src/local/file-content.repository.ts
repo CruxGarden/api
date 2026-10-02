@@ -1,3 +1,4 @@
+import type { FileProjectionIntent } from './file-mutation';
 import { readCopySources, copyParentOwner } from './working-copy-base';
 import { isDeepStrictEqual } from 'util';
 import { Injectable } from '@nestjs/common';
@@ -154,7 +155,21 @@ export class FileContentRepository {
       .first('id'));
   }
 
-  async queueProjection(id: string, head: FileContentHead) {
+  async projectFolder(id: string): Promise<string | null> {
+    const db = this.db.query();
+    const copy = await db('working_copies').where({ id }).first();
+    const source = copy ?? (await db('cruxes').where({ id }).first());
+    const folder = copy?.project_folder ?? source?.meta?.projectFolder;
+    if (folder != null && (typeof folder !== 'string' || !folder))
+      throw new Error('Invalid Project Folder');
+    return folder ?? null;
+  }
+
+  async queueProjection(
+    id: string,
+    head: FileContentHead,
+    operation?: FileProjectionIntent,
+  ) {
     const db = this.db.query();
     const copy = await db('working_copies').where({ id }).first();
     const source = copy ?? (await db('cruxes').where({ id }).first());
@@ -162,7 +177,7 @@ export class FileContentRepository {
     const folder = copy?.project_folder ?? source.meta?.projectFolder;
     if (!folder) return;
     if (typeof folder !== 'string') throw new Error('Invalid Project Folder');
-    const pending = { head, folder };
+    const pending = { head, folder, ...(operation ? { operation } : {}) };
     await db('settings').insert({
       key: this.projectionKey(id),
       value: JSON.stringify(pending),
@@ -171,9 +186,11 @@ export class FileContentRepository {
       throw new Error('Content projection intent did not persist');
   }
 
-  async projection(
-    id: string,
-  ): Promise<{ head: FileContentHead; folder: string } | null> {
+  async projection(id: string): Promise<{
+    head: FileContentHead;
+    folder: string;
+    operation?: FileProjectionIntent;
+  } | null> {
     const row = await this.db
       .query()('settings')
       .where({ key: this.projectionKey(id) })

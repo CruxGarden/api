@@ -1,3 +1,11 @@
+import { randomUUID } from 'crypto';
+import {
+  FileContentWrite,
+  FileContentDelete,
+  FileProjectionHost,
+} from './file-mutation';
+import { isDeepStrictEqual } from 'util';
+import { FileContentRename, renameIntent } from './file-rename';
 import { EditRetentionService } from './edit-retention.service';
 import { stageContentInBatches } from './content-batches';
 import { createHash } from 'crypto';
@@ -278,6 +286,7 @@ export class FileContentService {
     id: string,
     store: DesktopContentStore,
     apply: (folder: string, entries: FileEntry[]) => void | Promise<void>,
+    operation?: FileProjectionHost,
   ) {
     const pending = await this.repository.projection(id);
     if (!pending) return false;
@@ -288,9 +297,131 @@ export class FileContentService {
     });
     const tree = new FileManifest(store);
     await tree.verify(selected.root);
-    await apply(pending.folder, await tree.entries(selected.root));
+    if (pending.operation) {
+      if (!operation)
+        throw new Error('Project Folder operation host is unavailable');
+      const bytes =
+        pending.operation.kind === 'write'
+          ? (await tree.readFile(selected.root, pending.operation.entry.path))
+              ?.bytes
+          : undefined;
+      if (pending.operation.kind === 'write' && !bytes)
+        throw new Error('Projected write content is unavailable');
+      await operation(pending.folder, pending.operation, true, bytes);
+    } else await apply(pending.folder, await tree.entries(selected.root));
     await this.repository.clearProjection(id);
     return true;
+  }
+
+  async rename(
+    input: FileContentRename,
+    store: DesktopContentStore,
+    host: FileProjectionHost,
+  ): Promise<FileContentHead> {
+    const before = await this.admit(input);
+    const tree = new FileManifest(store);
+    if (
+      !before ||
+      !isDeepStrictEqual(
+        await tree.get(before.root, input.source.path),
+        input.source,
+      ) ||
+      !isDeepStrictEqual(
+        await tree.get(before.root, input.entry.path),
+        input.target,
+      )
+    )
+      throw new ConflictException(
+        'Files changed before rename; reload and try again',
+      );
+    const folder = await this.repository.projectFolder(input.cruxId);
+    const intent = renameIntent(input);
+    if (folder) await host(folder, intent, false);
+    // Replacement must retain both originals even during autosave coalescing.
+    await this.retention.record(input.cruxId, before.root, 'safety');
+    const root = await tree.apply(before.root, [
+      { remove: input.source.path },
+      { put: input.entry },
+    ]);
+    const head = await this.publish(
+      { cruxId: input.cruxId, expected: input.expected, root },
+      before,
+    );
+    if (folder)
+      await this.repository.queueProjection(input.cruxId, head, intent);
+    return head;
+  }
+
+  async write(
+    input: FileContentWrite,
+    store: DesktopContentStore,
+    host: FileProjectionHost,
+  ): Promise<FileContentHead> {
+    const before = await this.admit(input);
+    const current = before
+      ? await new FileManifest(store).get(before.root, input.entry.path)
+      : null;
+    if (!isDeepStrictEqual(current, input.before))
+      throw new ConflictException(
+        'File changed before writing; reload and try again',
+      );
+    const folder = await this.repository.projectFolder(input.cruxId);
+    const operation = {
+      kind: 'write' as const,
+      operationId: randomUUID(),
+      before: input.before,
+      entry: input.entry,
+    };
+    if (folder) await host(folder, operation, false);
+    if (input.retention === 'safety' && input.before && before)
+      await this.retention.record(input.cruxId, before.root, 'safety');
+    const head = await this.edit(
+      {
+        cruxId: input.cruxId,
+        expected: input.expected,
+        edits: [{ put: input.entry }],
+        files: [{ fingerprint: input.entry.fingerprint, bytes: input.bytes }],
+      },
+      store,
+    );
+    if (folder)
+      await this.repository.queueProjection(input.cruxId, head, operation);
+    return head;
+  }
+
+  async delete(
+    input: FileContentDelete,
+    store: DesktopContentStore,
+    host: FileProjectionHost,
+  ): Promise<FileContentHead> {
+    const before = await this.admit(input);
+    const tree = new FileManifest(store);
+    if (
+      !before ||
+      !isDeepStrictEqual(
+        await tree.get(before.root, input.file.path),
+        input.file,
+      )
+    )
+      throw new ConflictException(
+        'File changed before deletion; reload and try again',
+      );
+    const folder = await this.repository.projectFolder(input.cruxId);
+    const operation = {
+      kind: 'delete' as const,
+      operationId: randomUUID(),
+      source: input.file,
+    };
+    if (folder) await host(folder, operation, false);
+    await this.retention.record(input.cruxId, before.root, 'safety');
+    const root = await tree.apply(before.root, [{ remove: input.file.path }]);
+    const head = await this.publish(
+      { cruxId: input.cruxId, expected: input.expected, root },
+      before,
+    );
+    if (folder)
+      await this.repository.queueProjection(input.cruxId, head, operation);
+    return head;
   }
 
   async assertWorkspaceWritable(id: string): Promise<void> {
