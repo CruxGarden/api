@@ -28,7 +28,9 @@ it('the Nest upload boundary accepts files and returns client errors for malform
     controllers: [UploadBoundaryController],
   }).compile();
   const app = module.createNestApplication();
-  await app.init();
+  // Keep one listener for all requests. Reopening the server per Supertest
+  // request can race connection teardown after a multipart refusal.
+  await app.listen(0, '127.0.0.1');
   try {
     const endpoint = () => request(app.getHttpServer()).post('/publish');
     expect(
