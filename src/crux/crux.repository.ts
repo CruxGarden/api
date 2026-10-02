@@ -10,6 +10,7 @@ import CruxRaw from './entities/crux-raw.entity';
 import { CreateCruxDto } from './dto/create-crux.dto';
 import { UpdateCruxDto } from './dto/update-crux.dto';
 import Artifact from '../artifact/entities/artifact.entity';
+import ArtifactRaw from '../artifact/entities/artifact-raw.entity';
 
 @Injectable()
 export class CruxRepository {
@@ -237,6 +238,41 @@ export class CruxRepository {
           })
           .returning('*');
         return row;
+      });
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  /** Hold the same Crux row that publication activation locks while capturing its file inventory.
+   * No storage/network work belongs inside this short transaction. */
+  async publishedRevision(cruxId: string): Promise<
+    RepositoryResponse<{
+      crux: CruxRaw;
+      artifacts: ArtifactRaw[];
+    } | null>
+  > {
+    try {
+      const data = await this.dbService.query().transaction(async (trx) => {
+        const crux = await trx<CruxRaw>('cruxes')
+          .where({ id: cruxId })
+          .whereNull('deleted')
+          .forShare()
+          .first();
+        if (!crux?.meta?.publishedAt || crux.meta.publicationRemoving)
+          return null;
+        const artifacts = await trx<ArtifactRaw>('artifacts')
+          .where({
+            resource_type: 'crux',
+            resource_id: cruxId,
+          })
+          .whereNull('deleted')
+          .whereRaw("meta->>'publishStorageId' = ?", [
+            crux.meta.publishStorageId || cruxId,
+          ])
+          .orderBy('created', 'desc');
+        return { crux, artifacts };
       });
       return success(data);
     } catch (error) {

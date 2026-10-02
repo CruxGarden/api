@@ -9,7 +9,6 @@ import { RedisService } from '../src/common/services/redis.service';
 import { EmailService } from '../src/common/services/email.service';
 import { StoreService as Files } from '../src/common/services/store.service';
 import { UsageService } from '../src/usage/usage.service';
-import { CruxService } from '../src/crux/crux.service';
 import { PublishedAuthService } from '../src/published-auth/published-auth.service';
 import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { MockRedisService } from './mocks/redis.mock';
@@ -104,7 +103,12 @@ describe('Published visitor authentication', () => {
         type: 'webapp',
         status: 'living',
         visibility: 'public',
-        meta: { publishedAt: new Date().toISOString(), publishedVersion: 1 },
+        meta: {
+          publishedAt: new Date().toISOString(),
+          publishedVersion: 1,
+          publishStorageId: id,
+          publishLayout: 'shared',
+        },
       })),
     );
     await db('custom_domains').insert({
@@ -134,15 +138,26 @@ describe('Published visitor authentication', () => {
     app = module.createNestApplication();
     app.useGlobalPipes(createRequestValidationPipe());
     await app.listen(0, '127.0.0.1');
-    jest
-      .spyOn(app.get(CruxService), 'getPublishedArtifacts')
-      .mockResolvedValue([
-        {
-          id: randomUUID(),
-          filename: 'visitor.js',
-          meta: { path: 'functions/visitor.js' },
-        } as any,
-      ]);
+    await db('artifacts').insert(
+      [crux, otherCrux].map((id) => ({
+        id: randomUUID(),
+        resource_id: id,
+        resource_type: 'crux',
+        author_id: author,
+        home_id: home,
+        type: 'artifact',
+        kind: 'file',
+        filename: 'visitor.js',
+        mime_type: 'application/javascript',
+        encoding: 'utf8',
+        size: 100,
+        meta: {
+          path: 'functions/visitor.js',
+          publishStorageId: id,
+          publishLayout: 'shared',
+        },
+      })),
+    );
     await redis.set(
       'crux:auth:grant:id:parent-grant',
       'owner@example.com',
@@ -321,7 +336,14 @@ describe('Published visitor authentication', () => {
     await fixture.db
       .query()('cruxes')
       .where({ id: crux })
-      .update({ meta: { publishedAt: '2026-09-29', publishedVersion: 1 } });
+      .update({
+        meta: {
+          publishedAt: '2026-09-29',
+          publishedVersion: 1,
+          publishStorageId: crux,
+          publishLayout: 'shared',
+        },
+      });
   });
 
   it('inherits the parent account with visitor authority, including owner deletion and function context', async () => {

@@ -5,6 +5,7 @@ import {
   PUBLICATION_META_KEYS,
   withoutPublicationState,
 } from '../common/publish/publication-state';
+import { toEntityFields } from '../common/helpers/case-helpers';
 import { CruxGraphService } from './crux-graph.service';
 import {
   Injectable,
@@ -471,6 +472,24 @@ export class CruxService extends CruxGraphService {
 
     // Return the crux state as it was before deletion (for client-side update)
     return crux;
+  }
+
+  /** One committed head and inventory, captured before any storage reads. */
+  async publishedRevision(
+    cruxId: string,
+  ): Promise<{ crux: Crux; artifacts: Artifact[] }> {
+    const result = await this.cruxRepository.publishedRevision(cruxId);
+    if (result.error)
+      throw new ServiceUnavailableException(
+        'Published revision is unavailable',
+      );
+    if (!result.data) throw new NotFoundException('This crux is not published');
+    return {
+      crux: this.asCrux(result.data.crux),
+      artifacts: result.data.artifacts.map(
+        (a) => new Artifact(toEntityFields(a)),
+      ),
+    };
   }
 
   async getPublishedArtifacts(cruxId: string): Promise<Artifact[]> {

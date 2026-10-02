@@ -63,6 +63,10 @@ function service(
   const cruxService = {
     findById: async () => crux,
     getPublishedArtifacts: async () => artifacts,
+    publishedRevision: async () => ({
+      crux: structuredClone(await cruxService.findById()),
+      artifacts: structuredClone(artifacts),
+    }),
   };
   const kv = {
     get: async (_c: string, key: string) =>
@@ -523,6 +527,59 @@ describe('Crux Functions runner', () => {
       }
     },
   );
+
+  it('keeps loaded code with its own egress policy when a newer publication fills the cache', async () => {
+    const files = {
+      'functions/egress.json': JSON.stringify({ hosts: ['old.example.com'] }),
+      'functions/probe.js':
+        'export default async (req, ctx) => { try { await ctx.fetch("https://new.example.com/"); } catch (e) { return { version: "old", error: e.message }; } };',
+    };
+    const svc = service(files);
+    const execute = (svc as any).execute.bind(svc);
+    let entered!: () => void, resume!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const paused = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const intercepted = jest
+      .spyOn(svc as any, 'execute')
+      .mockImplementationOnce(async (...args: any[]) => {
+        entered();
+        await paused;
+        return execute(...args);
+      });
+    const lookup = jest
+      .spyOn(dns, 'lookup')
+      .mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+    const old = svc.call('crux-1', 'probe', { body: null, visitorId: null });
+    try {
+      await started;
+      files['functions/egress.json'] = JSON.stringify({
+        hosts: ['new.example.com'],
+      });
+      files['functions/probe.js'] =
+        'export default () => ({ version: "new" });';
+      const current = await svc.cruxLookup.findById();
+      current.meta.publishedVersion++;
+      await svc.list('crux-1');
+      resume();
+      expect((await old).body).toEqual({
+        version: 'old',
+        error: expect.stringContaining('egress.json'),
+      });
+      expect(
+        (await svc.call('crux-1', 'probe', { body: null, visitorId: null }))
+          .body,
+      ).toEqual({ version: 'new' });
+    } finally {
+      resume();
+      await old;
+      lookup.mockRestore();
+      intercepted.mockRestore();
+    }
+  });
 
   it('meters every run, whatever it answered', async () => {
     const s = service({

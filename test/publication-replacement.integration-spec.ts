@@ -6,6 +6,7 @@ import { Test } from '@nestjs/testing';
 import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
+import { CruxService } from '../src/crux/crux.service';
 import { CruxRepository } from '../src/crux/crux.repository';
 import { AppModule } from '../src/app.module';
 import { DbService } from '../src/common/services/db.service';
@@ -379,6 +380,167 @@ describe('Publication replacement and retry', () => {
       objects.get(`${second.crux.meta.publishStorageId}/style.css`)?.toString(),
     ).toBe('/* second */');
   });
+
+  it('captures the publication head and inventory under the activation row lock', async () => {
+    process.env.PUBLISH_LAYOUT = 'shared';
+    const id = await seed();
+    await publish(id, 'old').expect(200);
+    const before = await state(id);
+    const db = fixture.db.query();
+    const transaction = db.transaction.bind(db);
+    let entered!: () => void, resume!: () => void, attempting!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const paused = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const activation = new Promise<void>((resolve) => {
+      attempting = resolve;
+    });
+    // Pause after the actual PostgreSQL FOR SHARE has acquired the row lock.
+    const intercept = jest.spyOn(fixture.db, 'query').mockReturnValueOnce({
+      transaction: (callback: any) =>
+        transaction(async (trx) =>
+          callback(
+            new Proxy(trx, {
+              apply(target, self, args) {
+                const query = Reflect.apply(target, self, args);
+                if (args[0] === 'cruxes') {
+                  const first = query.first.bind(query);
+                  jest
+                    .spyOn(query, 'first')
+                    .mockImplementationOnce(async () => {
+                      const row = await first();
+                      entered();
+                      await paused;
+                      return row;
+                    });
+                }
+                return query;
+              },
+            }),
+          ),
+        ),
+    } as never);
+    const onQuery = (query: { sql: string; bindings: unknown[] }) => {
+      if (
+        query.sql.includes('"cruxes"') &&
+        query.sql.includes('for update') &&
+        query.bindings.includes(id)
+      )
+        attempting();
+    };
+    db.on('query', onQuery);
+    const reading = app.get(CruxRepository).publishedRevision(id);
+    let replacing: Promise<request.Response> | undefined;
+    try {
+      await started;
+      replacing = publish(id, 'new').then((result) => result);
+      await activation;
+      resume();
+      const captured = await reading;
+      expect(captured.error).toBeNull();
+      expect(captured.data?.crux.meta.publishStorageId).toBe(
+        before.crux.meta.publishStorageId,
+      );
+      expect(
+        captured.data?.artifacts.map((a) => a.meta.publishStorageId),
+      ).toEqual([
+        before.crux.meta.publishStorageId,
+        before.crux.meta.publishStorageId,
+      ]);
+      expect((await replacing).status).toBe(200);
+      expect((await state(id)).crux.meta.publishStorageId).not.toBe(
+        before.crux.meta.publishStorageId,
+      );
+    } finally {
+      resume();
+      await reading;
+      await replacing;
+      db.removeListener('query', onQuery);
+      intercept.mockRestore();
+    }
+  });
+
+  it.each(['descriptor', 'egress', 'handler'])(
+    'keeps one complete Function revision across a %s read pause',
+    async (seam) => {
+      process.env.PUBLISH_LAYOUT = 'shared';
+      const id = await seed();
+      const upload = (version: string) =>
+        request(app.getHttpServer())
+          .post(`/cruxes/${id}/publish`)
+          .set('Authorization', `Bearer ${token()}`)
+          .field(
+            'meta',
+            JSON.stringify([
+              { path: 'index.html' },
+              { path: 'functions/egress.json' },
+              { path: `functions/${version}.js` },
+            ]),
+          )
+          .attach('files', Buffer.from('<h1>Version</h1>'), {
+            filename: 'index.html',
+          })
+          .attach(
+            'files',
+            Buffer.from(JSON.stringify({ hosts: [`${version}.example.com`] })),
+            { filename: 'egress.json' },
+          )
+          .attach(
+            'files',
+            Buffer.from(`export default () => ({ version: "${version}" });`),
+            { filename: `${version}.js` },
+          );
+      await upload('old').expect(200);
+      const cruxes = app.get(CruxService);
+      const read = cruxes.publishedRevision.bind(cruxes);
+      const download = files.download.getMockImplementation()!;
+      let activated = false;
+      const activate = async () => {
+        if (activated) return;
+        activated = true;
+        await upload('new').expect(200);
+      };
+      const captured = jest
+        .spyOn(cruxes, 'publishedRevision')
+        .mockImplementationOnce(async (key) => {
+          const descriptor = await read(key);
+          if (seam === 'descriptor') await activate();
+          return descriptor;
+        });
+      files.download.mockImplementation(async (input) => {
+        const bytes = await download(input);
+        if (
+          (seam === 'egress' && input.path.endsWith('egress.json')) ||
+          (seam === 'handler' && input.path.endsWith('old.js'))
+        )
+          await activate();
+        return bytes;
+      });
+      try {
+        const result = await request(app.getHttpServer())
+          .post(`/fn/${id}/old`)
+          .send({});
+        expect(activated).toBe(true);
+        expect(result.status).toBe(200);
+        expect(result.body).toEqual({ version: 'old' });
+        const next = await request(app.getHttpServer())
+          .post(`/fn/${id}/new`)
+          .send({})
+          .expect(200);
+        expect(next.body).toEqual({ version: 'new' });
+        await request(app.getHttpServer())
+          .post(`/fn/${id}/old`)
+          .send({})
+          .expect(404);
+      } finally {
+        captured.mockRestore();
+        files.download.mockImplementation(download);
+      }
+    },
+  );
 
   it('publishing alone registers, updates and removes Function schedules', async () => {
     process.env.PUBLISH_LAYOUT = 'shared';

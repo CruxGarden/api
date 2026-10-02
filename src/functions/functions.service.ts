@@ -91,7 +91,8 @@ const MAX_CONCURRENT = 4;
 const MAX_LOG_LINES = 50;
 
 interface Loaded {
-  version: unknown;
+  version: string;
+  owner: Readonly<{ id: string; authorId: string }>;
   sources: FunctionSource[];
   code: Map<string, string>;
   /** Hosts `ctx.fetch` may reach: `functions/egress.json` → `{ "hosts": [...] }`. */
@@ -171,7 +172,7 @@ export class FunctionsService {
       at: now.toISOString(),
     };
     try {
-      const r = await this.execute(row.crux_id, row.name, code, {
+      const r = await this.execute(row.crux_id, row.name, code, loaded, {
         req: { method: 'SCHEDULE', body: null, json: async () => null },
         visitorId: null,
         event,
@@ -265,17 +266,20 @@ export class FunctionsService {
 
   /** What a published crux's `functions/` folder holds. */
   async list(cruxId: string): Promise<FunctionSource[]> {
-    return (await this.load(cruxId)).sources;
+    return (await this.load(cruxId)).sources.map((source) => ({ ...source }));
   }
 
   private async load(cruxId: string): Promise<Loaded> {
-    const crux = await this.cruxService.findById(cruxId);
-    if (!crux?.meta?.publishedAt)
-      throw new NotFoundException('This crux is not published');
-    const version = crux.meta.publishedVersion ?? crux.meta.publishedAt;
+    const { crux, artifacts } =
+      await this.cruxService.publishedRevision(cruxId);
+    const version = JSON.stringify([
+      crux.meta.publishedVersion,
+      crux.meta.publishedAt,
+      crux.meta.publishStorageId,
+      crux.meta.publishLayout,
+    ]);
     const cached = this.cache.get(cruxId);
     if (cached && cached.version === version) return cached;
-    const artifacts = await this.cruxService.getPublishedArtifacts(cruxId);
     const sources: FunctionSource[] = [];
     const code = new Map<string, string>();
     let egress: string[] = [];
@@ -308,7 +312,13 @@ export class FunctionsService {
       });
       code.set(name, text);
     }
-    const loaded = { version, sources, code, egress };
+    const loaded = {
+      version,
+      sources,
+      code,
+      egress,
+      owner: Object.freeze({ id: crux.id, authorId: crux.authorId }),
+    };
     this.cache.set(cruxId, loaded);
     return loaded;
   }
@@ -364,7 +374,7 @@ export class FunctionsService {
     if (!source || source.kind !== 'http')
       throw new NotFoundException(`No function "${name}" in this crux`);
     const body = input.body;
-    return this.execute(cruxId, name, loaded.code.get(name)!, {
+    return this.execute(cruxId, name, loaded.code.get(name)!, loaded, {
       req: {
         method: input.method ?? 'POST',
         body,
@@ -414,13 +424,19 @@ export class FunctionsService {
         const pattern = this.matchOf(code) ?? source.event!;
         if (!matches(pattern, name)) continue;
         handlers++;
-        results[source.name] = await this.execute(cruxId, source.name, code, {
-          req: { method: 'EVENT', body: data, json: async () => data },
-          visitorId,
-          visitorOnly,
-          event,
-          depth: depth + 1,
-        }).catch((error) => ({
+        results[source.name] = await this.execute(
+          cruxId,
+          source.name,
+          code,
+          loaded!,
+          {
+            req: { method: 'EVENT', body: data, json: async () => data },
+            visitorId,
+            visitorOnly,
+            event,
+            depth: depth + 1,
+          },
+        ).catch((error) => ({
           status: error instanceof FunctionReject ? error.status : 500,
           body: { error: (error as Error).message },
           logs: [],
@@ -441,6 +457,7 @@ export class FunctionsService {
     cruxId: string,
     name: string,
     code: string,
+    publication: Loaded,
     input: {
       req: {
         method: string;
@@ -468,8 +485,7 @@ export class FunctionsService {
     const started = Date.now();
     const logs: string[] = [];
     try {
-      const crux = await this.cruxService.findById(cruxId);
-      const egress = this.cache.get(cruxId)?.egress ?? [];
+      const { owner: crux, egress } = publication;
       const secrets = /ctx\.secrets/.test(code)
         ? await this.secretsMap(cruxId)
         : new Map<string, string>();
