@@ -118,6 +118,35 @@ describe('durable billing operations', () => {
     expect(email.send).toHaveBeenCalledTimes(1);
   });
 
+  it('discovers, claims and delivers immediate work even when database default timestamps are ahead of the worker clock', async () => {
+    // PostgreSQL timestamps have finer precision than JS Dates. Model the same
+    // ordering failure deterministically with a database-default clock offset.
+    for (const table of ['billing_reconciliation', 'billing_notifications'])
+      await fixture.db
+        .query()
+        .raw(
+          `ALTER TABLE ${table} ALTER COLUMN due_at SET DEFAULT (clock_timestamp() + interval '1 minute')`,
+        );
+    try {
+      const row = await active();
+      provider.subscriptions.get(row.subscription_id!)!.status = 'canceled';
+      restart();
+      expect((await worker.sweep()).checked).toBe(1);
+      expect((await service.me(account)).plan.id).toBe('free');
+      expect(email.send).toHaveBeenCalledTimes(1);
+      // Direct first claim must use its caller's clock as well.
+      await fixture.db.query()('billing_reconciliation').delete();
+      expect(
+        operationResult(await operations.claim(account, new Date())),
+      ).toBeTruthy();
+    } finally {
+      for (const table of ['billing_reconciliation', 'billing_notifications'])
+        await fixture.db
+          .query()
+          .raw(`ALTER TABLE ${table} ALTER COLUMN due_at SET DEFAULT now()`);
+    }
+  });
+
   it('coordinates replicas and rejects an old lease completion after recovery', async () => {
     await active();
     await operations.discover();

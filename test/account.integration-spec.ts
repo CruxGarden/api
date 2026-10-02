@@ -1,6 +1,6 @@
 import { BillingService } from '../src/billing/billing.service';
 import { CruxService } from '../src/crux/crux.service';
-import { StoreService } from '../src/common/services/store.service';
+import { SyncAccountCleanup } from '../src/sync/sync-account-cleanup';
 import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
@@ -86,8 +86,8 @@ describe('Account Integration Tests', () => {
       .useValue({ closeAccount: jest.fn() })
       .overrideProvider(CruxService)
       .useValue({ removePublication: jest.fn() })
-      .overrideProvider(StoreService)
-      .useValue({ deleteByPrefix: jest.fn() })
+      .overrideProvider(SyncAccountCleanup)
+      .useValue({ closeAccount: jest.fn() })
       .overrideProvider(DbService)
       .useValue(tokenDb)
       .overrideProvider(RedisService)

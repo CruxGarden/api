@@ -1,5 +1,5 @@
 import type { CheckoutRequest } from './provider';
-import { billingAccountTransaction } from './account-transaction';
+import { accountTransaction } from '../common/helpers/account-transaction';
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
@@ -56,7 +56,7 @@ export class BillingRepository {
     work: (closed: boolean) => Promise<T>,
     scope: 'live' | 'retained' = 'live',
   ): Promise<T> {
-    return billingAccountTransaction(this.dbService, accountId, work, scope);
+    return accountTransaction(this.dbService, accountId, work, scope);
   }
 
   async isClosing(accountId: string): Promise<RepositoryResponse<boolean>> {

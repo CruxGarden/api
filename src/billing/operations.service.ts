@@ -72,8 +72,9 @@ export class BillingOperationsService implements OnModuleInit, OnModuleDestroy {
     return this.running;
   }
   private async runBatch() {
-    operationResult(await this.repo.discover());
-    const candidates = operationResult(await this.repo.candidates(new Date()));
+    const now = new Date();
+    operationResult(await this.repo.discover(now));
+    const candidates = operationResult(await this.repo.candidates(now));
     const deadline = Date.now() + 45_000;
     let checked = 0,
       failed = 0;

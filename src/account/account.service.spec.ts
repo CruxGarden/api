@@ -1,6 +1,6 @@
 import { BillingService } from '../billing/billing.service';
 import { CruxService } from '../crux/crux.service';
-import { StoreService } from '../common/services/store.service';
+import { SyncAccountCleanup } from '../sync/sync-account-cleanup';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -87,7 +87,7 @@ describe('AccountService', () => {
         AccountService,
         { provide: BillingService, useValue: { closeAccount: jest.fn() } },
         { provide: CruxService, useValue: { removePublication: jest.fn() } },
-        { provide: StoreService, useValue: { deleteByPrefix: jest.fn() } },
+        { provide: SyncAccountCleanup, useValue: { closeAccount: jest.fn() } },
         { provide: AccountRepository, useValue: mockRepository },
         { provide: AuthorRepository, useValue: mockAuthorRepository },
         { provide: CruxRepository, useValue: mockCruxRepository },
@@ -435,18 +435,15 @@ describe('AccountService', () => {
       repository.delete.mockResolvedValue({ data: null, error: null });
       redisService.get.mockResolvedValue('retained-grant');
       const cleanup = jest
-        .spyOn(service['store'], 'deleteByPrefix')
+        .spyOn(service['sync'], 'closeAccount')
         .mockRejectedValueOnce(new Error('storage unavailable'))
-        .mockResolvedValueOnce(2);
+        .mockResolvedValueOnce(undefined);
       await expect(service.delete('account-id-123', deleteDto)).rejects.toThrow(
         'storage unavailable',
       );
       expect(repository.delete).not.toHaveBeenCalled();
       await service.delete('account-id-123', deleteDto);
-      expect(cleanup).toHaveBeenLastCalledWith({
-        namespace: process.env.AWS_S3_SYNC_BUCKET || 'sync.crux.garden',
-        prefix: 'sync/account-id-123/',
-      });
+      expect(cleanup).toHaveBeenLastCalledWith('account-id-123');
       expect(redisService.del).toHaveBeenCalledWith(
         'crux:auth:grant:id:retained-grant',
       );

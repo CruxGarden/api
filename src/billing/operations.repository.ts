@@ -58,6 +58,7 @@ export class BillingOperationsRepository {
           id: randomUUID(),
           account_id: accountId,
           ...message,
+          due_at: new Date(),
           dedupe_key: dedupeKey ?? null,
           condition: condition ? JSON.stringify(condition) : null,
         })
@@ -85,7 +86,7 @@ export class BillingOperationsRepository {
   }
 
   /** Discover bounded batches of accounts without scanning/loading every subscription. */
-  discover() {
+  discover(now = new Date()) {
     return this.result(async () => {
       const db = this.database.query();
       const ids = await db('accounts as a')
@@ -110,7 +111,7 @@ export class BillingOperationsRepository {
         .limit(100);
       if (ids.length)
         await db('billing_reconciliation')
-          .insert(ids.map(({ id }) => ({ account_id: id })))
+          .insert(ids.map(({ id }) => ({ account_id: id, due_at: now })))
           .onConflict('account_id')
           .ignore();
     });
@@ -137,7 +138,7 @@ export class BillingOperationsRepository {
     return this.result(async (): Promise<string | null> => {
       const db = this.database.query();
       await db('billing_reconciliation')
-        .insert({ account_id: accountId })
+        .insert({ account_id: accountId, due_at: now })
         .onConflict('account_id')
         .ignore();
       const lease = randomUUID();

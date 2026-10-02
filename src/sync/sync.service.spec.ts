@@ -1,304 +1,250 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { SyncService } from './sync.service';
-import { StoreService } from '../common/services/store.service';
-import { LoggerService } from '../common/services/logger.service';
-import { UsageService } from '../usage/usage.service';
-import { LimitsService } from '../usage/limits.service';
-import { NotificationsService } from '../usage/notifications.service';
-import { AuthorService } from '../author/author.service';
+import type { SyncHead, SyncUpload } from './sync.repository';
 
+/** HTTP result and error contracts; atomic ownership is tested on actual PostgreSQL. */
 describe('SyncService', () => {
+  const account = randomUUID(),
+    crux = randomUUID();
   let service: SyncService;
-  let storeService: jest.Mocked<StoreService>;
-  let usage: jest.Mocked<UsageService>;
-
-  const mockLogger = {
-    info: jest.fn(),
-    warn: jest.fn(),
-    debug: jest.fn(),
-    error: jest.fn(),
-    createChildLogger: jest.fn().mockReturnThis(),
+  let heads: Map<string, SyncHead>;
+  let uploads: Map<string, SyncUpload>;
+  let objects: Map<string, Buffer>;
+  let author: { findByAccountId: jest.Mock };
+  let usage: {
+    recordSyncObject: jest.Mock;
+    clearSyncObject: jest.Mock;
+    recordTransfer: jest.Mock;
   };
-
-  const accountId = 'account-123';
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        SyncService,
-        {
-          provide: StoreService,
-          useValue: {
-            upload: jest.fn(),
-            download: jest.fn(),
-            delete: jest.fn(),
-          },
-        },
-        {
-          provide: LoggerService,
-          useValue: mockLogger,
-        },
-        {
-          provide: UsageService,
-          useValue: {
-            recordSyncObject: jest.fn(),
-            clearSyncObject: jest.fn(),
-            recordTransfer: jest.fn(),
-          },
-        },
-        { provide: LimitsService, useValue: { assertStorage: jest.fn() } },
-        { provide: NotificationsService, useValue: { afterWrite: jest.fn() } },
-        {
-          provide: AuthorService,
-          useValue: {
-            findByAccountId: jest.fn(async () => ({ id: 'author-1' })),
-          },
-        },
-      ],
-    }).compile();
-
-    service = module.get<SyncService>(SyncService);
-    storeService = module.get(StoreService);
-    usage = module.get(UsageService);
+  let store: { download: jest.Mock; upload: jest.Mock; delete: jest.Mock };
+  let notifications: { afterWrite: jest.Mock };
+  let logger: { createChildLogger: jest.Mock; error: jest.Mock };
+  beforeEach(() => {
+    heads = new Map();
+    uploads = new Map();
+    objects = new Map();
+    const ok = (data?: unknown) =>
+      Promise.resolve({ data: data ?? null, error: null });
+    let admitted = false;
+    const repo = {
+      forAccount: async (_account: string, work: () => Promise<unknown>) =>
+        work(),
+      closing: () => ok(false),
+      admitted: () => ok(admitted),
+      admit: (_account: string, initial: SyncHead[]) => {
+        admitted = true;
+        for (const head of initial) heads.set(head.object_id, head);
+        return ok();
+      },
+      heads: () => ok([...heads.values()]),
+      head: (_account: string, _kind: string, id: string) => ok(heads.get(id)),
+      save: (head: SyncHead) => {
+        heads.set(head.object_id, head);
+        return ok();
+      },
+      uploads: () => ok([...uploads.values()]),
+      stage: (upload: SyncUpload) => {
+        uploads.set(upload.revision_id, { ...upload });
+        return ok();
+      },
+      setUploadState: (id: string, state: SyncUpload['state']) => {
+        uploads.get(id)!.state = state;
+        return ok();
+      },
+      forgetUpload: (id: string) => {
+        uploads.delete(id);
+        return ok();
+      },
+    };
+    store = {
+      download: jest.fn(async ({ path }) => {
+        if (!objects.has(path))
+          throw Object.assign(new Error('absent'), { code: 'ENOENT' });
+        return { data: objects.get(path)! };
+      }),
+      upload: jest.fn(async ({ path, data }) => {
+        objects.set(path, data);
+      }),
+      delete: jest.fn(async ({ path }) => {
+        objects.delete(path);
+      }),
+    };
+    usage = {
+      recordSyncObject: jest.fn(),
+      clearSyncObject: jest.fn(),
+      recordTransfer: jest.fn(),
+    };
+    author = { findByAccountId: jest.fn(async () => ({ id: randomUUID() })) };
+    notifications = { afterWrite: jest.fn() };
+    logger = { createChildLogger: jest.fn(), error: jest.fn() };
+    logger.createChildLogger.mockReturnValue(logger);
+    service = new SyncService(
+      store as never,
+      logger as never,
+      usage as never,
+      { assertStorage: jest.fn() } as never,
+      author as never,
+      notifications as never,
+      repo as never,
+    );
   });
-
-  afterEach(() => jest.clearAllMocks());
-
-  describe('pushGarden', () => {
-    it('should upload garden ZIP and meta to S3', async () => {
-      const data = Buffer.from('garden-zip-data');
-      const result = await service.pushGarden(accountId, data);
-
-      expect(storeService.upload).toHaveBeenCalledTimes(2);
-      expect(storeService.upload).toHaveBeenCalledWith(
-        expect.objectContaining({
-          path: `sync/${accountId}/garden.zip`,
-          data,
-          contentType: 'application/zip',
-        }),
+  const seed = (kind: 'garden' | 'crux', data: Buffer) => {
+    const time = '2026-09-30T00:00:00.000Z';
+    if (kind === 'garden') {
+      objects.set(`sync/${account}/garden.zip`, data);
+      objects.set(
+        `sync/${account}/garden-meta.json`,
+        Buffer.from(JSON.stringify({ syncedAt: time, size: data.length })),
       );
-      expect(storeService.upload).toHaveBeenCalledWith(
-        expect.objectContaining({
-          path: `sync/${accountId}/garden-meta.json`,
-          contentType: 'application/json',
-        }),
+    } else {
+      objects.set(`sync/${account}/cruxes/${crux}.crux`, data);
+      objects.set(
+        `sync/${account}/cruxes/_index.json`,
+        Buffer.from(
+          JSON.stringify([
+            {
+              cruxId: crux,
+              slug: 'existing',
+              title: 'Existing',
+              updatedAt: time,
+              size: data.length,
+            },
+          ]),
+        ),
       );
-      expect(result.syncedAt).toBeDefined();
-      expect(result.size).toBe(data.length);
+    }
+  };
+  it('uploads a Garden once and reports durable metadata and usage', async () => {
+    const data = Buffer.from('garden');
+    expect(await service.pushGarden(account, data)).toEqual({
+      syncedAt: expect.any(String),
+      size: data.length,
     });
-
-    it('meters the backup as account storage and upload transfer', async () => {
-      const data = Buffer.from('garden-zip-data');
-      await service.pushGarden(accountId, data);
-      expect(usage.recordSyncObject).toHaveBeenCalledWith(
-        accountId,
-        'garden',
-        'garden',
-        data.length,
-        'Garden backup',
-      );
-      expect(usage.recordTransfer).toHaveBeenCalledWith(
-        accountId,
-        data.length,
-        0,
-      );
-    });
+    expect(store.upload).toHaveBeenCalledTimes(1);
+    expect(store.upload).toHaveBeenCalledWith(
+      expect.objectContaining({ data, contentType: 'application/zip' }),
+    );
+    expect(usage.recordSyncObject).toHaveBeenCalledWith(
+      account,
+      'garden',
+      'garden',
+      data.length,
+      'Garden backup',
+    );
+    expect(usage.recordTransfer).toHaveBeenCalledWith(account, data.length, 0);
   });
-
-  describe('pullGarden', () => {
-    it('should download garden ZIP from S3', async () => {
-      const gardenData = Buffer.from('garden-zip');
-      storeService.download.mockResolvedValue({
-        data: gardenData,
-        metadata: {},
-      });
-
-      const result = await service.pullGarden(accountId);
-      expect(result).toEqual(gardenData);
-      expect(storeService.download).toHaveBeenCalledWith(
-        expect.objectContaining({
-          path: `sync/${accountId}/garden.zip`,
-        }),
-      );
-    });
-
-    it('should throw NotFoundException when no garden exists', async () => {
-      storeService.download.mockRejectedValue(new Error('NoSuchKey'));
-      await expect(service.pullGarden(accountId)).rejects.toThrow(
-        NotFoundException,
-      );
-    });
+  it('pulls a Garden backup and records transfer', async () => {
+    const data = Buffer.from('garden');
+    seed('garden', data);
+    expect(await service.pullGarden(account)).toEqual(data);
+    expect(usage.recordTransfer).toHaveBeenCalledWith(account, 0, data.length);
   });
-
-  describe('getGardenStatus', () => {
-    it('should return garden meta when it exists', async () => {
-      const meta = { syncedAt: '2026-03-11T00:00:00Z', size: 1024 };
-      storeService.download.mockResolvedValue({
-        data: Buffer.from(JSON.stringify(meta)),
-        metadata: {},
-      });
-
-      const result = await service.getGardenStatus(accountId);
-      expect(result).toEqual(meta);
-    });
-
-    it('should return null when no garden meta exists', async () => {
-      storeService.download.mockRejectedValue(new Error('NoSuchKey'));
-      const result = await service.getGardenStatus(accountId);
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('pushCrux', () => {
-    it('should upload crux ZIP and update index', async () => {
-      const data = Buffer.from('crux-zip-data');
-      // First download for index returns empty (new index)
-      storeService.download.mockRejectedValue(new Error('NoSuchKey'));
-
-      const result = await service.pushCrux(accountId, 'crux-1', data, {
-        slug: 'my-crux',
-        title: 'My Crux',
-      });
-
-      // Upload crux ZIP + save index = 2 uploads
-      expect(storeService.upload).toHaveBeenCalledTimes(2);
-      expect(storeService.upload).toHaveBeenCalledWith(
-        expect.objectContaining({
-          path: `sync/${accountId}/cruxes/crux-1.crux`,
-          data,
-          contentType: 'application/zip',
-        }),
-      );
-      expect(result.cruxId).toBe('crux-1');
-      expect(result.slug).toBe('my-crux');
-      expect(result.title).toBe('My Crux');
-      expect(result.size).toBe(data.length);
-    });
-
-    it('should update existing entry in index', async () => {
-      const existingIndex = [
-        {
-          cruxId: 'crux-1',
-          slug: 'old-slug',
-          title: 'Old Title',
-          updatedAt: '2026-01-01',
-          size: 100,
-        },
-      ];
-      storeService.download.mockResolvedValue({
-        data: Buffer.from(JSON.stringify(existingIndex)),
-        metadata: {},
-      });
-
-      const data = Buffer.from('updated-crux');
-      await service.pushCrux(accountId, 'crux-1', data, {
-        slug: 'new-slug',
-        title: 'New Title',
-      });
-
-      // Check the saved index has updated entry, not a duplicate
-      const savedIndex = JSON.parse(
-        storeService.upload.mock.calls
-          .find((c) => c[0].path.includes('_index.json'))[0]
-          .data.toString(),
-      );
-      expect(savedIndex).toHaveLength(1);
-      expect(savedIndex[0].slug).toBe('new-slug');
-      expect(savedIndex[0].title).toBe('New Title');
+  it('reports Garden metadata and absence', async () => {
+    expect(await service.getGardenStatus(account)).toBeNull();
+    await service.pushGarden(account, Buffer.from('new'));
+    expect(await service.getGardenStatus(account)).toEqual({
+      syncedAt: expect.any(String),
+      size: 3,
     });
   });
-
-  describe('pullCrux', () => {
-    it('should download crux ZIP from S3', async () => {
-      const cruxData = Buffer.from('crux-zip');
-      storeService.download.mockResolvedValue({
-        data: cruxData,
-        metadata: {},
-      });
-
-      const result = await service.pullCrux(accountId, 'crux-1');
-      expect(result).toEqual(cruxData);
-      expect(storeService.download).toHaveBeenCalledWith(
-        expect.objectContaining({
-          path: `sync/${accountId}/cruxes/crux-1.crux`,
-        }),
-      );
-    });
-
-    it('should throw NotFoundException when crux not found', async () => {
-      storeService.download.mockRejectedValue(new Error('NoSuchKey'));
-      await expect(service.pullCrux(accountId, 'crux-1')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
+  it('deletes a Garden backup and clears its usage', async () => {
+    seed('garden', Buffer.from('old'));
+    await service.deleteGarden(account);
+    expect(await service.getGardenStatus(account)).toBeNull();
+    expect(usage.clearSyncObject).toHaveBeenCalledWith(
+      account,
+      'garden',
+      'garden',
+    );
+    expect(objects.has(`sync/${account}/garden.zip`)).toBe(false);
   });
-
-  describe('listCruxes', () => {
-    it('should return index entries', async () => {
-      const index = [
-        {
-          cruxId: 'crux-1',
-          slug: 'my-crux',
-          title: 'My Crux',
-          updatedAt: '2026-03-11',
-          size: 500,
-        },
-      ];
-      storeService.download.mockResolvedValue({
-        data: Buffer.from(JSON.stringify(index)),
-        metadata: {},
-      });
-
-      const result = await service.listCruxes(accountId);
-      expect(result).toEqual(index);
+  it('uploads and lists Crux metadata', async () => {
+    const data = Buffer.from('crux');
+    const entry = await service.pushCrux(account, crux, data, {
+      slug: 'new',
+      title: 'New',
     });
-
-    it('should return empty array when no index exists', async () => {
-      storeService.download.mockRejectedValue(new Error('NoSuchKey'));
-      const result = await service.listCruxes(accountId);
-      expect(result).toEqual([]);
+    expect(entry).toEqual({
+      cruxId: crux,
+      slug: 'new',
+      title: 'New',
+      updatedAt: expect.any(String),
+      size: 4,
     });
+    expect(await service.listCruxes(account)).toEqual([entry]);
   });
-
-  describe('deleteCrux', () => {
-    it('should delete crux ZIP and update index', async () => {
-      const index = [
-        {
-          cruxId: 'crux-1',
-          slug: 'my-crux',
-          title: 'My Crux',
-          updatedAt: '2026-03-11',
-          size: 500,
-        },
-        {
-          cruxId: 'crux-2',
-          slug: 'other',
-          title: 'Other',
-          updatedAt: '2026-03-11',
-          size: 300,
-        },
-      ];
-      storeService.download.mockResolvedValue({
-        data: Buffer.from(JSON.stringify(index)),
-        metadata: {},
-      });
-
-      await service.deleteCrux(accountId, 'crux-1');
-
-      expect(storeService.delete).toHaveBeenCalledWith(
-        expect.objectContaining({
-          path: `sync/${accountId}/cruxes/crux-1.crux`,
-        }),
-      );
-
-      const savedIndex = JSON.parse(
-        storeService.upload.mock.calls
-          .find((c) => c[0].path.includes('_index.json'))[0]
-          .data.toString(),
-      );
-      expect(savedIndex).toHaveLength(1);
-      expect(savedIndex[0].cruxId).toBe('crux-2');
+  it('replaces an existing Crux without duplicating the listing', async () => {
+    seed('crux', Buffer.from('old'));
+    await service.pushCrux(account, crux, Buffer.from('new'), {
+      slug: 'changed',
+      title: 'Changed',
     });
+    expect(await service.listCruxes(account)).toEqual([
+      expect.objectContaining({ slug: 'changed', title: 'Changed' }),
+    ]);
+    expect(await service.pullCrux(account, crux)).toEqual(Buffer.from('new'));
+  });
+  it('pulls current-format Crux bytes unchanged', async () => {
+    const data = Buffer.from('crux');
+    seed('crux', data);
+    expect(await service.pullCrux(account, crux)).toEqual(data);
+  });
+  it('returns the current-format listing unchanged', async () => {
+    seed('crux', Buffer.from('crux'));
+    expect(await service.listCruxes(account)).toEqual([
+      {
+        cruxId: crux,
+        slug: 'existing',
+        title: 'Existing',
+        updatedAt: '2026-09-30T00:00:00.000Z',
+        size: 4,
+      },
+    ]);
+  });
+  it('returns an empty listing only for explicit absence', async () => {
+    expect(await service.listCruxes(account)).toEqual([]);
+  });
+  it.each(['garden', 'crux'] as const)(
+    'returns 404 for an absent %s backup',
+    async (kind) => {
+      await expect(
+        kind === 'garden'
+          ? service.pullGarden(account)
+          : service.pullCrux(account, crux),
+      ).rejects.toThrow(NotFoundException);
+    },
+  );
+  it('deletes one Crux while preserving another', async () => {
+    seed('crux', Buffer.from('old'));
+    const other = randomUUID();
+    await service.pushCrux(account, other, Buffer.from('other'), {
+      slug: 'other',
+      title: 'Other',
+    });
+    await service.deleteCrux(account, crux);
+    expect(await service.listCruxes(account)).toEqual([
+      expect.objectContaining({ cruxId: other }),
+    ]);
+    expect(usage.clearSyncObject).toHaveBeenCalledWith(account, 'crux', crux);
+  });
+  it('does not bypass quota checks when author lookup fails', async () => {
+    author.findByAccountId.mockRejectedValue(
+      new ServiceUnavailableException('author unavailable'),
+    );
+    await expect(
+      service.pushGarden(account, Buffer.from('new')),
+    ).rejects.toThrow('author unavailable');
+    expect(store.upload).not.toHaveBeenCalled();
+  });
+  it('isolates a post-commit notification refusal', async () => {
+    notifications.afterWrite.mockRejectedValue(new Error('mail unavailable'));
+    await service.pushGarden(account, Buffer.from('new'));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(logger.error).toHaveBeenCalledWith(
+      'Sync committed; usage notification failed',
+      expect.any(Error),
+    );
+    expect(await service.pullGarden(account)).toEqual(Buffer.from('new'));
   });
 });

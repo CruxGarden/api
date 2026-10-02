@@ -25,7 +25,14 @@ describe('Hosted account closure and retry', () => {
   const home = randomUUID(),
     account = randomUUID(),
     author = randomUUID();
-  const files = { deleteByPrefix: jest.fn(), invalidateCache: jest.fn() };
+  const files = {
+    deleteByPrefix: jest.fn(),
+    invalidateCache: jest.fn(),
+    download: jest.fn(async () => {
+      throw Object.assign(new Error('absent'), { code: 'ENOENT' });
+    }),
+    delete: jest.fn(),
+  };
   const buckets = { deleteBucket: jest.fn() };
   const edge = new MockEdgeProvider();
   const billingProvider = new MockBillingProvider();

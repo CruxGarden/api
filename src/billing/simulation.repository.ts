@@ -1,4 +1,4 @@
-import { billingAccountTransaction } from './account-transaction';
+import { accountTransaction } from '../common/helpers/account-transaction';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DbService } from '../common/services/db.service';
@@ -32,7 +32,7 @@ export class BillingSimulationRepository {
     accountId: string,
     operation: () => Promise<T>,
   ): Promise<T> {
-    return billingAccountTransaction(this.db, accountId, operation);
+    return accountTransaction(this.db, accountId, operation);
   }
 
   async change(

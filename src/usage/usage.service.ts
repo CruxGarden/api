@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   S3Client,
   ListObjectsV2Command,
@@ -384,9 +389,7 @@ export class UsageService {
       title,
     );
     if (r.error)
-      this.logger.error(
-        `recordSyncObject failed for ${accountId}/${kind}/${objectId}: ${String(r.error)}`,
-      );
+      throw new ServiceUnavailableException('Sync usage could not be recorded');
   }
 
   async clearSyncObject(
@@ -396,9 +399,7 @@ export class UsageService {
   ): Promise<void> {
     const r = await this.repo.deleteSyncObject(accountId, kind, objectId);
     if (r.error)
-      this.logger.error(
-        `clearSyncObject failed for ${accountId}/${kind}/${objectId}: ${String(r.error)}`,
-      );
+      throw new ServiceUnavailableException('Sync usage could not be cleared');
   }
 
   /** Bytes moved through the sync endpoints, counted on the UTC day they happen. */
@@ -412,8 +413,8 @@ export class UsageService {
     const day = now.toISOString().slice(0, 10);
     const r = await this.repo.addSyncDaily(accountId, day, bytesUp, bytesDown);
     if (r.error)
-      this.logger.error(
-        `recordTransfer failed for ${accountId}: ${String(r.error)}`,
+      throw new ServiceUnavailableException(
+        'Sync transfer could not be recorded',
       );
   }
 
@@ -425,6 +426,8 @@ export class UsageService {
       this.repo.syncObjectsByAccount(accountId),
       this.repo.syncDailyByAccount(accountId, period.start, period.end),
     ]);
+    if (objects.error || daily.error)
+      throw new ServiceUnavailableException('Sync usage is unavailable');
     const list: SyncObjectUsage[] = (objects.data ?? []).map((o) => ({
       kind: o.kind,
       id: o.object_id,

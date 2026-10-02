@@ -1,6 +1,6 @@
 import { BillingService } from '../billing/billing.service';
 import { CruxService } from '../crux/crux.service';
-import { StoreService } from '../common/services/store.service';
+import { SyncAccountCleanup } from '../sync/sync-account-cleanup';
 import {
   Injectable,
   NotFoundException,
@@ -37,7 +37,7 @@ export class AccountService {
     private readonly loggerService: LoggerService,
     private readonly billing: BillingService,
     private readonly publications: CruxService,
-    private readonly store: StoreService,
+    private readonly sync: SyncAccountCleanup,
   ) {
     this.logger = this.loggerService.createChildLogger('AccountService');
   }
@@ -206,10 +206,7 @@ export class AccountService {
     await this.billing.closeAccount(accountId);
     for (const crux of cruxes.data || [])
       await this.publications.removePublication(crux.id);
-    await this.store.deleteByPrefix({
-      namespace: process.env.AWS_S3_SYNC_BUCKET || 'sync.crux.garden',
-      prefix: `sync/${accountId}/`,
-    });
+    await this.sync.closeAccount(accountId);
     const grantId = await this.redisService.get(
       this.grantEmailKey(accountToDelete.email),
     );

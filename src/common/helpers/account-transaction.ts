@@ -1,11 +1,10 @@
 import { NotFoundException } from '@nestjs/common';
-import { DbService } from '../common/services/db.service';
+import { DbService } from '../services/db.service';
 
-/** Shared by billing and its persistent simulation, including nested operations.
- * Lock the account, not the optional subscription row. Provider calls made while
- * holding this lock must have bounded timeouts; send notifications after commit.
+/** Serialize short account-owned state changes, including nested operations.
+ * External bulk uploads run before admission; notifications run after commit.
  */
-export function billingAccountTransaction<T>(
+export function accountTransaction<T>(
   database: DbService,
   accountId: string,
   work: (closed: boolean) => Promise<T>,

@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import { randomUUID } from 'node:crypto';
 import * as path from 'path';
 import {
   S3Client,
@@ -26,6 +27,18 @@ export interface StoreOptions {
   data?: Buffer;
   namespace?: string;
   contentType?: string;
+  maxBytes?: number;
+  timeoutMs?: number;
+}
+
+/** Only a missing object is absence; missing buckets and permission errors are outages. */
+export function isStoreObjectMissing(error: unknown): boolean {
+  return !!(
+    error &&
+    typeof error === 'object' &&
+    (('code' in error && error.code === 'ENOENT') ||
+      ('name' in error && error.name === 'NoSuchKey'))
+  );
 }
 
 export interface DownloadResult {
@@ -89,8 +102,9 @@ export class StoreService {
       let entries: import('fs').Dirent[];
       try {
         entries = await fs.readdir(dir, { withFileTypes: true });
-      } catch {
-        return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw error;
       }
       for (const e of entries) {
         const full = path.join(dir, e.name);
@@ -120,7 +134,14 @@ export class StoreService {
         opts.namespace || this.defaultNamespace,
         opts.path,
       );
+      if (
+        opts.maxBytes !== undefined &&
+        (await fs.stat(file)).size > opts.maxBytes
+      )
+        throw new Error('Storage object exceeds the read limit');
       const data = await fs.readFile(file);
+      if (opts.maxBytes !== undefined && data.length > opts.maxBytes)
+        throw new Error('Storage object exceeds the read limit');
       this.logger.info('File downloaded (local)', { path: opts.path });
       return { data, metadata: { ETag: 'local' } };
     }
@@ -130,18 +151,41 @@ export class StoreService {
       key: opts.path,
     };
 
+    const signal = AbortSignal.timeout(opts.timeoutMs ?? 300_000);
     const res = await this.s3Client.send(
       new GetObjectCommand({
         Bucket: s3Opts.bucket,
         Key: s3Opts.key,
       }),
+      { abortSignal: signal },
     );
 
+    if (
+      opts.maxBytes !== undefined &&
+      res.ContentLength !== undefined &&
+      res.ContentLength > opts.maxBytes
+    ) {
+      (res.Body as any)?.destroy();
+      throw new Error('Storage object exceeds the read limit');
+    }
     // Convert stream to buffer
     const stream = res.Body as any;
     const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(chunk);
+    const abort = () => stream.destroy(new Error('Storage download timed out'));
+    signal.addEventListener('abort', abort, { once: true });
+    try {
+      signal.throwIfAborted();
+      let bytes = 0;
+      for await (const chunk of stream) {
+        bytes += chunk.length;
+        if (opts.maxBytes !== undefined && bytes > opts.maxBytes) {
+          stream.destroy();
+          throw new Error('Storage object exceeds the read limit');
+        }
+        chunks.push(chunk);
+      }
+    } finally {
+      signal.removeEventListener('abort', abort);
     }
     const buffer = Buffer.concat(chunks);
 
@@ -162,7 +206,17 @@ export class StoreService {
         opts.path,
       );
       await fs.mkdir(path.dirname(file), { recursive: true });
-      await fs.writeFile(file, opts.data);
+      const temporary = `${file}.${randomUUID()}.upload`;
+      const handle = await fs.open(temporary, 'wx');
+      try {
+        await handle.writeFile(opts.data);
+        await handle.sync();
+        await handle.close();
+        await fs.rename(temporary, file);
+      } finally {
+        await handle.close();
+        await fs.rm(temporary, { force: true });
+      }
       this.logger.info('File uploaded (local)', {
         path: opts.path,
         size: `${opts.data.length} bytes`,
@@ -183,6 +237,7 @@ export class StoreService {
         Body: s3Opts.data,
         ...(opts.contentType ? { ContentType: opts.contentType } : {}),
       }),
+      { abortSignal: AbortSignal.timeout(300_000) },
     );
   }
 
@@ -215,12 +270,10 @@ export class StoreService {
 
   async delete(opts: StoreOptions): Promise<void> {
     if (this.mockMode) {
-      await fs
-        .rm(
-          this.localPath(opts.namespace || this.defaultNamespace, opts.path),
-          { force: true },
-        )
-        .catch(() => undefined);
+      await fs.rm(
+        this.localPath(opts.namespace || this.defaultNamespace, opts.path),
+        { force: true },
+      );
       this.logger.info('File deleted (local)', { path: opts.path });
       return;
     }

@@ -657,3 +657,37 @@ describe('UsageService', () => {
     expect(repo.pruneVisitors).toHaveBeenCalled();
   });
 });
+
+describe('sync usage refusal contracts', () => {
+  const refused = { data: null, error: new Error('database unavailable') };
+  it.each(['upsertSyncObject', 'deleteSyncObject', 'addSyncDaily'] as const)(
+    'does not report a failed %s as success',
+    async (method) => {
+      const repo = { [method]: jest.fn(async () => refused) };
+      const usage = new UsageService(repo as never, logger);
+      const operation =
+        method === 'upsertSyncObject'
+          ? usage.recordSyncObject('account', 'garden', 'garden', 10)
+          : method === 'deleteSyncObject'
+            ? usage.clearSyncObject('account', 'garden', 'garden')
+            : usage.recordTransfer('account', 10, 0);
+      await expect(operation).rejects.toThrow(/Sync/);
+    },
+  );
+  it.each(['syncObjectsByAccount', 'syncDailyByAccount'] as const)(
+    'refuses an incomplete usage view when %s fails',
+    async (method) => {
+      const repo = {
+        syncObjectsByAccount: jest.fn(async () => ({ data: [], error: null })),
+        syncDailyByAccount: jest.fn(async () => ({ data: [], error: null })),
+      };
+      repo[method].mockResolvedValue(refused as never);
+      await expect(
+        new UsageService(repo as never, logger).syncForAccount('account', {
+          start: '2026-10-01',
+          end: '2026-11-01',
+        }),
+      ).rejects.toThrow('Sync usage is unavailable');
+    },
+  );
+});
