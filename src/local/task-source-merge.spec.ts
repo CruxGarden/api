@@ -152,6 +152,12 @@ describe('reviews returning work to its actual source Task', () => {
     expect(
       retained.workspace.messages.some((m: any) => m.taskMergeId === review.id),
     ).toBe(true);
+    const reads = jest.spyOn(store, 'read');
+    await owner.inspectTaskHistory(selection, store);
+    expect(
+      reads.mock.calls.some(([fp]) => fp === retained.entries[0].fingerprint),
+    ).toBe(false);
+    reads.mockRestore();
     const original = await owner.readTaskHistoryFile(
       selection,
       retained.root,

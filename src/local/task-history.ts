@@ -8,4 +8,8 @@ export const taskHistorySelectionSchema = z
     part: z.enum(['base', 'source', 'target', 'result']),
   })
   .strict();
-export type TaskHistorySelection = z.infer<typeof taskHistorySelectionSchema>;
+export interface TaskHistorySelection {
+  cruxId: string;
+  id: string;
+  part: 'base' | 'source' | 'target' | 'result';
+}

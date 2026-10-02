@@ -140,7 +140,11 @@ export class WorkingCopyService {
       throw new InternalServerErrorException(saved.error.message);
   }
 
-  async readBase(id: string, store: DesktopContentStore, cruxId?: string) {
+  /** Validate the retaining Task and selected Growth parent without loading file bytes. */
+  async inspectBaseState(
+    id: string,
+    cruxId?: string,
+  ): Promise<WorkingCopyBase> {
     const result = await this.copies.find(id);
     if (result.error)
       throw new InternalServerErrorException(result.error.message);
@@ -160,6 +164,11 @@ export class WorkingCopyService {
       base.sourceId ?? copy.crux_id,
       base.workspace,
     );
+    return base;
+  }
+
+  async readBase(id: string, store: DesktopContentStore) {
+    const base = await this.inspectBaseState(id);
     const manifest = new FileManifest(store);
     await manifest.verify(base.root);
     return { ...base, entries: await manifest.entries(base.root) };

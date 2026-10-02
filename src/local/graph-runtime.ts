@@ -827,7 +827,9 @@ export class LocalGraphRuntime {
     input: TaskHistorySelection,
     store: DesktopContentStore,
   ) {
-    const captured = taskHistorySelectionSchema.parse(input);
+    const captured = taskHistorySelectionSchema.parse(
+      input,
+    ) as TaskHistorySelection;
     const capturedStore = {
       read: store.read.bind(store),
       write: store.write.bind(store),
@@ -843,7 +845,9 @@ export class LocalGraphRuntime {
     path: string,
     store: DesktopContentStore,
   ) {
-    const captured = taskHistorySelectionSchema.parse(input);
+    const captured = taskHistorySelectionSchema.parse(
+      input,
+    ) as TaskHistorySelection;
     if (
       typeof root !== 'string' ||
       !/^[a-f0-9]{64}$/.test(root) ||

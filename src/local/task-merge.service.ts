@@ -36,23 +36,24 @@ export class TaskMergeService {
   ) {}
   private async historyState(
     input: TaskHistorySelection,
-    store: DesktopContentStore,
-  ) {
+  ): Promise<RetainedWorkspaceState> {
     await this.crux.findById(input.cruxId);
     if (input.part === 'base') {
-      return this.copies.readBase(input.id, store, input.cruxId);
+      return this.copies.inspectBaseState(input.id, input.cruxId);
     }
     const { merge, data } = await this.ownedState(input.id);
     if (merge.crux_id !== input.cruxId || merge.phase !== 'merged')
       throw new ConflictException('Completed Task history is unavailable');
-    return retainedWorkspaceSchema.parse(data[`${input.part}State`]);
+    return retainedWorkspaceSchema.parse(
+      data[`${input.part}State`],
+    ) as RetainedWorkspaceState;
   }
 
   async inspectHistory(
     input: TaskHistorySelection,
     store: DesktopContentStore,
   ) {
-    const state = await this.historyState(input, store);
+    const state = await this.historyState(input);
     return {
       ...state,
       entries: await new FileManifest(store).entries(state.root),
@@ -65,7 +66,7 @@ export class TaskMergeService {
     path: string,
     store: DesktopContentStore,
   ) {
-    const state = await this.historyState(input, store);
+    const state = await this.historyState(input);
     if (state.root !== root)
       throw new ConflictException(
         'The selected Task history changed; reopen it',
