@@ -38,6 +38,23 @@ This project adheres to a code of conduct that all contributors are expected to 
 - Node.js 22 (see `.nvmrc`)
 - Docker (recommended) or PostgreSQL and Redis
 
+### Credential-free verification
+
+For contribution work that does not need a running development server:
+
+```bash
+nvm use
+npm ci                      # includes the API build via prepare
+npm run verify              # Docker must be running for disposable PostgreSQL fixtures
+```
+
+This path requires no `.env`, AWS keys, paid provider or running development database.
+It runs lint, unit/native tests, HTTP integration tests, build and the packaged local
+runtime smoke check. Do not replace the fixture database URL with your own Garden or
+production database. Native modules need a supported compiler toolchain if a prebuilt
+binary is unavailable. Use the server setup below only when you need interactive HTTP
+work; missing AWS configuration uses mocks, not real email or object delivery.
+
 ### Installation
 
 #### Option 1: With Docker (Recommended)
@@ -192,12 +209,16 @@ installing a desktop runtime are independent release actions.
 
 ## Testing Guidelines
 
-### Test Coverage
+### Behavior coverage
 
-- All new features must include unit tests
-- Aim for >90% code coverage for new code
-- Test both success and error cases
-- Test edge cases and boundary conditions
+- Preserve existing expected-behavior assertions when changing implementation.
+- Add the smallest meaningful regression for changed behavior, including refusal and retry.
+- Use real PostgreSQL HTTP fixtures for persistence/authorization changes, and the actual
+  native SQLite runtime for local commands; mocks belong at external provider boundaries.
+- For retained state, include restart/readback and rollback checks. Runtime changes also
+  need affected app/Electron acceptance before being considered shipped.
+- Coverage percentages locate untested code; they do not prove complete user-story coverage.
+  Fixture-backed email, billing and AI tests do not certify live delivery, spend or quality.
 
 ### Writing Tests
 
@@ -226,7 +247,7 @@ npm run test:coverage
 - Use `describe` blocks to group related tests
 - Use clear, descriptive test names
 - Follow the Arrange-Act-Assert pattern
-- Mock external dependencies
+- Mock external services where deterministic responses are needed; keep the database owner real for persistence assertions
 - Test one thing per test case
 
 ### Example Test
@@ -406,3 +427,25 @@ If you have questions or need help:
 - Reach out to maintainers
 
 Thank you for contributing to Crux Garden!
+
+## Small contribution candidates
+
+Confirm the current gap in an issue before starting. Keep the first PR bounded.
+
+| Candidate                      | Expected result                                                            | Acceptance boundary                                                                                                        |
+| ------------------------------ | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Public runtime map             | Add a worked create → write → read example using exported types            | Execute it against the built local package in scratch storage; no app checkout required                                    |
+| Refusal contract documentation | Document one controller's actual error responses beside its Swagger schema | Trace existing HTTP integration assertions; add a real HTTP case only if the behavior lacks coverage                       |
+| Setup diagnostics              | Improve one reproducible missing-service or configuration error            | Demonstrate the failing clean setup and actionable error, without logging credentials or altering production configuration |
+
+Large ownership changes should start with a maintainer-reviewed slice and preserved
+native/HTTP tests. Repository method mocks alone do not validate transactions or races.
+
+## Support scope
+
+Use issues for reproducible failures and scoped proposals, including revision, runtime,
+expected/actual behavior and redacted logs. Support is best effort without a response or
+merge deadline; security reports follow `SECURITY.md`. Review requires the full gate,
+relevant cross-repository acceptance and a clear statement of anything untested.
+A merged source change does not itself deploy the hosted API or install a new desktop
+runtime. Maintainers handle those release actions separately.

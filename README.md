@@ -89,6 +89,25 @@ API change is not installed in the app until those consumer dependencies change.
 Full API verification and affected app/host/actual-desktop checks remain required
 for a changed runtime; see [CONTRIBUTING.md](CONTRIBUTING.md#local-runtime-changes).
 
+## Maturity and verification
+
+This is a v1 release candidate with active ownership cleanup. The hosted API uses
+conventional controllers/services/repositories; the local runtime has a separate command
+and transaction boundary. Existing tests cover real SQLite persistence and PostgreSQL
+HTTP behavior as well as scripted provider responses. They do not establish live email,
+payments, AI quality or production publishing readiness.
+
+A contributor can verify a fresh checkout without credentials:
+
+```bash
+nvm use
+npm ci
+npm run verify               # requires Docker for disposable integration databases
+```
+
+See [contribution candidates and support scope](CONTRIBUTING.md#small-contribution-candidates).
+For an interactive server, use the configuration below.
+
 ## Getting Started
 
 ### Prerequisites
