@@ -449,3 +449,14 @@ merge deadline; security reports follow `SECURITY.md`. Review requires the full 
 relevant cross-repository acceptance and a clear statement of anything untested.
 A merged source change does not itself deploy the hosted API or install a new desktop
 runtime. Maintainers handle those release actions separately.
+
+## Dependency checks
+
+Run `npm audit` as well as the verification gate when changing dependencies. The
+October 3 contributor check cleared twelve development-tooling findings by aligning
+`@types/jest` with the existing Jest 30 runner and updating TypeScript ESLint 8 and
+ts-loader 9. No production/shared package version changed, and the compiled local
+runtime content hash stayed unchanged. The full native/HTTP gate passed afterward.
+This dated zero-finding audit is a package inventory result, not a security guarantee
+or a statement about the app's separate dependencies. Avoid force-downgrading tools
+just to suppress an advisory; inspect the dependency path and validate the replacement.
