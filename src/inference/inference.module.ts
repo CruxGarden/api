@@ -1,3 +1,4 @@
+import { IncludedImageService } from './image.service';
 import { Module } from '@nestjs/common';
 import { BillingModule } from '../billing/billing.module';
 import { InferenceController } from './inference.controller';
@@ -6,6 +7,6 @@ import { InferenceService } from './inference.service';
 @Module({
   imports: [BillingModule],
   controllers: [InferenceController],
-  providers: [InferenceRepository, InferenceService],
+  providers: [InferenceRepository, InferenceService, IncludedImageService],
 })
 export class InferenceModule {}

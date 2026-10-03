@@ -1,3 +1,4 @@
+import { IncludedImageService } from './image.service';
 import {
   Body,
   Injectable,
@@ -41,9 +42,22 @@ export class InferenceAuthGuard extends AuthGuard {
 @Controller('inference')
 @UseGuards(InferenceAuthGuard)
 export class InferenceController {
-  constructor(private readonly inference: InferenceService) {}
+  constructor(
+    private readonly inference: InferenceService,
+    private readonly images: IncludedImageService,
+  ) {}
   @Get('usage') usage(@Req() req: AuthRequest) {
     return this.inference.usage(req.account.id);
+  }
+  @Post('images')
+  @HttpCode(200)
+  image(
+    @Req() req: AuthRequest,
+    @Headers('x-request-id') id: string,
+    @Body() body: Record<string, unknown>,
+    @Res() res: Response,
+  ) {
+    return this.images.generate(req.account.id, id, body, res);
   }
   @Post('v1/messages')
   @HttpCode(200)

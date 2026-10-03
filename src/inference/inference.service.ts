@@ -1,3 +1,4 @@
+import { includedImagesAvailable } from './image.service';
 import {
   BadRequestException,
   HttpException,
@@ -37,7 +38,7 @@ export class InferenceService {
   private provider(): Anthropic {
     if (!this.available())
       throw new ServiceUnavailableException(
-        'Included collaboration is not configured yet. Your own API key still works.',
+        'Included AI is temporarily unavailable. Your work is saved; please try again shortly.',
       );
     return new Anthropic({
       apiKey: process.env.INCLUDED_ANTHROPIC_API_KEY,
@@ -100,6 +101,7 @@ export class InferenceService {
       );
     return {
       available: this.available(),
+      imagesAvailable: includedImagesAvailable(),
       planId,
       eligible: !!limits,
       model: SONNET,
