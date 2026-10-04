@@ -178,12 +178,13 @@ const CRUX_STORE_CLIENT: PublishInjection = {
   window.addEventListener('message',function(e){
     if(e.source!==window.parent||(e.origin!==GARDEN_ORIGIN&&e.origin!=='crux-app://index.html'))return;
     if(e.data&&e.data.type==='crux:session'&&e.data.mode==='local'&&e.data.cruxId===PUBLISHED_CRUX_ID){
+      var previousVisitorId=window.crux.visitor&&window.crux.visitor.id;
       _mode='local';
       _parentOrigin=e.origin;
       // Who is looking, as the host knows them (id, name, @username) — never a token.
       window.crux.visitor=e.data.visitorId?{id:e.data.visitorId,name:e.data.visitorName||null,username:e.data.visitorUsername||null}:null;
       _resolveReady();
-      window.dispatchEvent(new CustomEvent('crux:authchange'));
+      if(previousVisitorId!==(window.crux.visitor&&window.crux.visitor.id))window.dispatchEvent(new CustomEvent('crux:authchange'));
     }
   });
   function hdr(){var h={'Content-Type':'application/json'};if(_token)h['Authorization']='Bearer '+_token;return h;}

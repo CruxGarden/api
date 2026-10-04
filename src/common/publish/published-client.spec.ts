@@ -57,6 +57,26 @@ const response = (data: unknown, status = 200) => ({
 });
 
 describe('Published embedded library', () => {
+  it('notifies embedded pages only when the visitor identity changes, preserving drafts on repeated handshakes', () => {
+    const p = page(true);
+    const session = {
+      type: 'crux:session',
+      cruxId,
+      mode: 'local',
+      visitorId: 'reader',
+    };
+    p.deliver(session);
+    expect(p.changed).toHaveBeenCalledTimes(1);
+    p.deliver({ ...session, visitorName: 'Updated display name' });
+    expect(p.sdk.visitor.name).toBe('Updated display name');
+    expect(p.changed).toHaveBeenCalledTimes(1);
+    p.deliver({ ...session, visitorId: 'another-reader' });
+    expect(p.changed).toHaveBeenCalledTimes(2);
+    p.deliver({ ...session, visitorId: null });
+    expect(p.changed).toHaveBeenCalledTimes(3);
+    expect(p.sdk.visitor).toBeNull();
+  });
+
   it.each([
     [
       { error: 'Add a subject of 1 to 100 characters.' },
