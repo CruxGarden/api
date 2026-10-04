@@ -190,7 +190,7 @@ const CRUX_STORE_CLIENT: PublishInjection = {
   function hdr(){var h={'Content-Type':'application/json'};if(_token)h['Authorization']='Bearer '+_token;return h;}
   // Surface the API's plain message (401 "Writing to the store requires a
   // signed-in account", 409 mode conflict, 429) instead of a bare status code.
-  function fail(r,what){return r.json().catch(function(){return {};}).then(function(d){var message=d&&(typeof d.message==='string'?d.message:typeof d.error==='string'?d.error:null);throw new Error(message||what+' failed: '+r.status);});}
+  function fail(r,what){return r.json().catch(function(){return {};}).then(function(d){var message=d&&(typeof d.message==='string'?d.message:Array.isArray(d.message)&&d.message.every(function(m){return typeof m==='string';})?d.message.join('; '):typeof d.error==='string'?d.error:null);throw new Error(message||what+' failed: '+r.status);});}
   function localCall(type,payload){
     return new Promise(function(res,rej){
       var id=Math.random().toString(36).slice(2);

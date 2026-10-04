@@ -84,6 +84,10 @@ describe('Published embedded library', () => {
     ],
     [{ message: 'Sign in again', error: 'Unauthorized' }, 'Sign in again'],
     [
+      { message: ['email must be an email'], error: 'Bad Request' },
+      'email must be an email',
+    ],
+    [
       { error: { internal: 'not a public message' } },
       'Function requests failed: 400',
     ],
