@@ -189,7 +189,7 @@ const CRUX_STORE_CLIENT: PublishInjection = {
   function hdr(){var h={'Content-Type':'application/json'};if(_token)h['Authorization']='Bearer '+_token;return h;}
   // Surface the API's plain message (401 "Writing to the store requires a
   // signed-in account", 409 mode conflict, 429) instead of a bare status code.
-  function fail(r,what){return r.json().catch(function(){return {};}).then(function(d){throw new Error(d&&d.message?d.message:what+' failed: '+r.status);});}
+  function fail(r,what){return r.json().catch(function(){return {};}).then(function(d){var message=d&&(typeof d.message==='string'?d.message:typeof d.error==='string'?d.error:null);throw new Error(message||what+' failed: '+r.status);});}
   function localCall(type,payload){
     return new Promise(function(res,rej){
       var id=Math.random().toString(36).slice(2);
@@ -207,7 +207,7 @@ const CRUX_STORE_CLIENT: PublishInjection = {
     });
   }
   function authUrl(path){return PUBLISHED_API_BASE+'/published-auth/'+encodeURIComponent(PUBLISHED_CRUX_ID)+'/'+path;}
-  function acceptSession(d){_token=d.accessToken;_refreshToken=d.refreshToken;window.crux.visitor=d.visitor;return d.visitor;}
+  function acceptSession(d){var previous=window.crux.visitor&&window.crux.visitor.id;_token=d.accessToken;_refreshToken=d.refreshToken;window.crux.visitor=d.visitor;if(previous!==(d.visitor&&d.visitor.id))window.dispatchEvent(new CustomEvent('crux:authchange'));return d.visitor;}
   function authRequest(path,body){
     return fetch(authUrl(path),{method:'POST',credentials:'omit',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(function(r){if(!r.ok)return fail(r,'Sign-in');return r.json();});
@@ -239,7 +239,7 @@ const CRUX_STORE_CLIENT: PublishInjection = {
       standalone();
       if(!_token)return;
       return request(authUrl('logout'),{method:'DELETE'}).then(function(r){
-        if(!r.ok)return fail(r,'Sign out');_token=null;_refreshToken=null;window.crux.visitor=null;
+        if(!r.ok)return fail(r,'Sign out');_token=null;_refreshToken=null;window.crux.visitor=null;window.dispatchEvent(new CustomEvent('crux:authchange'));
       });
     });}
   };

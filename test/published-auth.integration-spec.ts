@@ -128,9 +128,11 @@ describe('Published visitor authentication', () => {
       .useValue(email)
       .overrideProvider(Files)
       .useValue({
-        download: async () => ({
+        download: async ({ path }: { path: string }) => ({
           data: Buffer.from(
-            'export default function(req,ctx) { ctx.log("owner-only log"); return ctx.visitor; }',
+            path.endsWith('/records.js')
+              ? 'export default async function(req,ctx) { if (!ctx.visitor?.isOwner) ctx.reject("Owner only",403); return ctx.store.list("identity/"); }'
+              : 'export default function(req,ctx) { ctx.log("owner-only log"); return ctx.visitor; }',
           ),
         }),
       })
@@ -139,24 +141,26 @@ describe('Published visitor authentication', () => {
     app.useGlobalPipes(createRequestValidationPipe());
     await app.listen(0, '127.0.0.1');
     await db('artifacts').insert(
-      [crux, otherCrux].map((id) => ({
-        id: randomUUID(),
-        resource_id: id,
-        resource_type: 'crux',
-        author_id: author,
-        home_id: home,
-        type: 'artifact',
-        kind: 'file',
-        filename: 'visitor.js',
-        mime_type: 'application/javascript',
-        encoding: 'utf8',
-        size: 100,
-        meta: {
-          path: 'functions/visitor.js',
-          publishStorageId: id,
-          publishLayout: 'shared',
-        },
-      })),
+      [crux, otherCrux].flatMap((id) =>
+        ['visitor', 'records'].map((name) => ({
+          id: randomUUID(),
+          resource_id: id,
+          resource_type: 'crux',
+          author_id: author,
+          home_id: home,
+          type: 'artifact',
+          kind: 'file',
+          filename: `${name}.js`,
+          mime_type: 'application/javascript',
+          encoding: 'utf8',
+          size: 100,
+          meta: {
+            path: `functions/${name}.js`,
+            publishStorageId: id,
+            publishLayout: 'shared',
+          },
+        })),
+      ),
     );
     await redis.set(
       'crux:auth:grant:id:parent-grant',
@@ -425,5 +429,34 @@ describe('Published visitor authentication', () => {
       .set('Origin', origin)
       .send({ email: 'owner@example.com' })
       .expect(429);
+  });
+  it('gives trusted Functions the persisted slot identity rather than a forged body identity', async () => {
+    const session = await login(origin, 'identity@example.com');
+    await request(app.getHttpServer())
+      .put(`/store/${crux}/identity%2Frequest`)
+      .set(visitorHeaders(session.accessToken))
+      .send({
+        value: { visitorId: author, message: 'private customer request' },
+        mode: 'protected',
+      })
+      .expect(200);
+    const result = await request(app.getHttpServer())
+      .post(`/fn/${crux}/records`)
+      .set('Authorization', `Bearer ${ownerToken()}`)
+      .send({})
+      .expect(200);
+    expect(result.body).toEqual([
+      {
+        key: 'identity/request',
+        mode: 'protected',
+        visitorId: session.visitor.id,
+        value: { visitorId: author, message: 'private customer request' },
+      },
+    ]);
+    await request(app.getHttpServer())
+      .post(`/fn/${crux}/records`)
+      .set(visitorHeaders(session.accessToken))
+      .send({})
+      .expect(403);
   });
 });

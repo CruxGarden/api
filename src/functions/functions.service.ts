@@ -632,7 +632,12 @@ export class FunctionsService {
         list: async (prefix = '') =>
           (await this.store.list(cruxId))
             .filter((e) => e.key.startsWith(String(prefix)))
-            .map((e) => ({ key: e.key, value: e.value, mode: e.mode })),
+            .map((e) => ({
+              key: e.key,
+              value: e.value,
+              mode: e.mode,
+              visitorId: e.visitorId,
+            })),
         del: async (key: string) => this.store.delete(cruxId, String(key)),
       }),
     });

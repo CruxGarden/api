@@ -42,6 +42,7 @@ function page(framed = false) {
   });
   return {
     sdk: window.crux,
+    changed: window.dispatchEvent,
     parent,
     fetch,
     deliver(data: unknown, origin = garden, source: unknown = parent) {
@@ -56,6 +57,26 @@ const response = (data: unknown, status = 200) => ({
 });
 
 describe('Published embedded library', () => {
+  it.each([
+    [
+      { error: 'Add a subject of 1 to 100 characters.' },
+      'Add a subject of 1 to 100 characters.',
+    ],
+    [{ message: 'Sign in again', error: 'Unauthorized' }, 'Sign in again'],
+    [
+      { error: { internal: 'not a public message' } },
+      'Function requests failed: 400',
+    ],
+    [null, 'Function requests failed: 400'],
+  ])(
+    'preserves actionable Function refusals and bounds malformed errors (%j)',
+    async (body, message) => {
+      const p = page();
+      p.fetch.mockResolvedValueOnce(response(body, 400));
+      await expect(p.sdk.fn('requests', {})).rejects.toThrow(message as string);
+    },
+  );
+
   it('uses scoped login, refreshes an expired credential, then revokes it on logout', async () => {
     const p = page();
     p.fetch.mockResolvedValueOnce(response({ message: 'sent' }));
@@ -73,6 +94,7 @@ describe('Published embedded library', () => {
     expect(await p.sdk.auth.login('reader@example.com', 'pc_code')).toEqual({
       id: 'reader',
     });
+    expect(p.changed).toHaveBeenCalledTimes(1);
     p.fetch
       .mockResolvedValueOnce(response({}, 401))
       .mockResolvedValueOnce(
@@ -87,9 +109,11 @@ describe('Published embedded library', () => {
     expect(p.fetch.mock.calls.slice(-1)[0][1].headers.Authorization).toBe(
       'Bearer pv_second',
     );
+    expect(p.changed).toHaveBeenCalledTimes(1); // Same identity refresh does not discard drafts.
     p.fetch.mockResolvedValueOnce(response(null, 204));
     await p.sdk.auth.logout();
     expect(await p.sdk.auth.profile()).toBeNull();
+    expect(p.changed).toHaveBeenCalledTimes(2);
     await p.sdk.store.get('score');
     expect(
       p.fetch.mock.calls.slice(-1)[0][1].headers.Authorization,
