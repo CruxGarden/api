@@ -137,10 +137,50 @@ describe('StoreController', () => {
         'author-alice',
         0,
         false,
+        true,
       );
       expect(storeService.set).not.toHaveBeenCalled();
       expect(usage.noteStoreRequest).not.toHaveBeenCalled();
     });
+
+    it.each(['protected', 'public'] as const)(
+      'runs private validation without broadcasting a protected previous value (requested %s)',
+      async (mode) => {
+        storeService.get.mockResolvedValue({
+          value: 'private before',
+          mode: 'protected',
+        } as any);
+        functions.emit.mockResolvedValue({
+          handlers: 1,
+          results: {
+            guard: { status: 422, body: { error: 'Refused privately' } },
+          },
+        });
+        await expect(
+          controller.set(
+            CRUX,
+            'private',
+            { value: 'private after', mode },
+            alice,
+          ),
+        ).rejects.toMatchObject({ status: 422 });
+        expect(functions.emit).toHaveBeenCalledWith(
+          CRUX,
+          'store:write',
+          {
+            key: 'private',
+            value: 'private after',
+            mode,
+            before: 'private before',
+          },
+          'author-alice',
+          0,
+          false,
+          false,
+        );
+        expect(storeService.set).not.toHaveBeenCalled();
+      },
+    );
 
     it('a broken hook (500) or a failing runner never blocks the write', async () => {
       storeService.get.mockResolvedValue(null);

@@ -407,6 +407,7 @@ export class FunctionsService {
     visitorId: string | null,
     depth = 0,
     visitorOnly = false,
+    broadcast = true,
   ): Promise<{ handlers: number; results: Record<string, RunResult> }> {
     const event: CruxEvent = {
       name,
@@ -444,7 +445,7 @@ export class FunctionsService {
         }));
       }
     }
-    this.bus.next({ cruxId, event });
+    if (broadcast) this.bus.next({ cruxId, event });
     return { handlers, results };
   }
 

@@ -56,15 +56,17 @@ export class StoreController {
   ): Promise<void> {
     let results: Record<string, { status: number; body: unknown }>;
     try {
-      const before = (await this.storeService.get(cruxId, key, visitorId))
-        ?.value;
+      const before = await this.storeService.get(cruxId, key, visitorId);
       ({ results } = await this.functions.emit(
         cruxId,
         'store:write',
-        { key, value, mode, before: before ?? null },
+        { key, value, mode, before: before?.value ?? null },
         visitorId,
         0,
         visitorOnly,
+        // Validation still runs for protected writes, but neither their proposed
+        // value nor a protected previous value may enter the public event stream.
+        mode === 'public' && before?.mode !== 'protected',
       ));
     } catch {
       return; // the runner itself failing is not the crux refusing
