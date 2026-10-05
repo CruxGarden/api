@@ -2,6 +2,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  OnApplicationBootstrap,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { Knex } from 'knex';
@@ -18,12 +19,23 @@ import { CreateTakedownDto } from './dto/create-takedown.dto';
 import { ReportStatus, UpdateReportDto } from './dto/update-report.dto';
 import Report from './entities/report.entity';
 import ReportRaw from './entities/report-raw.entity';
-import { ReportRepository } from './report.repository';
+import { ReportRepository, ReportSummary } from './report.repository';
 
 export const NOT_PUBLISHED = 'This creation is not published';
+export const NO_REPORT_RECIPIENT =
+  'Reports have no recipient: set REPORTS_NOTIFY_EMAIL (or create an admin account). Reports are still stored at GET /admin/reports.';
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** `a@x, b@y` → the addresses that look like addresses. */
+function emailList(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((email) => email.trim())
+    .filter((email) => /^[^\s@]+@[^\s@]+$/.test(email));
+}
 
 @Injectable()
-export class ReportService {
+export class ReportService implements OnApplicationBootstrap {
   private readonly logger: LoggerService;
 
   constructor(
@@ -90,10 +102,53 @@ export class ReportService {
     return report;
   }
 
+  /**
+   * Who hears about a report: `REPORTS_NOTIFY_EMAIL` (comma-separated), else
+   * the configured operator `BOOTSTRAP_ADMIN_EMAIL`, else the live admin
+   * accounts. Never throws; an unreadable account list means no fallback.
+   */
+  async recipients(): Promise<string[]> {
+    const configured = emailList(process.env.REPORTS_NOTIFY_EMAIL);
+    if (configured.length) return configured;
+    const bootstrap = emailList(process.env.BOOTSTRAP_ADMIN_EMAIL);
+    if (bootstrap.length) return bootstrap;
+    try {
+      const { data, error } = await this.reportRepository.operatorEmails();
+      if (error) throw error;
+      return data ?? [];
+    } catch (error) {
+      this.logger.error('Could not read operator accounts', error as Error);
+      return [];
+    }
+  }
+
+  /** Say so at startup when a report would reach no one (CR08). */
+  async onApplicationBootstrap(): Promise<void> {
+    if (process.env.NODE_ENV === 'test') return;
+    if (!(await this.recipients()).length)
+      this.logger.warn(NO_REPORT_RECIPIENT);
+  }
+
+  async summary(now = new Date()): Promise<ReportSummary> {
+    const { data, error } = await this.reportRepository.summary(
+      new Date(now.getTime() - 30 * DAY_MS),
+    );
+    if (error || !data)
+      throw new InternalServerErrorException('Report error', { cause: error });
+    return data;
+  }
+
   /** The report is already saved; a failed notice must not fail the request. */
   private async notifyOperator(report: Report): Promise<void> {
-    const to = process.env.REPORTS_NOTIFY_EMAIL;
-    if (!to) return;
+    const recipients = await this.recipients();
+    if (!recipients.length) {
+      this.logger.warn(NO_REPORT_RECIPIENT, { reportId: report.id });
+      return;
+    }
+    for (const to of recipients) await this.sendNotice(to, report);
+  }
+
+  private async sendNotice(to: string, report: Report): Promise<void> {
     try {
       await this.emailService.send({
         email: to,

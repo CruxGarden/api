@@ -20,6 +20,7 @@ function fakeRepo() {
     import('./billing.repository').CheckoutAttempt
   >();
   const closing = new Set<string>();
+  const suspended = new Set<string>();
   const ok = <T>(data: T) => Promise.resolve({ data, error: null });
   return {
     isClosing: jest.fn((id: string) => ok(closing.has(id))),
@@ -92,6 +93,10 @@ function fakeRepo() {
     ),
     accountEmail: jest.fn((a: string) =>
       ok(a === 'acct-1' ? 'd@example.com' : null),
+    ),
+    suspended,
+    accountSuspension: jest.fn((a: string) =>
+      ok({ suspended: suspended.has(a) ? new Date() : null, reason: null }),
     ),
     eventCompleted: jest.fn((id: string) => ok(events.has(id))),
     claimEvent: jest.fn((id: string) => {
@@ -593,5 +598,259 @@ describe('BillingService', () => {
     expect(me).toMatchObject({ status: 'trialing', interval: 'year' });
     expect(me.plan.id).toBe('gardener');
     expect(me.trialEndsAt).toBeTruthy();
+  });
+});
+
+describe('BillingService edge states (ADR 0083)', () => {
+  const env = { ...process.env };
+  afterEach(() => {
+    process.env = { ...env };
+  });
+  const setup = (operations?: { enqueue: jest.Mock }) => {
+    const repo = fakeRepo();
+    const svc = new BillingService(
+      repo as never,
+      logger,
+      email as never,
+      undefined,
+      operations as never,
+    );
+    const provider = new MockBillingProvider();
+    svc.useProvider(provider, PRICES);
+    const setStatus = (status: string) => {
+      const id = repo.rows.get('acct-1')!.subscription_id!;
+      provider.subscriptions.set(id, {
+        ...provider.subscriptions.get(id)!,
+        status: status as never,
+      });
+    };
+    return { repo, svc, provider, setStatus };
+  };
+
+  it('the catalog says what each tier includes, from the inference policy', async () => {
+    const { svc } = setup();
+    const cat = await svc.catalog();
+    const byId = Object.fromEntries(cat.plans.map((p) => [p.plan.id, p]));
+    expect(byId.free.includedCollaboration).toBeNull();
+    expect(byId.gardener.includedCollaboration).toEqual({
+      fiveHourMicrodollars: 750_000,
+      thirtyDayMicrodollars: 4_000_000,
+      effort: 'medium',
+    });
+    expect(byId.gardener_plus.includedCollaboration).toEqual({
+      fiveHourMicrodollars: 2_000_000,
+      thirtyDayMicrodollars: 8_000_000,
+      effort: 'high',
+    });
+    // Plus differs by allowance and effort, not by model; no "AI" in copy.
+    for (const plan of cat.plans) {
+      expect(plan.plan.blurb).not.toMatch(/\bAI\b|Sonnet|Haiku/);
+    }
+    expect(cat.taxBehavior).toBeNull();
+  });
+
+  it('describes tax only when the provider collects it', async () => {
+    const { svc, provider } = setup();
+    Object.assign(provider, { automaticTax: true });
+    expect((await svc.catalog()).taxBehavior).toBe('automatic');
+    provider.mockPrices = Object.fromEntries(
+      Object.keys(PRICES).map((id) => [
+        id,
+        {
+          priceId: id,
+          amount: 1000,
+          currency: 'usd',
+          interval: id.endsWith('_y') ? ('year' as const) : ('month' as const),
+          taxBehavior: 'exclusive' as const,
+        },
+      ]),
+    );
+    svc.useProvider(provider, PRICES);
+    expect((await svc.catalog()).taxBehavior).toBe('exclusive');
+    process.env.STRIPE_TAX_BEHAVIOR = 'inclusive';
+    svc.useProvider(provider, PRICES);
+    expect((await svc.catalog()).taxBehavior).toBe('inclusive');
+  });
+
+  it.each([
+    ['past_due', { kind: 'payment_failed', action: 'portal' }],
+    ['unpaid', { kind: 'unpaid', action: 'portal' }],
+    ['incomplete', { kind: 'payment_incomplete', action: 'portal' }],
+    ['incomplete_expired', { kind: 'payment_incomplete', action: 'checkout' }],
+    ['active', null],
+    ['canceled', null],
+  ])('status %s → attention %j', async (status, attention) => {
+    const { svc, setStatus } = setup();
+    await svc.checkout('acct-1', 'gardener', 'month');
+    setStatus(status);
+    const me = await svc.sync('acct-1');
+    expect(me.status).toBe(status);
+    if (attention) expect(me.attention).toMatchObject(attention);
+    else expect(me.attention).toBeNull();
+    if (status === 'unpaid' || status === 'incomplete') {
+      expect(me.attention!.message).toBe(
+        'Pay the outstanding invoice in Manage billing to restore your plan.',
+      );
+      expect(me.canManage).toBe(true);
+      expect((await svc.portal('acct-1')).url).toContain('/portal/');
+    }
+  });
+
+  it.each([
+    ['canceled', 'allowed'],
+    ['incomplete_expired', 'allowed'],
+    ['unpaid', 409],
+    ['incomplete', 409],
+    ['active', 400],
+    ['trialing', 400],
+    ['past_due', 400],
+  ] as const)('checkout after %s: %s', async (status, outcome) => {
+    const { svc, setStatus } = setup();
+    await svc.checkout('acct-1', 'gardener', 'month');
+    setStatus(status);
+    const attempt = svc.checkout('acct-1', 'gardener', 'year');
+    if (outcome === 'allowed') {
+      await expect(attempt).resolves.toMatchObject({
+        url: expect.stringContaining('/billing/success'),
+      });
+      expect(await svc.planIdFor('acct-1')).toBe('gardener');
+    } else {
+      await expect(attempt).rejects.toMatchObject({ status: outcome });
+      if (outcome === 409)
+        await expect(
+          svc.checkout('acct-1', 'gardener', 'year'),
+        ).rejects.toThrow('Manage billing');
+    }
+  });
+
+  it('grants the trial only to an account that never had a subscription start', async () => {
+    process.env.STRIPE_TRIAL_DAYS = '14';
+    const { svc, repo, setStatus, provider } = setup();
+    const create = jest.spyOn(provider, 'createCheckout');
+    expect((await svc.me('acct-1')).trialEligible).toBe(true);
+    await svc.checkout('acct-1', 'gardener', 'month');
+    expect(create.mock.calls[0][0].trialDays).toBe(14);
+    expect((await svc.me('acct-1')).status).toBe('trialing');
+    expect(repo.rows.get('acct-1')!.subscription_started_at).toBeTruthy();
+    expect((await svc.me('acct-1')).trialEligible).toBe(false);
+    setStatus('canceled');
+    await svc.sync('acct-1');
+    expect((await svc.me('acct-1')).trialEligible).toBe(false);
+    await svc.checkout('acct-1', 'gardener', 'month');
+    expect(create.mock.calls[1][0].trialDays).toBe(0);
+    expect((await svc.me('acct-1')).status).toBe('active');
+  });
+
+  it('asks the provider when local history was lost', async () => {
+    process.env.STRIPE_TRIAL_DAYS = '14';
+    const { svc, repo, setStatus, provider } = setup();
+    await svc.checkout('acct-1', 'gardener', 'month');
+    setStatus('canceled');
+    await svc.sync('acct-1');
+    repo.rows.set('acct-1', {
+      ...repo.rows.get('acct-1')!,
+      subscription_started_at: null,
+    });
+    const create = jest.spyOn(provider, 'createCheckout');
+    await svc.checkout('acct-1', 'gardener', 'month');
+    expect(create.mock.calls[0][0].trialDays).toBe(0);
+  });
+
+  it('no trial is offered when none is configured', async () => {
+    process.env.STRIPE_TRIAL_DAYS = '0';
+    const { svc } = setup();
+    expect((await svc.me('acct-1')).trialEligible).toBe(false);
+  });
+
+  it('closure captures invoices before the provider removes the customer and queues one email', async () => {
+    const enqueue = jest.fn(async () => ({ data: undefined, error: null }));
+    const { svc, repo, provider } = setup({ enqueue });
+    await svc.checkout('acct-1', 'gardener', 'month');
+    enqueue.mockClear(); // the plan-change notice from checkout
+    const customer = repo.rows.get('acct-1')!.customer_id!;
+    provider.mockInvoices.set(customer, [
+      {
+        id: 'in_1',
+        number: 'CG-0001',
+        date: '2026-09-01T00:00:00.000Z',
+        totalCents: 1000,
+        currency: 'usd',
+        status: 'paid',
+        hostedUrl: 'https://invoice.example/1',
+        pdfUrl: 'https://invoice.example/1.pdf',
+      },
+    ]);
+    const invoices = jest.spyOn(provider, 'invoices');
+    const close = jest.spyOn(provider, 'closeAccount');
+    expect(await svc.invoices('acct-1')).toHaveLength(1);
+    invoices.mockClear();
+    await svc.closeAccount('acct-1');
+    expect(invoices).toHaveBeenCalledWith(customer, 24);
+    expect(invoices.mock.invocationCallOrder[0]).toBeLessThan(
+      close.mock.invocationCallOrder[0],
+    );
+    expect(repo.rows.get('acct-1')).toMatchObject({
+      status: 'canceled',
+      plan_id: 'free',
+    });
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const [accountId, message, dedupeKey, condition, recipient] = enqueue.mock
+      .calls[0] as unknown as [
+      string,
+      { subject: string; body: string },
+      string,
+      unknown,
+      string,
+    ];
+    expect(accountId).toBe('acct-1');
+    expect(dedupeKey).toBe('account-closed:acct-1');
+    expect(condition).toBeUndefined();
+    expect(recipient).toBe('d@example.com');
+    expect(message.body).toContain('Gardener subscription was canceled');
+    expect(message.body).toContain('not refunded');
+    expect(message.body).toContain('https://invoice.example/1.pdf');
+    expect(message.body).toContain('CG-0001');
+    expect(message.body).not.toMatch(/\bAI\b/);
+  });
+
+  it('closure stops before cancelling when invoices cannot be read', async () => {
+    const enqueue = jest.fn(async () => ({ data: undefined, error: null }));
+    const { svc, provider } = setup({ enqueue });
+    await svc.checkout('acct-1', 'gardener', 'month');
+    enqueue.mockClear();
+    jest
+      .spyOn(provider, 'invoices')
+      .mockRejectedValueOnce(new Error('provider down'));
+    const close = jest.spyOn(provider, 'closeAccount');
+    await expect(svc.closeAccount('acct-1')).rejects.toThrow('provider down');
+    expect(close).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(await svc.planIdFor('acct-1')).toBe('gardener');
+  });
+
+  it('an account without a billing customer has no invoices and gets no billing email', async () => {
+    const enqueue = jest.fn();
+    const { svc } = setup({ enqueue });
+    expect(await svc.invoices('acct-1')).toEqual([]);
+    await svc.closeAccount('acct-1');
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('a suspended account cannot start or resume checkout', async () => {
+    const { svc, repo, provider } = setup();
+    repo.suspended.add('acct-1');
+    const create = jest.spyOn(provider, 'createCheckout');
+    await expect(
+      svc.checkout('acct-1', 'gardener', 'month'),
+    ).rejects.toMatchObject({
+      status: 403,
+      message: 'This account is suspended. Contact support.',
+    });
+    await expect(svc.resumeCheckout('acct-1')).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(create).not.toHaveBeenCalled();
+    // Reading the plan still works.
+    expect((await svc.me('acct-1')).plan.id).toBe('free');
   });
 });

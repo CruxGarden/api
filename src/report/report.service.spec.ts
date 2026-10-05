@@ -38,6 +38,17 @@ describe('ReportService', () => {
         error: null,
       })),
       resolveOpenForCrux: jest.fn(async () => ({ data: 1, error: null })),
+      operatorEmails: jest.fn(async () => ({
+        data: [] as string[],
+        error: null as Error | null,
+      })),
+      summary: jest.fn(async (since: Date) => {
+        void since;
+        return {
+          data: { open: 2, resolvedLast30d: 5, takenDown: 1 },
+          error: null as Error | null,
+        };
+      }),
     };
     const cruxService = {
       findById: jest.fn(async () => crux),
@@ -60,6 +71,7 @@ describe('ReportService', () => {
     process.env.JWT_SECRET = 'salt';
     delete process.env.USAGE_VISITOR_SALT;
     delete process.env.REPORTS_NOTIFY_EMAIL;
+    delete process.env.BOOTSTRAP_ADMIN_EMAIL;
   });
   afterAll(() => {
     process.env = env;
@@ -115,10 +127,14 @@ describe('ReportService', () => {
     });
   });
 
-  it('emails the operator only when an address is configured', async () => {
-    const { service, email } = fixture();
+  it('emails the operator only when a recipient exists', async () => {
+    const { service, email, logger } = fixture();
     await service.create({ cruxId: 'crux-1', reason: 'spam' });
     expect(email.send).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('REPORTS_NOTIFY_EMAIL'),
+      expect.anything(),
+    );
 
     process.env.REPORTS_NOTIFY_EMAIL = 'abuse@example.com';
     await service.create({
@@ -218,5 +234,79 @@ describe('ReportService', () => {
     await expect(
       service.takeDown({ cruxId: 'crux-1', reason: 'Illegal' }, 'operator-1'),
     ).resolves.toEqual({ id: 'takedown-1' });
+  });
+
+  describe('who hears about a report (CR08)', () => {
+    it('REPORTS_NOTIFY_EMAIL wins, and may list several addresses', async () => {
+      const { service, repository } = fixture();
+      process.env.REPORTS_NOTIFY_EMAIL =
+        'a@example.com, b@example.com, nonsense';
+      process.env.BOOTSTRAP_ADMIN_EMAIL = 'op@example.com';
+      expect(await service.recipients()).toEqual([
+        'a@example.com',
+        'b@example.com',
+      ]);
+      expect(repository.operatorEmails).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the configured operator, then to admin accounts', async () => {
+      const { service, repository, email } = fixture();
+      process.env.BOOTSTRAP_ADMIN_EMAIL = 'op@example.com';
+      expect(await service.recipients()).toEqual(['op@example.com']);
+
+      delete process.env.BOOTSTRAP_ADMIN_EMAIL;
+      repository.operatorEmails.mockResolvedValue({
+        data: ['keeper@example.com'],
+        error: null,
+      });
+      await service.create({ cruxId: 'crux-1', reason: 'illegal' });
+      expect(email.send).toHaveBeenCalledWith(
+        expect.objectContaining({ email: 'keeper@example.com' }),
+      );
+    });
+
+    it('warns at startup, naming the setting, only when nobody would hear', async () => {
+      const nodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        const quiet = fixture();
+        quiet.repository.operatorEmails.mockResolvedValue({
+          data: ['keeper@example.com'],
+          error: null,
+        });
+        await quiet.service.onApplicationBootstrap();
+        expect(quiet.logger.warn).not.toHaveBeenCalled();
+
+        const silent = fixture();
+        silent.repository.operatorEmails.mockResolvedValue({
+          data: null as never,
+          error: new Error('db down'),
+        });
+        await silent.service.onApplicationBootstrap();
+        expect(silent.logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('REPORTS_NOTIFY_EMAIL'),
+        );
+      } finally {
+        process.env.NODE_ENV = nodeEnv;
+      }
+    });
+  });
+
+  it('summarises open, recently closed and taken-down counts over 30 days', async () => {
+    const { service, repository } = fixture();
+    const now = new Date('2026-10-05T12:00:00Z');
+    await expect(service.summary(now)).resolves.toEqual({
+      open: 2,
+      resolvedLast30d: 5,
+      takenDown: 1,
+    });
+    expect(repository.summary.mock.calls[0][0].toISOString()).toBe(
+      '2026-09-05T12:00:00.000Z',
+    );
+    repository.summary.mockResolvedValueOnce({
+      data: null as never,
+      error: new Error('x'),
+    });
+    await expect(service.summary(now)).rejects.toMatchObject({ status: 500 });
   });
 });

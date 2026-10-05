@@ -141,9 +141,9 @@ export class BillingOperationsService implements OnModuleInit, OnModuleDestroy {
       let code: string | null = null;
       let outcome = 'sent';
       try {
-        const recipient = operationResult(
-          await this.repo.recipient(notice.account_id),
-        );
+        const recipient =
+          notice.recipient_email ||
+          operationResult(await this.repo.recipient(notice.account_id));
         // Account closure suppresses queued mail; a deleted account is not a send failure.
         const condition =
           typeof notice.condition === 'string'

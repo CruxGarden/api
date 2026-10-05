@@ -12,6 +12,8 @@ export type SubscriptionStatus =
   | 'past_due'
   | 'canceled'
   | 'incomplete'
+  /** the first payment never completed; nothing started, checkout may run again */
+  | 'incomplete_expired'
   | 'unpaid';
 
 /** What we know about a subscription, normalized. */
@@ -23,6 +25,8 @@ export interface SubscriptionSnapshot {
   currentPeriodStart: Date | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /** a scheduled cancellation date (Stripe `cancel_at`), when one is set */
+  cancelAt?: Date | null;
   trialEnd: Date | null;
   /** accountId we stamped on the subscription/checkout, when present */
   accountId: string | null;
@@ -72,16 +76,44 @@ export interface PriceInfo {
   amount: number; // minor units
   currency: string;
   interval: BillingInterval;
+  /** how the provider treats tax on this price, when it says */
+  taxBehavior?: 'exclusive' | 'inclusive' | 'unspecified';
 }
+
+/** One invoice, normalized for Settings and the account-closure email. */
+export interface InvoiceSummary {
+  id: string;
+  number: string | null;
+  /** ISO timestamp the invoice was created */
+  date: string;
+  totalCents: number;
+  currency: string;
+  status: string;
+  hostedUrl: string | null;
+  pdfUrl: string | null;
+}
+
+/** How many invoices Settings and the closure email carry. */
+export const INVOICE_LIMIT = 24;
 
 export interface BillingProvider {
   readonly name: string;
   readonly instantCheckout?: boolean;
+  /** the provider computes tax at checkout (Stripe Tax) */
+  readonly automaticTax?: boolean;
   createCheckout(
     req: CheckoutRequest,
   ): Promise<{ url: string; sessionId: string }>;
   portalUrl(customerId: string, returnUrl: string): Promise<string>;
-  /** Stop billing and pending checkout before an account is closed. Must be retryable. */
+  /** Most recent invoices first, at most `limit`. A customer the provider no
+   * longer has returns []; unavailability throws. */
+  invoices(customerId: string, limit: number): Promise<InvoiceSummary[]>;
+  /** Has this customer ever had a subscription that started? A second guard
+   * for trial eligibility beside local records; omitted means "unknown". */
+  hasSubscriptionHistory?(customerId: string): Promise<boolean>;
+  /** Stop billing and pending checkout before an account is closed: cancel any
+   * live subscription immediately (no refund) and remove the customer. Must be
+   * retryable. Capture invoices first — they may be unreachable afterwards. */
   closeAccount(input: {
     accountId: string;
     customerId?: string;
@@ -206,6 +238,18 @@ export class MockBillingProvider implements BillingProvider {
         });
     }
   }
+  /** test fixture: invoices by customer id, newest first */
+  mockInvoices = new Map<string, InvoiceSummary[]>();
+  async invoices(customerId: string, limit: number) {
+    return (this.mockInvoices.get(customerId) ?? []).slice(0, limit);
+  }
+  async hasSubscriptionHistory(customerId: string) {
+    return [...this.subscriptions.values()].some(
+      (s) =>
+        s.customerId === customerId &&
+        !['none', 'incomplete', 'incomplete_expired'].includes(s.status),
+    );
+  }
   async portalUrl(customerId: string, returnUrl: string) {
     return `https://billing.mock/portal/${customerId}?return=${encodeURIComponent(returnUrl)}`;
   }
@@ -224,7 +268,10 @@ export class MockBillingProvider implements BillingProvider {
   async fetchCustomerSubscription(customerId: string) {
     return (
       [...this.subscriptions.values()].find(
-        (s) => s.customerId === customerId && s.status !== 'canceled',
+        (s) =>
+          s.customerId === customerId &&
+          s.status !== 'canceled' &&
+          s.status !== 'incomplete_expired',
       ) ?? null
     );
   }

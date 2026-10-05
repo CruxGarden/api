@@ -59,6 +59,50 @@ export function reservation(
     cacheWrite: Math.ceil(input * 1.2) + 1024,
   });
 }
+/** Output budget limits for one included request (ADR 0082). */
+export const MAX_OUTPUT = 8192;
+/** Below this a reply is not worth starting; a smaller client budget lowers it. */
+export const MIN_USEFUL_OUTPUT = 1024;
+export const MAX_INPUT = 100_000;
+/**
+ * Clamp instead of refuse (ADR 0082): the largest output budget, between the
+ * minimum useful reply and the requested budget, whose reservation fits in
+ * `remaining`; null when even the minimum does not fit. Searched rather than
+ * solved so it stays exact under `cost`'s rounding.
+ */
+export function admitOutput(
+  model: string,
+  input: number,
+  requested: number,
+  remaining: number,
+): number | null {
+  const cap = Math.max(1, Math.min(requested, MAX_OUTPUT));
+  let low = Math.min(MIN_USEFUL_OUTPUT, cap);
+  if (reservation(model, input, low) > remaining) return null;
+  let high = cap;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (reservation(model, input, mid) <= remaining) low = mid;
+    else high = mid - 1;
+  }
+  return low;
+}
+/**
+ * Output tokens for streamed text when the provider's own count never arrived.
+ * Three characters per token over-counts ordinary prose and code, so an
+ * interrupted reply is charged at or above what was actually produced.
+ */
+export function outputEstimate(characters: number): number {
+  return Math.ceil(Math.max(0, characters) / 3);
+}
+export function validTokens(t: Tokens | null | undefined): t is Tokens {
+  return (
+    !!t &&
+    [t.input, t.output, t.cacheRead, t.cacheWrite].every(
+      (n) => Number.isSafeInteger(n) && n >= 0,
+    )
+  );
+}
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 export function validateRequest(value: unknown): Record<string, unknown> {

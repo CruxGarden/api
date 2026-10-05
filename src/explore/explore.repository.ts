@@ -15,6 +15,26 @@ export interface ExploreCruxFilters {
   sort?: ExploreSort;
 }
 
+export interface PreviewAuthorRow {
+  id: string;
+  username: string;
+  display_name?: string | null;
+  bio?: string | null;
+  meta?: Record<string, unknown> | null;
+  updated?: Date | string | null;
+}
+
+export interface PreviewCruxRow {
+  id: string;
+  slug: string;
+  title?: string | null;
+  description?: string | null;
+  kind?: string | null;
+  visibility: string;
+  discoverable?: boolean | null;
+  meta?: Record<string, unknown> | null;
+}
+
 export interface ExploreAuthorFilters {
   q?: string;
   sort?: ExploreSort;
@@ -215,6 +235,77 @@ export class ExploreRepository {
       .whereNull('a.deleted')
       .orderBy('c.updated', 'desc')
       .limit(limit);
+  }
+
+  /* Link previews (ADR 0084): one row each, the same visibility the public pages use. */
+
+  /** A live author by username, case-insensitively. */
+  async findPreviewAuthor(username: string): Promise<PreviewAuthorRow | null> {
+    const row = await this.dbService
+      .query()
+      .from('authors')
+      .select('id', 'username', 'display_name', 'bio', 'meta', 'updated')
+      .whereRaw('lower(username) = ?', [username.toLowerCase()])
+      .whereNull('deleted')
+      .first();
+    return row ?? null;
+  }
+
+  /** A public or unlisted, live crux of that author, by slug or id. */
+  async findPreviewCrux(
+    authorId: string,
+    slugOrId: string,
+  ): Promise<PreviewCruxRow | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        slugOrId,
+      );
+    const row = await this.dbService
+      .query()
+      .from('cruxes')
+      .select(
+        'id',
+        'slug',
+        'title',
+        'description',
+        'kind',
+        'visibility',
+        'discoverable',
+        'meta',
+      )
+      .where('author_id', authorId)
+      .where(isUuid ? 'id' : 'slug', slugOrId)
+      .whereIn('visibility', ['public', 'unlisted'])
+      .whereNull('deleted')
+      .first();
+    return row ?? null;
+  }
+
+  /** Takedowns hard-delete the crux; this guards a row that outlived one. */
+  async hasActiveTakedown(cruxId: string): Promise<boolean> {
+    const row = await this.dbService
+      .query()
+      .from('takedowns')
+      .select('id')
+      .where('crux_id', cruxId)
+      .whereNull('lifted')
+      .whereNull('deleted')
+      .first();
+    return !!row;
+  }
+
+  /** Whether the live publication shipped a cover (`_crux/cover.jpg`). */
+  async hasPublishedCover(cruxId: string, path: string): Promise<boolean> {
+    const row = await this.dbService
+      .query()
+      .from('artifacts')
+      .select('id')
+      .where('resource_type', 'crux')
+      .where('resource_id', cruxId)
+      .whereRaw("meta->>'path' = ?", [path])
+      .whereNull('deleted')
+      .first();
+    return !!row;
   }
 
   /**

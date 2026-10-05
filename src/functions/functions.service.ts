@@ -15,6 +15,7 @@ import { CruxService } from '../crux/crux.service';
 import { StoreService } from '../crux-store/crux-store.service';
 import { ResourceType } from '../common/types/enums';
 import { UsageService } from '../usage/usage.service';
+import { LimitsService } from '../usage/limits.service';
 import {
   FunctionsRepository,
   FunctionScheduleRow,
@@ -117,6 +118,8 @@ export class FunctionsService {
     private readonly store: StoreService,
     @Inject(forwardRef(() => UsageService))
     private readonly usage: UsageService,
+    @Inject(forwardRef(() => LimitsService))
+    private readonly limits: LimitsService,
     private readonly schedules: FunctionsRepository,
   ) {
     this.logger = loggerService.createChildLogger('FunctionsService');
@@ -476,6 +479,8 @@ export class FunctionsService {
       depth?: number;
     },
   ): Promise<RunResult> {
+    // A suspended owner's Functions stop running (ADR 0083); takedown is the content tool.
+    await this.limits.assertAuthorNotSuspended(publication.owner.authorId);
     const inFlight = this.running.get(cruxId) ?? 0;
     if (inFlight >= MAX_CONCURRENT || this.runningTotal >= 4)
       throw new ServiceUnavailableException(

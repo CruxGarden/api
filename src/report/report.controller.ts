@@ -34,6 +34,7 @@ import {
 import Report from './entities/report.entity';
 import ReportRaw from './entities/report-raw.entity';
 import { ReportService } from './report.service';
+import { ReportSummary } from './report.repository';
 
 /** Anyone may report a published creation; no account is asked for. */
 @ApiTags('explore')
@@ -84,6 +85,15 @@ export class ReportAdminController {
       request: req,
       response: res,
     }) as Promise<Report[]>;
+  }
+
+  @Get('reports/summary')
+  @ApiOperation({
+    summary:
+      'Counts for the operator screen: open reports, reports closed in the last 30 days, takedowns in force',
+  })
+  async reportSummary(): Promise<ReportSummary> {
+    return this.reportService.summary();
   }
 
   @Patch('reports/:id')

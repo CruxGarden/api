@@ -64,4 +64,45 @@ describe('billing worker lifecycle', () => {
     expect(disabled.repo.discover).not.toHaveBeenCalled();
     expect(jest.getTimerCount()).toBe(0);
   });
+
+  it('delivers a notice addressed at enqueue time after the account is closed (ADR 0083)', async () => {
+    jest.useRealTimers();
+    const notice = {
+      id: 'notice',
+      account_id: 'closed-account',
+      subject: 'Your Crux Garden account is closed',
+      body: 'links',
+      attempts: 0,
+      lease_id: null,
+      condition: null,
+      recipient_email: 'gone@example.com',
+    };
+    const repo = {
+      dueNotices: jest.fn(async () => success([notice])),
+      claimNotice: jest.fn(async () => success('lease')),
+      recipient: jest.fn(async () => success(null)),
+      finishNotice: jest.fn(async () => success(true)),
+    };
+    const send = jest.fn(async () => undefined);
+    const worker = new BillingOperationsService(
+      { providerName: 'stripe' } as never,
+      repo as never,
+      { deliveryMode: 'ses', send } as never,
+      new LoggerService(),
+    );
+    expect(await worker.deliverNotices()).toBe(1);
+    expect(send).toHaveBeenCalledWith({
+      email: 'gone@example.com',
+      subject: notice.subject,
+      body: 'links',
+    });
+    expect(repo.recipient).not.toHaveBeenCalled();
+    expect(repo.finishNotice).toHaveBeenCalledWith(
+      notice,
+      'lease',
+      expect.any(Date),
+      null,
+      'sent',
+    );
+  });
 });

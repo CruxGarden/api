@@ -16,6 +16,7 @@ export const RESERVED_USERNAMES: readonly string[] = [
   'terms',
   'privacy',
   'contact',
+  'operator',
   'sitemap.xml',
   'robots.txt',
   'assets',

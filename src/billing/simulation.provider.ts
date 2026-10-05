@@ -7,6 +7,7 @@ import {
   type BillingProvider,
   type CheckoutRequest,
   type CheckoutSessionInfo,
+  type InvoiceSummary,
   type SubscriptionSnapshot,
   type BillingEvent,
 } from './provider';
@@ -179,6 +180,32 @@ export class SimulationBillingProvider implements BillingProvider {
   }
   prices(ids: string[]) {
     return this.mock.prices(ids);
+  }
+  /** One example invoice for the current simulated period; no hosted pages. */
+  async invoices(customerId: string, limit: number): Promise<InvoiceSummary[]> {
+    const current = await this.fetchCustomerSubscription(customerId);
+    if (
+      !current ||
+      limit < 1 ||
+      !current.priceId ||
+      ['trialing', 'none', 'incomplete_expired'].includes(current.status)
+    )
+      return [];
+    const [price] = await this.prices([current.priceId]);
+    return [
+      {
+        id: `in_sim_${current.subscriptionId}`,
+        number: null,
+        date: (current.currentPeriodStart ?? new Date()).toISOString(),
+        totalCents: price.amount,
+        currency: price.currency,
+        status: ['past_due', 'unpaid', 'incomplete'].includes(current.status)
+          ? 'open'
+          : 'paid',
+        hostedUrl: null,
+        pdfUrl: null,
+      },
+    ];
   }
   async closeAccount(input: { accountId: string; customerId?: string }) {
     if (

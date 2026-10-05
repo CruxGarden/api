@@ -1,10 +1,18 @@
+import { ForbiddenException } from '@nestjs/common';
+import {
+  ACCOUNT_SUSPENDED_MESSAGE,
+  BillingService,
+} from '../billing/billing.service';
 import { LimitsService, OverLimitException } from './limits.service';
 
 const GB = 1024 ** 3;
 
 function svc(planId: string, storageBytes: number) {
   const usage = { forAuthor: jest.fn(async () => ({ storageBytes })) };
-  const billing = { planIdFor: jest.fn(async () => planId) };
+  const billing = {
+    planIdFor: jest.fn(async () => planId),
+    assertNotSuspended: jest.fn(async () => undefined),
+  };
   return new LimitsService(usage as never, billing as never);
 }
 
@@ -49,5 +57,55 @@ describe('LimitsService (grace-first)', () => {
     );
     expect(r.limit).toBe(10 * GB);
     expect(r.warn).toBe(false);
+  });
+
+  it('refuses a suspended account with 403 before measuring storage (ADR 0083)', async () => {
+    const usage = { forAuthor: jest.fn() };
+    const repo = {
+      accountSuspension: jest.fn(async () => ({
+        data: { suspended: new Date(), reason: 'spam' },
+        error: null,
+      })),
+      authorSuspension: jest.fn(async () => ({
+        data: { suspended: new Date(), reason: 'spam' },
+        error: null,
+      })),
+    };
+    const billing = new BillingService(
+      repo as never,
+      {
+        createChildLogger: () => ({
+          info: jest.fn(),
+          warn: jest.fn(),
+          error: jest.fn(),
+        }),
+      } as never,
+      {} as never,
+    );
+    const limits = new LimitsService(usage as never, billing);
+    const refusal = (await limits
+      .assertStorage('author', 'acct', 1)
+      .catch((e: unknown) => e)) as ForbiddenException;
+    expect(refusal).toBeInstanceOf(ForbiddenException);
+    expect(refusal.message).toBe(ACCOUNT_SUSPENDED_MESSAGE);
+    expect(usage.forAuthor).not.toHaveBeenCalled();
+    await expect(limits.assertAuthorNotSuspended('author')).rejects.toThrow(
+      ACCOUNT_SUSPENDED_MESSAGE,
+    );
+    repo.accountSuspension.mockResolvedValueOnce({
+      data: { suspended: null, reason: null },
+      error: null,
+    } as never);
+    await expect(limits.assertNotSuspended('acct')).resolves.toBeUndefined();
+    // Fails closed: an unreadable hold refuses the write.
+    repo.accountSuspension.mockResolvedValueOnce({
+      data: null,
+      error: new Error('db'),
+    } as never);
+    await expect(limits.assertNotSuspended('acct')).rejects.toMatchObject({
+      status: 503,
+    });
+    // No account (anonymous or self-hosted path): nothing to check.
+    await expect(limits.assertNotSuspended(null)).resolves.toBeUndefined();
   });
 });

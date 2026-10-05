@@ -20,6 +20,14 @@ export interface CreateReport {
   reporterIpHash?: string;
 }
 
+export interface ReportSummary {
+  open: number;
+  /** Resolved or dismissed in the window (30 days for the operator screen). */
+  resolvedLast30d: number;
+  /** Takedowns still in force. */
+  takenDown: number;
+}
+
 export interface ReportResolution {
   status: ReportStatus;
   resolutionNote?: string;
@@ -128,6 +136,62 @@ export class ReportRepository {
         .update(this.resolutionFields(resolution));
 
       return success(count);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  /** Operator screen counts: open reports, reports closed since `since`, takedowns in force. */
+  async summary(since: Date): Promise<RepositoryResponse<ReportSummary>> {
+    try {
+      const db = this.dbService.query();
+      const [open, closed, takenDown] = await Promise.all([
+        db
+          .from(ReportRepository.TABLE_NAME)
+          .where('status', 'open')
+          .whereNull('deleted')
+          .count<{ count: string | number }[]>('* as count')
+          .first(),
+        db
+          .from(ReportRepository.TABLE_NAME)
+          .whereIn('status', ['resolved', 'dismissed'])
+          .where('resolved', '>=', since)
+          .whereNull('deleted')
+          .count<{ count: string | number }[]>('* as count')
+          .first(),
+        db
+          .from('takedowns')
+          .whereNull('lifted')
+          .whereNull('deleted')
+          .count<{ count: string | number }[]>('* as count')
+          .first(),
+      ]);
+      return success({
+        open: Number(open?.count ?? 0),
+        resolvedLast30d: Number(closed?.count ?? 0),
+        takenDown: Number(takenDown?.count ?? 0),
+      });
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  /** Emails of live operator accounts (admin or keeper), for report notices. */
+  async operatorEmails(): Promise<RepositoryResponse<string[]>> {
+    try {
+      const rows = await this.dbService
+        .query()
+        .from('accounts')
+        .select('email')
+        .whereIn('role', ['admin', 'keeper'])
+        .whereNull('deleted')
+        .orderBy('created', 'asc')
+        .limit(10);
+      return success(
+        rows
+          .map((row: { email?: unknown }) => row.email)
+          .filter((email): email is string => typeof email === 'string'),
+      );
     } catch (error) {
       return failure(error);
     }

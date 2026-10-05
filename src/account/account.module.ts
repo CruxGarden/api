@@ -2,6 +2,7 @@ import { SyncStorageModule } from '../sync/sync-storage.module';
 import { BillingModule } from '../billing/billing.module';
 import { Module } from '@nestjs/common';
 import { AccountController } from './account.controller';
+import { AccountAdminController } from './account-admin.controller';
 import { AccountService } from './account.service';
 import { AccountRepository } from './account.repository';
 import { CommonModule } from '../common/common.module';
@@ -15,7 +16,7 @@ import { CruxModule } from '../crux/crux.module';
     BillingModule,
     SyncStorageModule,
   ],
-  controllers: [AccountController],
+  controllers: [AccountController, AccountAdminController],
   providers: [AccountService, AccountRepository],
   exports: [AccountService, AccountRepository],
 })

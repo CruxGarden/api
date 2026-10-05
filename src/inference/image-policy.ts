@@ -89,3 +89,36 @@ export function imageCost(
     ? { amount, input: Number(text) + Number(image), output: Number(output) }
     : null;
 }
+/**
+ * Medium-quality output tokens per requested size. The provider publishes no
+ * Flare-specific table; these are the published GPT Image medium-quality
+ * counts, used as the allowance estimate when a successful response omits
+ * usage (ADR 0082).
+ */
+export const IMAGE_OUTPUT_TOKENS: Record<ImageRequest['size'], number> = {
+  '1024x1024': 1056,
+  '1536x1024': 1568,
+  '1024x1536': 1584,
+};
+/** A reference PNG billed as high-fidelity image input, rounded up. */
+export const IMAGE_REFERENCE_TOKENS = 6_000;
+/**
+ * The documented per-image estimate for a provider success without usage:
+ * prompt bytes / 2 as text tokens (over-counts every script), the reference
+ * at {@link IMAGE_REFERENCE_TOKENS}, and the size's medium output tokens, at
+ * the same published rates as {@link imageCost}. Never above the reservation.
+ */
+export function imageEstimate(request: ImageRequest): {
+  amount: number;
+  input: number;
+  output: number;
+} {
+  const text = Math.ceil(Buffer.byteLength(request.prompt, 'utf8') / 2);
+  const image = request.image ? IMAGE_REFERENCE_TOKENS : 0;
+  const output = IMAGE_OUTPUT_TOKENS[request.size];
+  return {
+    amount: Math.min(IMAGE_RESERVATION, text * 5 + image * 8 + output * 30),
+    input: text + image,
+    output,
+  };
+}

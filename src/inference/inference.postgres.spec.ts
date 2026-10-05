@@ -5,8 +5,9 @@ import knex, { Knex } from 'knex';
 import { randomUUID } from 'crypto';
 import { InferenceRepository } from './inference.repository';
 import { DbService } from '../common/services/db.service';
-import { SONNET, HOUR, ALLOWANCES } from './policy';
+import { SONNET, HOUR, ALLOWANCES, reservation } from './policy';
 import { up } from '../../db/migrations/20260914170000_included_inference';
+import { up as attribution } from '../../db/migrations/20261005010000_inference_attribution';
 const url = process.env.INCLUDED_TEST_DATABASE_URL;
 (url ? describe : describe.skip)(
   'Included allowance with real PostgreSQL transactions',
@@ -31,6 +32,7 @@ const url = process.env.INCLUDED_TEST_DATABASE_URL;
       await db.schema.createTable('accounts', (t) => t.uuid('id').primary());
       await db('accounts').insert([{ id: account }, { id: another }]);
       await up(db);
+      await attribution(db);
       repo = new InferenceRepository({
         query: () => db,
       } as unknown as DbService);
@@ -167,6 +169,79 @@ const url = process.env.INCLUDED_TEST_DATABASE_URL;
       expect(
         (await repo.rows(account, new Date(now.getTime() + 726 * HOUR))).data,
       ).toEqual([]);
+    });
+    it('clamps the output budget to what remains, attributes the row, and refuses below the minimum', async () => {
+      const crux = randomUUID();
+      const used = randomUUID();
+      await repo.reserve(
+        account,
+        used,
+        [{ model: SONNET, amount: 600_000 }],
+        ALLOWANCES.gardener,
+      );
+      await repo.settle(account, used, 600_000, null, 'uncertain');
+      const input = 20_000;
+      const full = reservation(SONNET, input, 8192);
+      const clamped = await repo.reserve(
+        account,
+        randomUUID(),
+        [{ model: SONNET, amount: full, input, output: 8192 }],
+        ALLOWANCES.gardener,
+        new Date(),
+        { cruxId: crux, kind: 'chat' },
+      );
+      expect(clamped.data!.maxTokens).toBeLessThan(8192);
+      expect(clamped.data!.amount).toBeLessThanOrEqual(150_000);
+      const rows = (await repo.rows(account)).data!;
+      expect(rows[1]).toMatchObject({ crux_id: crux, kind: 'chat' });
+      const refused = await repo.reserve(
+        account,
+        randomUUID(),
+        [{ model: SONNET, amount: full, input, output: 8192 }],
+        ALLOWANCES.gardener,
+      );
+      expect(refused.error).toBeTruthy();
+    });
+    it('sweeps only stale reservations and adjusts only downwards, once settled', async () => {
+      const old = randomUUID();
+      const fresh = randomUUID();
+      await repo.reserve(
+        account,
+        old,
+        [{ model: SONNET, amount: 9000 }],
+        ALLOWANCES.gardener,
+        new Date(Date.now() - HOUR),
+      );
+      await repo.reserve(
+        account,
+        fresh,
+        [{ model: SONNET, amount: 9000 }],
+        ALLOWANCES.gardener,
+      );
+      await repo.progress(account, old, {
+        input: 10,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+      });
+      const stale = (await repo.stale(new Date(Date.now() - 15 * 60_000)))
+        .data!;
+      expect(stale.map((r) => r.id)).toEqual([old]);
+      expect(stale[0].input_tokens).toBe(10);
+      expect(
+        (await repo.adjust(fresh, 1, 'still running', account)).data,
+      ).toBeNull();
+      await repo.settle(account, fresh, 9000, null, 'uncertain');
+      expect(
+        (await repo.adjust(fresh, 9500, 'raise', account)).data,
+      ).toBeNull();
+      const lowered = (await repo.adjust(fresh, 2000, 'refund', account)).data!;
+      expect(Number(lowered.charged_microdollars)).toBe(2000);
+      expect(Number(lowered.adjusted_from_microdollars)).toBe(9000);
+      await repo.adjust(fresh, 1000, 'again', account);
+      const again = (await repo.find(fresh)).data!;
+      expect(Number(again.adjusted_from_microdollars)).toBe(9000);
+      expect(Number(again.charged_microdollars)).toBe(1000);
     });
   },
 );

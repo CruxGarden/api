@@ -242,6 +242,8 @@ export class DomainsService {
     // is where "custom domains are a Gardener feature" is enforced. With no
     // billing wired (self-hosted) there are no plans to buy, so no gate.
     if (this.billing) {
+      // A suspended account connects no new hosted domains (ADR 0083).
+      await this.billing.assertNotSuspended(accountId);
       const planId = await this.billing.planIdFor(accountId);
       const plan = planById(planId);
       const open = (await this.repo.countOpenByAuthor(authorId)).data ?? 0;

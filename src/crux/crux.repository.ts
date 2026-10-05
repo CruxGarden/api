@@ -58,7 +58,33 @@ export class CruxRepository {
         q.whereNull('kind').orWhereNotIn('kind', ['tool', 'mood']),
       );
     else if (kind) query.where('kind', kind);
+    // ADR 0084: a link-only Mood (not Discoverable) is reachable by its
+    // address but is not listed on the author's public garden.
+    query.where((q) =>
+      q
+        .whereNull('kind')
+        .orWhereNot('kind', 'mood')
+        .orWhere('discoverable', true),
+    );
     return query;
+  }
+
+  /** A live author's username, for a published Tool's publisher line. */
+  async findAuthorUsername(
+    authorId: string,
+  ): Promise<RepositoryResponse<string | undefined>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('authors')
+        .select('username')
+        .where('id', authorId)
+        .whereNull('deleted')
+        .first();
+      return success(row?.username as string | undefined);
+    } catch (error) {
+      return failure(error);
+    }
   }
 
   async findBy(

@@ -12,6 +12,8 @@ import {
 } from './checkout-attempts';
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -21,10 +23,16 @@ import {
 import { LoggerService } from '../common/services/logger.service';
 import { toEntityFields } from '../common/helpers/case-helpers';
 import { EmailService } from '../common/services/email.service';
-import { paymentFailedEmail, planChangedEmail } from './billing.emails';
+import {
+  accountClosedEmail,
+  paymentFailedEmail,
+  planChangedEmail,
+} from './billing.emails';
 import { BillingRepository, type SubscriptionRow } from './billing.repository';
 import {
+  INVOICE_LIMIT,
   MockBillingProvider,
+  type InvoiceSummary,
   type BillingEvent,
   type BillingProvider,
   type PriceInfo,
@@ -45,11 +53,28 @@ import {
   type PaidPlanId,
   type Plan,
 } from '../usage/plans';
+import { ALLOWANCES, EFFORT } from '../inference/policy';
 
 interface BillingNotification {
   accountId: string;
   message: { subject: string; body: string };
   condition?: NoticeCondition;
+  /** one notice per key, ever (retried closures must not resend) */
+  dedupeKey?: string;
+  /** address captured now; the account may be closed before delivery */
+  recipient?: string;
+}
+
+/** The refusal every hosted write gives a suspended account (ADR 0083). */
+export const ACCOUNT_SUSPENDED_MESSAGE =
+  'This account is suspended. Contact support.';
+
+/** Something the customer must do about billing; null when nothing is owed. */
+export interface BillingAttention {
+  kind: 'payment_failed' | 'payment_incomplete' | 'unpaid';
+  message: string;
+  /** where the fix happens: the provider portal, or a fresh checkout */
+  action: 'portal' | 'checkout';
 }
 
 /** What the app shows on Settings → Plan. */
@@ -58,17 +83,35 @@ export interface BillingMe {
   status: string;
   interval: BillingInterval | null;
   renewsAt: string | null;
+  /** true whenever a cancellation is scheduled (period end or a `cancel_at` date) */
   cancelAtPeriodEnd: boolean;
+  /** when a scheduled cancellation ends the plan; null when it renews */
+  endsAt: string | null;
   trialEndsAt: string | null;
   graceEndsAt: string | null;
+  /** a payment problem the customer can act on */
+  attention: BillingAttention | null;
+  /** a checkout now would include the free trial (trials on, never subscribed) */
+  trialEligible: boolean;
   pendingCheckout: boolean;
   /** the account has a provider customer → the portal can be opened */
   canManage: boolean;
   provider: string;
 }
 
+/** What a paid tier includes of hosted collaboration (inference/policy.ts). */
+export interface IncludedCollaboration {
+  fiveHourMicrodollars: number;
+  thirtyDayMicrodollars: number;
+  effort: 'low' | 'medium' | 'high';
+}
+
+export type TaxBehavior = 'exclusive' | 'inclusive' | 'automatic';
+
 export interface CatalogPlan {
   plan: Plan;
+  /** null for Free */
+  includedCollaboration: IncludedCollaboration | null;
   prices: {
     interval: BillingInterval;
     priceId: string;
@@ -80,6 +123,8 @@ export interface CatalogPlan {
 export interface Catalog {
   plans: CatalogPlan[];
   trialDays: number;
+  /** null: prices are shown as-is, no tax collected at checkout */
+  taxBehavior: TaxBehavior | null;
   provider: string;
   /** the mock provider "pays" instantly — the app skips the browser hop */
   instant: boolean;
@@ -196,6 +241,7 @@ export class BillingService {
       (!!row?.pending_session_id ||
         (!!attempt.data &&
           ['preparing', 'open'].includes(attempt.data.status)));
+    const endsAt = scheduledEnd(row);
     return {
       pendingCheckout,
       plan: planById(planId),
@@ -204,11 +250,14 @@ export class BillingService {
       renewsAt: row?.current_period_end
         ? new Date(row.current_period_end).toISOString()
         : null,
-      cancelAtPeriodEnd: !!row?.cancel_at_period_end,
+      cancelAtPeriodEnd: !!endsAt,
+      endsAt: endsAt?.toISOString() ?? null,
       trialEndsAt: row?.trial_end
         ? new Date(row.trial_end).toISOString()
         : null,
       graceEndsAt: graceDeadline(row)?.toISOString() ?? null,
+      attention: attentionFor(row),
+      trialEligible: trialDays() > 0 && !row?.subscription_started_at,
       canManage: !!row?.customer_id && this.provider.name !== 'simulation',
       provider: this.provider.name,
     };
@@ -224,6 +273,7 @@ export class BillingService {
     const byId = new Map(this.catalogCache.prices.map((p) => [p.priceId, p]));
     const plans: CatalogPlan[] = PLAN_ORDER.map((id) => ({
       plan: PLANS[id],
+      includedCollaboration: includedCollaboration(id),
       prices: [...this.priceMap.entries()]
         .filter(([, v]) => v.planId === id)
         .map(([priceId, v]) => {
@@ -247,9 +297,61 @@ export class BillingService {
     return {
       plans,
       trialDays: trialDays(),
+      taxBehavior: this.taxBehavior(
+        plans.flatMap((p) => p.prices.map((price) => byId.get(price.priceId))),
+      ),
       provider: this.provider.name,
       instant: !!this.provider.instantCheckout,
     };
+  }
+
+  /**
+   * How the app should describe tax beside a price. Only Stripe Tax collects
+   * tax at checkout; then the prices' own tax behavior decides "plus tax" or
+   * "includes tax", and `STRIPE_TAX_BEHAVIOR` overrides an unspecified price.
+   */
+  private taxBehavior(prices: (PriceInfo | undefined)[]): TaxBehavior | null {
+    if (!this.provider.automaticTax) return null;
+    const configured = process.env.STRIPE_TAX_BEHAVIOR;
+    if (configured === 'exclusive' || configured === 'inclusive')
+      return configured;
+    const behaviors = new Set(
+      prices.map((p) => p?.taxBehavior ?? 'unspecified'),
+    );
+    if (behaviors.size === 1) {
+      const [only] = behaviors;
+      if (only === 'exclusive' || only === 'inclusive') return only;
+    }
+    return 'automatic';
+  }
+
+  // ── Suspension (ADR 0083) ───────────────────────────────────────────────
+  /**
+   * Refuse hosted writes for a suspended account: publish, sync push, checkout,
+   * included inference, Store and Function writes. Fails closed when the hold
+   * cannot be read. Sign-in, reads and export are never gated here.
+   */
+  async assertNotSuspended(
+    accountId: string | null | undefined,
+  ): Promise<void> {
+    if (!accountId) return;
+    const result = await this.repo.accountSuspension(accountId);
+    if (result.error)
+      throw new ServiceUnavailableException('Account status is unavailable');
+    if (result.data?.suspended)
+      throw new ForbiddenException(ACCOUNT_SUSPENDED_MESSAGE);
+  }
+
+  /** The same refusal, for routes that know only the owning author. */
+  async assertAuthorNotSuspended(
+    authorId: string | null | undefined,
+  ): Promise<void> {
+    if (!authorId) return;
+    const result = await this.repo.authorSuspension(authorId);
+    if (result.error)
+      throw new ServiceUnavailableException('Account status is unavailable');
+    if (result.data?.suspended)
+      throw new ForbiddenException(ACCOUNT_SUSPENDED_MESSAGE);
   }
 
   // ── Checkout / portal ───────────────────────────────────────────────────
@@ -285,6 +387,7 @@ export class BillingService {
   }
 
   async resumeCheckout(accountId: string): Promise<{ url: string }> {
+    await this.assertNotSuspended(accountId);
     return this.withAccount(accountId, async () => {
       const result = await resumePendingCheckout(
         this.repo,
@@ -379,6 +482,7 @@ export class BillingService {
     interval: BillingInterval,
   ): Promise<CheckoutRequest> {
     await requireOpenAccount(this.repo, accountId);
+    await this.assertNotSuspended(accountId);
     const entry = [...this.priceMap.entries()].find(
       ([, v]) => v.planId === planId && v.interval === interval,
     );
@@ -401,10 +505,16 @@ export class BillingService {
     const email = emailResult.data;
     if (!email) throw new NotFoundException('Account not found');
     const existing = await this.subscriptionFor(accountId);
-    if (existing?.subscription_id && existing.status !== 'canceled')
-      throw new BadRequestException(
-        'You already have a plan — use “Manage billing” to change it',
-      );
+    if (existing?.subscription_id) {
+      // An invoice is owed: paying it restores the plan; a second subscription
+      // would charge twice.
+      if (existing.status === 'unpaid' || existing.status === 'incomplete')
+        throw new ConflictException(OWED_MESSAGE);
+      if (!CHECKOUT_AGAIN.has(existing.status))
+        throw new BadRequestException(
+          'You already have a plan — use “Manage billing” to change it',
+        );
+    }
     const base = returnBase();
     return {
       accountId,
@@ -413,8 +523,24 @@ export class BillingService {
       priceId,
       successUrl: `${base}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${base}/billing/cancel`,
-      trialDays: trialDays(),
+      trialDays: await this.eligibleTrialDays(existing),
     };
+  }
+
+  /**
+   * A trial only for an account that never had a subscription start — local
+   * history first, then the provider's own record of the reused customer.
+   * Decided before the request is persisted, so a retried checkout is identical.
+   */
+  private async eligibleTrialDays(
+    row: SubscriptionRow | null,
+  ): Promise<number> {
+    const days = trialDays();
+    if (!days || row?.subscription_started_at) return 0;
+    if (row?.customer_id && this.provider.hasSubscriptionHistory) {
+      if (await this.provider.hasSubscriptionHistory(row.customer_id)) return 0;
+    }
+    return days;
   }
 
   async closeAccount(accountId: string): Promise<void> {
@@ -427,10 +553,20 @@ export class BillingService {
           'Could not start account closure',
         );
     });
-    return this.withAccount(accountId, () => this.cancelAccount(accountId));
+    return this.withAccount(accountId, (notifications) =>
+      this.cancelAccount(accountId, notifications),
+    );
   }
 
-  private async cancelAccount(accountId: string): Promise<void> {
+  /**
+   * Cancel immediately (no refund: the account is going away) after capturing
+   * the invoice links the customer needs afterwards. The provider removes the
+   * customer, so invoices are read first and mailed with the closure notice.
+   */
+  private async cancelAccount(
+    accountId: string,
+    notifications: BillingNotification[],
+  ): Promise<void> {
     await cancelPendingCheckout(this.repo, this.provider, accountId);
     const row = await this.subscriptionFor(accountId);
     if (!row) return;
@@ -438,6 +574,22 @@ export class BillingService {
       throw new BadRequestException(
         'Restore the original billing provider before closing this account.',
       );
+    let invoices: InvoiceSummary[] = [];
+    let recipient: string | null = null;
+    if (row.customer_id) {
+      invoices = await this.provider.invoices(row.customer_id, INVOICE_LIMIT);
+      const email = await this.repo.accountEmail(accountId);
+      if (email.error)
+        throw new ServiceUnavailableException('Account is unavailable');
+      recipient = email.data;
+    }
+    // Any subscription that still exists ends now, including one that owes an invoice.
+    const endedPlan =
+      row.subscription_id &&
+      row.status !== 'none' &&
+      !CHECKOUT_AGAIN.has(row.status)
+        ? row.plan_id
+        : 'free';
     await this.provider.closeAccount({
       accountId,
       customerId: row.customer_id || undefined,
@@ -454,6 +606,31 @@ export class BillingService {
       throw new InternalServerErrorException(
         'Could not save billing cancellation. Retry account closure.',
       );
+    if (recipient)
+      notifications.push({
+        accountId,
+        recipient,
+        dedupeKey: `account-closed:${accountId}`,
+        message: accountClosedEmail(
+          endedPlan === 'free' ? null : planById(endedPlan).name,
+          invoices,
+        ),
+      });
+  }
+
+  /** The account's most recent invoices (at most 24), newest first. */
+  async invoices(accountId: string): Promise<InvoiceSummary[]> {
+    const row = await this.subscriptionFor(accountId);
+    if (!row?.customer_id || row.provider !== this.provider.name) return [];
+    try {
+      return await this.provider.invoices(row.customer_id, INVOICE_LIMIT);
+    } catch (error) {
+      this.logger.warn('Invoice list unavailable', {
+        accountId,
+        error: (error as Error).message,
+      });
+      throw new ServiceUnavailableException('Invoices are unavailable');
+    }
   }
 
   async portal(accountId: string): Promise<{ url: string }> {
@@ -711,8 +888,9 @@ export class BillingService {
               await this.operations.enqueue(
                 notice.accountId,
                 notice.message,
-                undefined,
+                notice.dedupeKey,
                 notice.condition,
+                notice.recipient,
               ),
             );
         }
@@ -722,8 +900,12 @@ export class BillingService {
     );
     // Production uses the durable outbox; isolated legacy unit fixtures omit it.
     if (!this.operations)
-      for (const { accountId: recipient, message } of notifications)
-        await this.notify(recipient, message);
+      for (const {
+        accountId: recipient,
+        message,
+        recipient: address,
+      } of notifications)
+        await this.notify(recipient, message, address);
     return result;
   }
 
@@ -878,7 +1060,12 @@ export class BillingService {
       current_period_start: snap.currentPeriodStart,
       current_period_end: snap.currentPeriodEnd,
       cancel_at_period_end: snap.cancelAtPeriodEnd,
+      cancel_at: snap.cancelAt ?? null,
       trial_end: snap.trialEnd,
+      // Never cleared: a canceled or replaced subscription still used the trial.
+      subscription_started_at:
+        before?.subscription_started_at ??
+        (STARTED.has(snap.status) ? new Date() : null),
       past_due_since:
         snap.status === 'past_due'
           ? before?.subscription_id === snap.subscriptionId
@@ -921,10 +1108,11 @@ export class BillingService {
   private async notify(
     accountId: string,
     msg: { subject: string; body: string },
+    address?: string,
   ): Promise<void> {
     if (this.provider.name === 'simulation') return;
     try {
-      const email = (await this.repo.accountEmail(accountId)).data;
+      const email = address ?? (await this.repo.accountEmail(accountId)).data;
       if (email) await this.email.send({ email, ...msg });
     } catch (err) {
       this.logger.error(`billing email failed: ${(err as Error).message}`);
@@ -998,6 +1186,77 @@ function isLive(status: string): boolean {
   return status === 'active' || status === 'trialing' || status === 'past_due';
 }
 
+/** Statuses that prove a subscription started (and so used any trial). */
+const STARTED = new Set([
+  'trialing',
+  'active',
+  'past_due',
+  'unpaid',
+  'canceled',
+]);
+
+/** Subscription states after which a new checkout may run. */
+const CHECKOUT_AGAIN = new Set(['canceled', 'incomplete_expired']);
+
+const OWED_MESSAGE =
+  'Pay the outstanding invoice in Manage billing to restore your plan.';
+
+/** What the customer must do about a payment problem, if anything. */
+export function attentionFor(
+  row: SubscriptionRow | null | undefined,
+): BillingAttention | null {
+  if (!row?.subscription_id) return null;
+  switch (row.status) {
+    case 'past_due':
+      return {
+        kind: 'payment_failed',
+        message:
+          'Your last payment didn’t go through. Update your payment method in Manage billing to keep your plan.',
+        action: 'portal',
+      };
+    case 'unpaid':
+      return { kind: 'unpaid', message: OWED_MESSAGE, action: 'portal' };
+    case 'incomplete':
+      return {
+        kind: 'payment_incomplete',
+        message: OWED_MESSAGE,
+        action: 'portal',
+      };
+    case 'incomplete_expired':
+      return {
+        kind: 'payment_incomplete',
+        message:
+          'Your first payment didn’t complete, so the plan didn’t start. Choose a plan to try again.',
+        action: 'checkout',
+      };
+    default:
+      return null;
+  }
+}
+
+/** When a scheduled cancellation ends a plan that is still running. */
+function scheduledEnd(row: SubscriptionRow | null | undefined): Date | null {
+  if (!row || !isLive(row.status)) return null;
+  if (row.cancel_at) return new Date(row.cancel_at);
+  if (row.cancel_at_period_end && row.current_period_end)
+    return new Date(row.current_period_end);
+  return null;
+}
+
+/** A paid tier's included collaboration; null for Free. */
+export function includedCollaboration(
+  planId: string,
+): IncludedCollaboration | null {
+  const allowance = ALLOWANCES[planId];
+  const effort = EFFORT[planId];
+  if (!allowance || !effort) return null;
+  return {
+    fiveHourMicrodollars: allowance.fiveHour,
+    thirtyDayMicrodollars: allowance.thirtyDay,
+    effort,
+  };
+}
+
 /** Plan in force: live → plan; past_due → plan for a grace week; else free. */
 export function effectivePlanId(
   row: SubscriptionRow | null | undefined,
@@ -1032,6 +1291,7 @@ function canceledSnapshot(row: SubscriptionRow): SubscriptionSnapshot {
     priceId: row.price_id,
     status: 'canceled',
     cancelAtPeriodEnd: false,
+    cancelAt: null,
     currentPeriodStart: date(row.current_period_start),
     currentPeriodEnd: date(row.current_period_end),
     trialEnd: date(row.trial_end),

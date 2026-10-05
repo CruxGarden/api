@@ -154,6 +154,46 @@ describe('persistent local billing simulation', () => {
     }
   });
 
+  it('lists simulated invoices, explains an unpaid plan and refuses a suspended account (ADR 0083)', async () => {
+    expect(await service.invoices(accountId)).toEqual([]);
+    await service.checkout(accountId, 'gardener', 'month');
+    const [paid] = await service.invoices(accountId);
+    expect(paid).toMatchObject({
+      status: 'paid',
+      totalCents: 1000,
+      currency: 'usd',
+      hostedUrl: null,
+    });
+    const row = (await new BillingRepository(db, logger).byAccount(accountId))
+      .data!;
+    expect(row.subscription_started_at).toBeTruthy();
+    await service.simulate(accountId, 'unpaid');
+    const me = await service.me(accountId);
+    expect(me.plan.id).toBe('free');
+    expect(me.attention).toMatchObject({ kind: 'unpaid', action: 'portal' });
+    expect((await service.invoices(accountId))[0].status).toBe('open');
+    await expect(
+      service.checkout(accountId, 'gardener', 'month'),
+    ).rejects.toMatchObject({ status: 409 });
+    await db
+      .query()('accounts')
+      .where({ id: accountId })
+      .update({ suspended: new Date(), suspended_reason: 'test' });
+    await expect(service.assertNotSuspended(accountId)).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(
+      service.checkout(accountId, 'gardener', 'month'),
+    ).rejects.toMatchObject({ status: 403 });
+    await db
+      .query()('accounts')
+      .where({ id: accountId })
+      .update({ suspended: null, suspended_reason: null });
+    await expect(
+      service.assertNotSuspended(accountId),
+    ).resolves.toBeUndefined();
+  });
+
   it('offers validated simulation controls only to the authenticated operator on this API', async () => {
     const module = await Test.createTestingModule({
       controllers: [BillingController],

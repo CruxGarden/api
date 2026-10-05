@@ -616,6 +616,27 @@ export class UsageRepository {
     }
   }
 
+  /** Whether any of these notice kinds was sent to the account since `since`. */
+  async notificationSentSince(
+    accountId: string,
+    kinds: string[],
+    since: Date,
+  ): Promise<RepositoryResponse<boolean>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('usage_notifications')
+        .where({ account_id: accountId })
+        .whereIn('kind', kinds)
+        .where('sent_at', '>', since)
+        .first('id');
+      return success(!!row);
+    } catch (error) {
+      this.logger.error('notificationSentSince failed', error as Error);
+      return failure(error);
+    }
+  }
+
   /** Claim the notice: true when this caller inserted the ledger row. */
   async markNotified(
     accountId: string,

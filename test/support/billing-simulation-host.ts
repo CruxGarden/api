@@ -24,6 +24,8 @@ export async function prepareBillingFixture(db: DbService) {
     t.uuid('id').primary();
     t.text('email');
     t.timestamp('deleted');
+    t.timestamp('suspended');
+    t.text('suspended_reason');
   });
   await db
     .query()('accounts')
@@ -49,6 +51,8 @@ export async function prepareBillingFixture(db: DbService) {
       'current_period_end',
       'trial_end',
       'past_due_since',
+      'cancel_at',
+      'subscription_started_at',
       'updated',
     ])
       t.timestamp(key);

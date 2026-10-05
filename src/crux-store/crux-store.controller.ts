@@ -28,6 +28,7 @@ import { StoreSwagger } from './crux-store.swagger';
 import { StoreWriteRateLimitGuard } from './store-write-rate-limit.guard';
 import { normalizeStoreMode, StoreMode } from './entities/crux-store.entity';
 import { UsageService } from '../usage/usage.service';
+import { LimitsService } from '../usage/limits.service';
 import {
   SetStoreEntryDto,
   IncrementStoreEntryDto,
@@ -41,6 +42,7 @@ export class StoreController {
     private readonly cruxService: CruxService,
     private readonly authorService: AuthorService,
     private readonly usage: UsageService,
+    private readonly limits: LimitsService,
     @Inject(forwardRef(() => FunctionsService))
     private readonly functions: FunctionsService,
   ) {}
@@ -101,6 +103,13 @@ export class StoreController {
     return crux.authorId;
   }
 
+  /** The author for a write: a suspended owner's Store takes no new writes (ADR 0083). Deletes stay allowed. */
+  private async getWritableCruxAuthorId(cruxId: string): Promise<string> {
+    const authorId = await this.getCruxAuthorId(cruxId);
+    await this.limits.assertAuthorNotSuspended(authorId);
+    return authorId;
+  }
+
   /**
    * Resolve visitor's author ID from the account JWT (if present).
    */
@@ -155,7 +164,7 @@ export class StoreController {
     @Body() dto: SetStoreEntryDto,
     @Req() req: AuthRequest,
   ) {
-    const authorId = await this.getCruxAuthorId(cruxId);
+    const authorId = await this.getWritableCruxAuthorId(cruxId);
     const visitorId = await this.getVisitorId(req);
     const mode = normalizeStoreMode(dto.mode ?? 'protected') as StoreMode;
 
@@ -198,7 +207,7 @@ export class StoreController {
     @Body() dto: IncrementStoreEntryDto,
     @Req() req: AuthRequest,
   ) {
-    const authorId = await this.getCruxAuthorId(cruxId);
+    const authorId = await this.getWritableCruxAuthorId(cruxId);
     const visitorId = await this.getVisitorId(req);
     const value = await this.storeService.increment(
       cruxId,
@@ -287,7 +296,7 @@ export class StoreController {
     @Req() req: AuthRequest,
   ) {
     await this.assertCruxOwner(cruxId, req);
-    const authorId = await this.getCruxAuthorId(cruxId);
+    const authorId = await this.getWritableCruxAuthorId(cruxId);
     return this.storeService.importAll(
       cruxId,
       authorId,

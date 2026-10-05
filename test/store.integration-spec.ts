@@ -10,6 +10,7 @@ import { StoreRepository } from '../src/crux-store/crux-store.repository';
 import { UsageService } from '../src/usage/usage.service';
 import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
+import { LimitsService } from '../src/usage/limits.service';
 import { RedisService } from '../src/common/services/redis.service';
 import { MockDbService } from './mocks/db.mock';
 import { MockRedisService } from './mocks/redis.mock';
@@ -250,6 +251,12 @@ describe('Crux Store Integration Tests', () => {
       .useValue(store)
       .overrideProvider(UsageService)
       .useValue(usage)
+      // The fake DbService has no joins; suspension refusal is covered in the controller spec.
+      .overrideProvider(LimitsService)
+      .useValue({
+        assertAuthorNotSuspended: jest.fn().mockResolvedValue(undefined),
+        assertNotSuspended: jest.fn().mockResolvedValue(undefined),
+      })
       .overrideProvider(HomeService)
       .useValue({ primary: jest.fn().mockResolvedValue({ id: 'home-1' }) })
       .compile();

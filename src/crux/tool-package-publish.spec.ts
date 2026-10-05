@@ -14,7 +14,14 @@ async function packageUpload() {
     JSON.stringify({
       format: 'crux-tool',
       version: 1,
-      tool: { id: 'p5-app', entryFile: 'runtime/index.html' },
+      tool: {
+        id: 'p5-app',
+        name: 'Sketch',
+        releaseVersion: '1.0.0',
+        entryFile: 'runtime/index.html',
+        toolInfo: { upstream: 'https://github.com/processing/p5.js' },
+        greeting: 'stays private',
+      },
       files: [{ path: 'runtime/index.html', size: 15, mimeType: 'text/html' }],
     }),
   );
@@ -41,6 +48,7 @@ function fixture(layout: 'shared' | 'bucket-per-crux') {
   });
   const repository = {
     findActiveTakedown: jest.fn(async () => ({ data: undefined, error: null })),
+    findAuthorUsername: jest.fn(async () => ({ data: 'ada', error: null })),
     commitPublication: jest.fn(
       async (_id, _author, _version, _artifacts, meta) => ({
         data: { ...crux, meta },
@@ -99,14 +107,23 @@ function fixture(layout: 'shared' | 'bucket-per-crux') {
   const service = new CruxService(
     repository as never,
     {} as never,
-    { createChildLogger: () => ({ error: jest.fn() }) } as never,
+    {
+      createChildLogger: () => ({ error: jest.fn(), warn: jest.fn() }),
+    } as never,
     {} as never,
     {} as never,
     artifact as never,
     store as never,
     storage as never,
     usage as never,
-    { assertStorage: jest.fn() } as never,
+    {
+      assertStorage: jest.fn(async () => ({
+        used: 3 * 1024 ** 3,
+        limit: 2 * 1024 ** 3,
+        softLimit: 2.4 * 1024 ** 3,
+        warn: true,
+      })),
+    } as never,
     { afterWrite: jest.fn().mockResolvedValue([]) } as never,
     {
       activatePublication: jest.fn().mockResolvedValue(undefined),
@@ -172,6 +189,27 @@ describe('single-package tool publication', () => {
         size: file.size,
         unpackedBytes: 15,
       });
+      // ADR 0084: the trust summary comes from the validated package header.
+      expect(publicCruxMeta(result.meta)?.toolSummary).toEqual({
+        name: 'Sketch',
+        version: '1.0.0',
+        publisher: 'ada',
+        upstreamUrl: 'https://github.com/processing/p5.js',
+        sizeBytes: file.size,
+        permissions: [],
+        sandboxed: true,
+      });
+      expect(JSON.stringify(publicCruxMeta(result.meta))).not.toContain(
+        'stays private',
+      );
+      // The soft-limit warning reaches the publish answer.
+      expect(result.warnings).toEqual([
+        expect.objectContaining({
+          kind: 'storage_soft_limit',
+          usedBytes: 3 * 1024 ** 3,
+          limitBytes: 2 * 1024 ** 3,
+        }),
+      ]);
       jest.spyOn(f.service, 'findById').mockResolvedValue(result);
       // Retrieval follows the recorded layout even if the current deployment default changed.
       process.env.PUBLISH_LAYOUT =

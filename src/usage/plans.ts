@@ -34,7 +34,8 @@ export const PLANS: Record<string, Plan> = {
   gardener: {
     id: 'gardener',
     name: 'Gardener',
-    blurb: 'Included collaboration, publishing, and room to grow.',
+    blurb:
+      'Included collaboration, publishing, custom domains and room to grow.',
     storageBytes: 10 * GB,
     bandwidthBytesPerPeriod: 25 * GB,
     storeRequestsPerPeriod: 1_000_000,
@@ -43,7 +44,10 @@ export const PLANS: Record<string, Plan> = {
   gardener_plus: {
     id: 'gardener_plus',
     name: 'Gardener Plus',
-    blurb: 'More included collaboration with Sonnet when allowance permits.',
+    // Same model as Gardener (inference/policy.ts): Plus differs by allowance
+    // and effort, never by model.
+    blurb:
+      'Twice the monthly included collaboration, with deeper thinking on every reply.',
     storageBytes: 10 * GB,
     bandwidthBytesPerPeriod: 25 * GB,
     storeRequestsPerPeriod: 1_000_000,

@@ -85,4 +85,12 @@ describe('ExploreRepository query composition', () => {
     expect(hash.bindings).toEqual(expect.arrayContaining(['ambient']));
     expect(hash.sql).not.toContain('"c"."title" ilike');
   });
+
+  it('ADR 0084: a link-only Mood is never listed — Mood searches and tags still require Discoverable', () => {
+    const moods = repo().findCruxesQuery({ kind: 'mood' }).toSQL().toNative();
+    expect(moods.sql).toContain('"c"."discoverable" = $2');
+    expect(moods.bindings.slice(0, 2)).toEqual(['public', true]);
+    const authors = repo().findAuthorsQuery({}).toSQL().toNative();
+    expect(authors.sql).toContain('"c"."discoverable" = ');
+  });
 });

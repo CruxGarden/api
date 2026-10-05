@@ -20,6 +20,7 @@ import { CruxRepository } from '../crux/crux.repository';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
+import type { AccountSearchRow } from './account.repository';
 import Account from './entities/account.entity';
 import AccountRaw from './entities/account-raw.entity';
 
@@ -255,4 +256,93 @@ export class AccountService {
       throw error;
     }
   }
+
+  // ── Suspension (ADR 0083, operator only) ────────────────────────────────
+  /**
+   * Hold an account: sign-in, reads and export keep working; publishing, sync
+   * push, checkout, included inference and Store/Function writes are refused
+   * (LimitsService/BillingService.assertNotSuspended). Nothing is unpublished —
+   * a takedown is the separate operator action for that.
+   */
+  async suspend(
+    accountId: string,
+    reason: string,
+    operatorId: string,
+  ): Promise<AccountAdminView> {
+    if (accountId === operatorId)
+      throw new BadRequestException('You cannot suspend your own account');
+    const trimmed = reason?.trim();
+    if (!trimmed) throw new BadRequestException('A reason is required');
+    const result = await this.accountRepository.setSuspension(accountId, {
+      reason: trimmed,
+      operatorId,
+    });
+    if (result.error)
+      throw new InternalServerErrorException('Could not suspend account', {
+        cause: result.error,
+      });
+    if (!result.data) throw new NotFoundException('Account not found');
+    this.logger.info('Account suspended', { accountId, operatorId });
+    return adminView(result.data);
+  }
+
+  async unsuspend(
+    accountId: string,
+    operatorId: string,
+  ): Promise<AccountAdminView> {
+    const result = await this.accountRepository.setSuspension(accountId, null);
+    if (result.error)
+      throw new InternalServerErrorException('Could not lift suspension', {
+        cause: result.error,
+      });
+    if (!result.data) throw new NotFoundException('Account not found');
+    this.logger.info('Account suspension lifted', { accountId, operatorId });
+    return adminView(result.data);
+  }
+
+  async search(query = ''): Promise<AccountAdminView[]> {
+    if (query.length > 320)
+      throw new BadRequestException('Search for an email or username');
+    const result = await this.accountRepository.search(query);
+    if (result.error)
+      throw new InternalServerErrorException('Account search failed', {
+        cause: result.error,
+      });
+    const seen = new Set<string>();
+    return result.data
+      .filter((row) => !seen.has(row.id) && !!seen.add(row.id))
+      .map(adminView);
+  }
+}
+
+/** What an operator sees of an account: enough to find and hold it. */
+export interface AccountAdminView {
+  id: string;
+  email: string;
+  username: string | null;
+  role: string;
+  created: string | null;
+  suspended: string | null;
+  suspendedReason: string | null;
+}
+
+function adminView(
+  row: Pick<AccountSearchRow, 'id' | 'email' | 'role'> & {
+    username?: string | null;
+    created?: Date | string | null;
+    suspended?: Date | string | null;
+    suspended_reason?: string | null;
+  },
+): AccountAdminView {
+  const iso = (v: Date | string | null | undefined) =>
+    v ? new Date(v).toISOString() : null;
+  return {
+    id: row.id,
+    email: row.email,
+    username: row.username ?? null,
+    role: row.role,
+    created: iso(row.created),
+    suspended: iso(row.suspended),
+    suspendedReason: row.suspended_reason ?? null,
+  };
 }

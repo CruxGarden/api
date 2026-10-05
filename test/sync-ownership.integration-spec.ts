@@ -45,7 +45,10 @@ describe('Sync backup ownership and recovery', () => {
       store,
       logger,
       usage,
-      new LimitsService(usage, { planIdFor: async () => 'free' } as never),
+      new LimitsService(usage, {
+        planIdFor: async () => 'free',
+        assertNotSuspended: async () => undefined,
+      } as never),
       { findByAccountId: async () => ({ id: authorId }) } as never,
       { afterWrite: async () => undefined } as never,
       new SyncRepository(fixture.db, logger),

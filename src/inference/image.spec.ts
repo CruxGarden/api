@@ -5,8 +5,11 @@ import type { Response } from 'express';
 import { IncludedImageService } from './image.service';
 import {
   IMAGE_MODEL,
+  IMAGE_OUTPUT_TOKENS,
+  IMAGE_REFERENCE_TOKENS,
   IMAGE_RESERVATION,
   imageCost,
+  imageEstimate,
   validateImageRequest,
 } from './image-policy';
 import { InferenceRepository, ReservationError } from './inference.repository';
@@ -38,7 +41,10 @@ function fixture(plan = 'gardener') {
   };
   const service = new IncludedImageService(
     repo as unknown as InferenceRepository,
-    { planIdFor: async () => plan } as unknown as BillingService,
+    {
+      planIdFor: async () => plan,
+      assertNotSuspended: async () => undefined,
+    } as unknown as BillingService,
     new LoggerService(),
   );
   jest.spyOn(service as any, 'provider').mockReturnValue(provider);
@@ -59,6 +65,8 @@ it('generates and edits with a reserved account allowance, returning real image 
     id,
     [{ model: IMAGE_MODEL, amount: IMAGE_RESERVATION }],
     expect.any(Object),
+    expect.any(Date),
+    { cruxId: null, kind: 'image' },
   );
   expect(f.res.json).toHaveBeenCalledWith({
     image: png,
@@ -175,4 +183,55 @@ it('does not invent exact usage when token detail is absent or inconsistent', ()
   expect(imageCost(null)).toBeNull();
   expect(imageCost({ ...usage, input_tokens: 999 })).toBeNull();
   expect(imageCost({ ...usage, output_tokens: -1 })).toBeNull();
+});
+
+it('charges the documented size estimate, not the reservation, when a successful response omits usage', async () => {
+  const f = fixture();
+  f.provider.images.generate.mockResolvedValue({ data: [{ b64_json: png }] });
+  const id = randomUUID();
+  await f.service.generate('account', id, request, f.res);
+  const estimate = imageEstimate(request as never);
+  // 'A garden banner' is 15 bytes → 8 text tokens; medium square is 1,056 output tokens.
+  expect(estimate).toEqual({
+    amount: 8 * 5 + IMAGE_OUTPUT_TOKENS['1024x1024'] * 30,
+    input: 8,
+    output: 1056,
+  });
+  expect(f.repo.settle).toHaveBeenCalledWith(
+    'account',
+    id,
+    estimate.amount,
+    { input: 8, output: 1056, cacheRead: 0, cacheWrite: 0 },
+    'estimated',
+  );
+  expect(estimate.amount).toBeLessThan(IMAGE_RESERVATION / 10);
+  expect(f.res.json).toHaveBeenCalled();
+});
+it('scales the estimate with size and a reference image, and never exceeds the reservation', () => {
+  const portrait = imageEstimate({ prompt: 'x', size: '1024x1536' });
+  expect(portrait.output).toBe(1584);
+  const edit = imageEstimate({ prompt: 'x', size: '1024x1536', image: png });
+  expect(edit.input).toBe(1 + IMAGE_REFERENCE_TOKENS);
+  expect(edit.amount - portrait.amount).toBe(IMAGE_REFERENCE_TOKENS * 8);
+  expect(
+    imageEstimate({ prompt: 'x'.repeat(4000), size: '1536x1024', image: png })
+      .amount,
+  ).toBeLessThanOrEqual(IMAGE_RESERVATION);
+});
+it('estimates a provider answer that carried no usable image, rather than retaining the reservation', async () => {
+  const f = fixture();
+  f.provider.images.generate.mockResolvedValue({ data: [] });
+  await expect(
+    f.service.generate('account', randomUUID(), request, f.res),
+  ).rejects.toMatchObject({ status: 503 });
+  expect(f.repo.settle.mock.calls[0][4]).toBe('estimated');
+  expect(f.repo.settle.mock.calls[0][2]).toBe(
+    imageEstimate(request as never).amount,
+  );
+});
+it('labels the image ledger row with the crux it served', async () => {
+  const f = fixture();
+  const cruxId = randomUUID();
+  await f.service.generate('account', randomUUID(), request, f.res, cruxId);
+  expect(f.repo.reserve.mock.calls[0][5]).toEqual({ cruxId, kind: 'image' });
 });

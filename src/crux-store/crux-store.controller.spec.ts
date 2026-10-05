@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import { PublishedAuthService } from '../published-auth/published-auth.service';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -6,6 +7,7 @@ import { StoreService } from './crux-store.service';
 import { CruxService } from '../crux/crux.service';
 import { AuthorService } from '../author/author.service';
 import { UsageService } from '../usage/usage.service';
+import { LimitsService } from '../usage/limits.service';
 import { LoggerService } from '../common/services/logger.service';
 import { AuthRequest } from '../common/types/interfaces';
 import { ThrottlerStorage } from '@nestjs/throttler';
@@ -15,6 +17,7 @@ describe('StoreController', () => {
   let controller: StoreController;
   let storeService: jest.Mocked<StoreService>;
   let usage: { noteStoreRequest: jest.Mock };
+  let limits: { assertAuthorNotSuspended: jest.Mock };
   let functions: { emit: jest.Mock };
 
   const CRUX = 'crux-1';
@@ -46,6 +49,9 @@ describe('StoreController', () => {
       }),
     };
     usage = { noteStoreRequest: jest.fn() };
+    limits = {
+      assertAuthorNotSuspended: jest.fn().mockResolvedValue(undefined),
+    };
     functions = {
       emit: jest.fn().mockResolvedValue({ handlers: 0, results: {} }),
     };
@@ -58,6 +64,7 @@ describe('StoreController', () => {
         { provide: CruxService, useValue: cruxService },
         { provide: AuthorService, useValue: authorService },
         { provide: UsageService, useValue: usage },
+        { provide: LimitsService, useValue: limits },
         { provide: FunctionsService, useValue: functions },
         {
           provide: ThrottlerStorage,
@@ -99,6 +106,20 @@ describe('StoreController', () => {
   });
 
   describe('PUT /store/:cruxId/:key', () => {
+    it("refuses a write to a suspended owner's Store and writes nothing", async () => {
+      limits.assertAuthorNotSuspended.mockRejectedValue(
+        new ForbiddenException('This account is suspended. Contact support.'),
+      );
+      await expect(
+        controller.set(CRUX, 'board', { value: ['a'], mode: 'public' }, alice),
+      ).rejects.toThrow('suspended');
+      expect(limits.assertAuthorNotSuspended).toHaveBeenCalledWith(
+        'author-owner',
+      );
+      expect(storeService.set).not.toHaveBeenCalled();
+      expect(usage.noteStoreRequest).not.toHaveBeenCalled();
+    });
+
     it('passes mode public and the visitor through, then meters a write', async () => {
       storeService.set.mockResolvedValue({ value: ['a'] } as any);
       const body = await controller.set(

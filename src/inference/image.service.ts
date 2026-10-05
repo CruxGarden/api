@@ -2,19 +2,23 @@ import {
   BadRequestException,
   HttpException,
   Injectable,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import OpenAI, { toFile } from 'openai';
 import type { Response } from 'express';
 import { BillingService } from '../billing/billing.service';
 import { LoggerService } from '../common/services/logger.service';
+import { NotificationsService } from '../usage/notifications.service';
 import { InferenceRepository, ReservationError } from './inference.repository';
+import { notifyIncludedAllowance } from './allowance-notice';
 import { ALLOWANCES } from './policy';
 import {
   IMAGE_MODEL,
   IMAGE_RESERVATION,
   imageBytes,
   imageCost,
+  imageEstimate,
   validateImageRequest,
 } from './image-policy';
 
@@ -31,6 +35,7 @@ export class IncludedImageService {
     private readonly repo: InferenceRepository,
     private readonly billing: BillingService,
     logger: LoggerService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {
     this.logger = logger.createChildLogger('IncludedImageService');
   }
@@ -50,6 +55,7 @@ export class IncludedImageService {
     requestId: string,
     value: unknown,
     res: Response,
+    cruxId: string | null = null,
   ): Promise<void> {
     if (
       !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -58,7 +64,9 @@ export class IncludedImageService {
     )
       throw new BadRequestException('Supply a UUID request ID.');
     const body = validateImageRequest(value);
-    const limit = ALLOWANCES[await this.billing.planIdFor(accountId)];
+    await this.billing.assertNotSuspended(accountId);
+    const planId = await this.billing.planIdFor(accountId);
+    const limit = ALLOWANCES[planId];
     if (!limit)
       throw new HttpException('Included images require a Gardener plan.', 402);
     const provider = this.provider();
@@ -67,6 +75,8 @@ export class IncludedImageService {
       requestId,
       [{ model: IMAGE_MODEL, amount: IMAGE_RESERVATION }],
       limit,
+      new Date(),
+      { cruxId, kind: 'image' },
     );
     if (reservation.error instanceof ReservationError) {
       const reason = reservation.error.reason;
@@ -75,7 +85,7 @@ export class IncludedImageService {
           ? 'This image request was already submitted. Check its result before starting another.'
           : reason === 'concurrent'
             ? 'Two included requests are running. Wait for one to finish.'
-            : 'There is not enough included allowance for this image. Check your allowance and try later.',
+            : 'There is not enough included collaboration left for this image. Check Usage for the next release and try later.',
         reason === 'duplicate' ? 409 : 429,
       );
     }
@@ -90,6 +100,8 @@ export class IncludedImageService {
     };
     res.on('close', closed);
     let started = false;
+    // The provider answered: usage is either reported or estimated, never unknown.
+    let responded = false;
     let settled: ReturnType<typeof imageCost> = null;
     try {
       if (res.destroyed) return;
@@ -114,6 +126,7 @@ export class IncludedImageService {
             { signal: abort.signal },
           )
         : await provider.images.generate(options, { signal: abort.signal });
+      responded = true;
       settled = imageCost(output.usage);
       const image = output.data?.[0]?.b64_json;
       if (!image) throw new Error('No image returned');
@@ -146,25 +159,43 @@ export class IncludedImageService {
       clearTimeout(timeout);
       res.off('close', closed);
       abort.abort();
+      // ADR 0082: reported usage; else, after a provider answer, the documented
+      // per-image estimate; else (nothing known) the reservation as uncertain.
+      const charged =
+        settled ?? (responded && started ? imageEstimate(body) : null);
       const result = await this.repo.settle(
         accountId,
         requestId,
-        settled?.amount ?? (started ? IMAGE_RESERVATION : 0),
-        settled
+        charged?.amount ?? (started ? IMAGE_RESERVATION : 0),
+        charged
           ? {
-              input: settled.input,
-              output: settled.output,
+              input: charged.input,
+              output: charged.output,
               cacheRead: 0,
               cacheWrite: 0,
             }
           : null,
-        settled ? 'complete' : started ? 'uncertain' : 'rejected',
+        settled
+          ? 'complete'
+          : charged
+            ? 'estimated'
+            : started
+              ? 'uncertain'
+              : 'rejected',
       );
       if (result.error)
         this.logger.error(
           'Image settlement failed; reservation retained',
           undefined,
           { accountId, requestId },
+        );
+      else if (started)
+        void notifyIncludedAllowance(
+          this.repo,
+          this.notifications,
+          this.logger,
+          accountId,
+          planId,
         );
     }
   }

@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import { FunctionsService, matches } from './functions.service';
 import { ServiceUnavailableException } from '@nestjs/common';
 import * as dns from 'node:dns/promises';
@@ -163,6 +164,9 @@ function service(
       return { data: undefined };
     }),
   };
+  const limits = {
+    assertAuthorNotSuspended: jest.fn().mockResolvedValue(undefined),
+  };
   const svc = new FunctionsService(
     logger as any,
     fileStore as any,
@@ -170,10 +174,12 @@ function service(
     cruxService as any,
     kv as any,
     usage as any,
+    limits as any,
     schedules as any,
   );
   return Object.assign(svc, {
     metered: usage,
+    suspension: limits,
     clock: schedules,
     kvStore: store,
     publishedFiles: fileStore,
@@ -273,6 +279,27 @@ describe('Crux Functions runner', () => {
         event: 'score',
       },
     ]);
+  });
+
+  it("refuses to run a suspended owner's handler before it can touch the Store", async () => {
+    const store = new Map<string, unknown>();
+    const s = service(
+      {
+        'functions/submit.js': `
+          export default async function (req, ctx) {
+            await ctx.store.set('x', 1);
+            return ctx.json({ ok: true });
+          }`,
+      },
+      store,
+    );
+    s.suspension.assertAuthorNotSuspended.mockRejectedValue(
+      new ForbiddenException('This account is suspended. Contact support.'),
+    );
+    await expect(
+      s.call('crux-1', 'submit', { body: {}, visitorId: 'v-1' }),
+    ).rejects.toThrow('suspended');
+    expect(store.size).toBe(0);
   });
 
   it('runs a handler against the Store as the visitor, with ctx.json and ctx.log', async () => {

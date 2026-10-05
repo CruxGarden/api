@@ -251,6 +251,63 @@ describe('CruxService', () => {
     });
   });
 
+  describe('ADR 0084 conversation publication', () => {
+    const conversation = {
+      summary: { purpose: 'A game' },
+      messages: [
+        { role: 'user', content: 'make a game' },
+        {
+          role: 'user',
+          content: 'my address is 1 Elm St',
+          excludedFromPublish: true,
+        },
+      ],
+      personaSnapshots: { p: { systemPrompt: 'persona prompt' } },
+    };
+
+    it('creation stores no conversation when the creator kept it private', async () => {
+      repository.findByAuthorAndSlug.mockResolvedValue({
+        data: null,
+        error: null,
+      });
+      repository.create.mockResolvedValue({ data: mockCruxRaw, error: null });
+      await service.create({
+        slug: 'private-chat',
+        data: '',
+        type: 'note',
+        authorId: 'author-123',
+        meta: { ...conversation, conversationPublished: false },
+      });
+      const stored = repository.create.mock.calls[0][0].meta;
+      expect(stored).not.toHaveProperty('messages');
+      expect(stored).not.toHaveProperty('personaSnapshots');
+      expect(stored).toMatchObject({
+        conversationPublished: false,
+        summary: { purpose: 'A game' },
+      });
+    });
+
+    it('updates drop excluded messages even from a client that sent them', async () => {
+      repository.findBy.mockResolvedValue({ data: mockCruxRaw, error: null });
+      repository.update.mockResolvedValue({ data: mockCruxRaw, error: null });
+      await service.update('crux-id-123', {
+        meta: { ...conversation, conversationPublished: true },
+      });
+      const stored = repository.update.mock.calls[0][1].meta;
+      expect(stored.messages).toEqual([
+        { role: 'user', content: 'make a game' },
+      ]);
+      expect(JSON.stringify(stored)).not.toContain('Elm St');
+
+      await service.update('crux-id-123', {
+        meta: { ...conversation, conversationPublished: false },
+      });
+      expect(repository.update.mock.calls[1][1].meta).not.toHaveProperty(
+        'messages',
+      );
+    });
+  });
+
   describe('update', () => {
     const updateDto = { title: 'Updated Title', description: 'Updated' };
 

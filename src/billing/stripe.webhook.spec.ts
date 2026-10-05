@@ -297,6 +297,45 @@ describe('Stripe webhooks, signed end to end', () => {
     });
     expect(repo.rows.size).toBe(0);
   });
+
+  it('a scheduled cancel_at date is the end date, and the plan says it will not renew (ADR 0083)', async () => {
+    const scheduled = signed(
+      'customer.subscription.updated',
+      subscription({ cancel_at: 1_789_948_800 }), // 2026-09-21T00:00:00Z
+    );
+    await svc.handleWebhook(scheduled.body, scheduled.signature);
+    const me = await svc.me('acct-1', new Date('2026-09-10T00:00:00Z'));
+    expect(me.endsAt).toBe('2026-09-21T00:00:00.000Z');
+    expect(me.cancelAtPeriodEnd).toBe(true);
+    expect(me.renewsAt).toBe('2026-10-01T00:00:00.000Z');
+    expect(repo.rows.get('acct-1')!.cancel_at).toEqual(
+      new Date('2026-09-21T00:00:00Z'),
+    );
+  });
+
+  it('keeps incomplete_expired distinct from incomplete', async () => {
+    const owed = signed(
+      'customer.subscription.updated',
+      subscription({ status: 'incomplete' }),
+    );
+    await svc.handleWebhook(owed.body, owed.signature);
+    expect((await svc.me('acct-1')).status).toBe('incomplete');
+    expect((await svc.me('acct-1')).attention).toMatchObject({
+      kind: 'payment_incomplete',
+      action: 'portal',
+    });
+    const expired = signed(
+      'customer.subscription.updated',
+      subscription({ status: 'incomplete_expired' }),
+    );
+    await svc.handleWebhook(expired.body, expired.signature);
+    const me = await svc.me('acct-1');
+    expect(me.status).toBe('incomplete_expired');
+    expect(me.plan.id).toBe('free');
+    expect(me.attention).toMatchObject({ action: 'checkout' });
+    // never started: the trial is still available
+    expect(repo.rows.get('acct-1')!.subscription_started_at).toBeNull();
+  });
 });
 
 describe('Stripe subscription lookup failures', () => {

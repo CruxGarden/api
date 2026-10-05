@@ -46,6 +46,16 @@ import {
   inspectToolPackage,
   TOOL_PACKAGE_PATH,
 } from '../common/publish/tool-package';
+import { withConversationPolicy } from '../common/publish/public-meta';
+import {
+  summaryFromToolPackage,
+  ToolSummary,
+} from '../common/publish/tool-summary';
+import { UpdateCruxDto } from './dto/update-crux.dto';
+import { publishWarnings, PublishWarning } from './publish-warnings';
+
+/** A publish answer: the committed crux plus anything the creator should know. */
+export type PublishedCrux = Crux & { warnings: PublishWarning[] };
 
 export const CRUX_TAKEN_DOWN =
   'This creation was taken down by Crux Garden and cannot be published again.';
@@ -92,10 +102,25 @@ export class CruxService extends CruxGraphService {
     const dto: CreateCruxDto = {
       ...input,
       authorId: authorId ?? input.authorId,
-      meta: withoutPublicationState(input.meta),
+      // ADR 0084: a private or excluded conversation never reaches the host.
+      meta: withConversationPolicy(withoutPublicationState(input.meta)),
     };
     this.applyDefaults(dto);
     return super.create(dto);
+  }
+
+  /** Sync-on-publish metadata passes the same conversation policy as creation. */
+  override async update(
+    cruxId: string,
+    updateCruxDto: UpdateCruxDto,
+  ): Promise<Crux> {
+    const meta = updateCruxDto.meta;
+    return super.update(
+      cruxId,
+      meta && typeof meta === 'object' && !Array.isArray(meta)
+        ? { ...updateCruxDto, meta: withConversationPolicy(meta) }
+        : updateCruxDto,
+    );
   }
 
   async delete(cruxId: string, hard = false): Promise<null> {
@@ -248,7 +273,7 @@ export class CruxService extends CruxGraphService {
     fileMetas: Array<{ path?: string; type?: string; kind?: string }>,
     authorId: string,
     accountId?: string,
-  ): Promise<Crux> {
+  ): Promise<PublishedCrux> {
     if (process.env.PUBLISH_REVISION_ROUTING !== '1')
       throw new ServiceUnavailableException(
         'Publishing is awaiting the revision-aware origin router. Deploy the router, then enable PUBLISH_REVISION_ROUTING.',
@@ -263,6 +288,7 @@ export class CruxService extends CruxGraphService {
 
     // Validate the one tool-version entity before replacing an existing publication.
     let toolPackage: Awaited<ReturnType<typeof inspectToolPackage>> | undefined;
+    let toolSummary: ToolSummary | undefined;
     if (crux.kind === 'tool') {
       if (files.length !== 1 || fileMetas[0]?.path !== TOOL_PACKAGE_PATH)
         throw new BadRequestException(
@@ -272,6 +298,19 @@ export class CruxService extends CruxGraphService {
         files[0].buffer,
         crux.meta?.template,
       );
+      // ADR 0084: the public trust summary comes from the validated package
+      // header, never from client metadata. A summary failure never blocks a
+      // valid package; the public side then falls back to the stored manifest.
+      try {
+        toolSummary = await summaryFromToolPackage(files[0].buffer, {
+          publisher: await this.publisherUsername(authorId),
+        });
+      } catch (error) {
+        this.logger.warn('Tool summary unavailable', {
+          cruxId: crux.id,
+          error: (error as Error).message,
+        });
+      }
       files[0].mimetype = 'application/zip';
       files[0].originalname = 'tool-package.zip';
       fileMetas = [
@@ -289,7 +328,7 @@ export class CruxService extends CruxGraphService {
       0,
     );
     const previous = await this.usageService.forCrux(crux.id).catch(() => null);
-    await this.limits.assertStorage(
+    const storage = await this.limits.assertStorage(
       authorId,
       accountId,
       incoming,
@@ -364,6 +403,7 @@ export class CruxService extends CruxGraphService {
                 toolPackage: {
                   ...toolPackage,
                   artifactId: artifactRecords[0].id,
+                  ...(toolSummary ? { summary: toolSummary } : {}),
                 },
               }
             : {}),
@@ -416,7 +456,22 @@ export class CruxService extends CruxGraphService {
         this.logger.error('CloudFront invalidation failed', error),
       );
 
-    return this.asCrux(updated.data);
+    // The soft-limit warning used to be computed and dropped; the Share pane shows it.
+    return Object.assign(this.asCrux(updated.data), {
+      warnings: publishWarnings(storage),
+    });
+  }
+
+  /** The author's current username for a Tool's publisher line; best effort. */
+  private async publisherUsername(
+    authorId: string,
+  ): Promise<string | undefined> {
+    try {
+      const { data } = await this.cruxRepository.findAuthorUsername(authorId);
+      return data ?? undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Retain the owner record until every external cleanup acknowledges success.

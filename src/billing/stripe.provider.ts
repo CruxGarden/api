@@ -3,6 +3,7 @@ import type {
   BillingEvent,
   BillingProvider,
   CheckoutRequest,
+  InvoiceSummary,
   PriceInfo,
   SubscriptionSnapshot,
   SubscriptionStatus,
@@ -19,7 +20,7 @@ export class StripeBillingProvider implements BillingProvider {
   constructor(
     private readonly stripe: Stripe,
     private readonly webhookSecret: string,
-    private readonly automaticTax: boolean,
+    readonly automaticTax: boolean,
   ) {}
 
   async createCheckout(req: CheckoutRequest) {
@@ -92,8 +93,60 @@ export class StripeBillingProvider implements BillingProvider {
     }
     for (const id of customers) {
       const customer = await this.stripe.customers.retrieve(id);
-      if (!customer.deleted) await this.stripe.customers.del(id);
+      if (customer.deleted) continue;
+      // Cancel explicitly and immediately (no proration, no final invoice):
+      // the account is going away and remaining time is not refunded (ADR 0083).
+      const subscriptions = await this.stripe.subscriptions.list({
+        customer: id,
+        status: 'all',
+        limit: 100,
+      });
+      for (const sub of subscriptions.data)
+        if (!['canceled', 'incomplete_expired'].includes(sub.status))
+          await this.stripe.subscriptions.cancel(sub.id, {
+            invoice_now: false,
+            prorate: false,
+          });
+      await this.stripe.customers.del(id);
     }
+  }
+
+  async invoices(customerId: string, limit: number): Promise<InvoiceSummary[]> {
+    try {
+      const list = await this.stripe.invoices.list({
+        customer: customerId,
+        limit: Math.min(100, Math.max(1, limit)),
+      });
+      return list.data
+        .filter((inv) => inv.status !== 'draft')
+        .slice(0, limit)
+        .map((inv) => ({
+          id: inv.id ?? '',
+          number: inv.number ?? null,
+          date: new Date(inv.created * 1000).toISOString(),
+          totalCents: inv.total,
+          currency: inv.currency,
+          status: inv.status ?? 'open',
+          hostedUrl: inv.hosted_invoice_url ?? null,
+          pdfUrl: inv.invoice_pdf ?? null,
+        }));
+    } catch (error) {
+      const failure = error as { code?: string; statusCode?: number };
+      if (failure.code === 'resource_missing' && failure.statusCode === 404)
+        return [];
+      throw error;
+    }
+  }
+
+  async hasSubscriptionHistory(customerId: string): Promise<boolean> {
+    const list = await this.stripe.subscriptions.list({
+      customer: customerId,
+      status: 'all',
+      limit: 100,
+    });
+    return list.data.some(
+      (s) => s.status !== 'incomplete' && s.status !== 'incomplete_expired',
+    );
   }
 
   async portalUrl(customerId: string, returnUrl: string) {
@@ -257,6 +310,7 @@ export class StripeBillingProvider implements BillingProvider {
           amount: p.unit_amount,
           currency: p.currency,
           interval: p.recurring?.interval === 'year' ? 'year' : 'month',
+          ...(p.tax_behavior ? { taxBehavior: p.tax_behavior } : {}),
         });
       } catch {
         /* a missing price just isn't offered */
@@ -273,10 +327,11 @@ function status(s: Stripe.Subscription.Status): SubscriptionStatus {
     case 'past_due':
     case 'canceled':
     case 'unpaid':
-      return s;
     case 'incomplete':
     case 'incomplete_expired':
-      return 'incomplete';
+      // kept distinct: incomplete/unpaid owe an invoice (Manage billing);
+      // incomplete_expired never started, so checkout may run again (ADR 0083)
+      return s;
     case 'paused':
       // a trial that ended without a card: no entitlement
       return 'none';
@@ -308,6 +363,8 @@ function snapshot(sub: Stripe.Subscription): SubscriptionSnapshot {
     currentPeriodStart: start ? new Date(start * 1000) : null,
     currentPeriodEnd: end ? new Date(end * 1000) : null,
     cancelAtPeriodEnd: !!sub.cancel_at_period_end,
+    // The portal may schedule a cancellation as a date rather than the flag.
+    cancelAt: sub.cancel_at ? new Date(sub.cancel_at * 1000) : null,
     trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
     accountId: sub.metadata?.accountId || null,
   };

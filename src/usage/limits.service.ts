@@ -10,6 +10,7 @@ import { SETTLEMENT, planById } from './plans';
  *   warning from the usage meters); beyond that, new writes are refused with a
  *   402 that names the limit. Nothing is ever unpublished or deleted for limits.
  * - bandwidth and store requests: never block in v1.
+ * - a suspended account (ADR 0083) is refused with 403 before any of this.
  */
 export const HARD_FACTOR = 2;
 
@@ -35,6 +36,20 @@ export class LimitsService {
   ) {}
 
   /**
+   * Suspension (ADR 0083): a suspended account may sign in, read and export,
+   * but every write that publishes or consumes hosted resources is refused with
+   * 403 "This account is suspended. Contact support." Fails closed.
+   */
+  assertNotSuspended(accountId: string | null | undefined): Promise<void> {
+    return this.billing.assertNotSuspended(accountId);
+  }
+
+  /** The same check for routes that know only the owning author (Store, Functions). */
+  assertAuthorNotSuspended(authorId: string | null | undefined): Promise<void> {
+    return this.billing.assertAuthorNotSuspended(authorId);
+  }
+
+  /**
    * Would storing `incomingBytes` more (replacing `replacingBytes` already
    * counted) push the account past the hard line? Throws 402 if so.
    */
@@ -50,6 +65,7 @@ export class LimitsService {
     softLimit: number;
     warn: boolean;
   }> {
+    await this.assertNotSuspended(accountId);
     const planId = await this.billing.planIdFor(accountId);
     const plan = planById(planId);
     const u = await this.usage.forAuthor(

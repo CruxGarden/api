@@ -244,6 +244,16 @@ export class BillingController {
     return this.billing.portal(req.account.id);
   }
 
+  @Get('invoices')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard)
+  @ApiOperation({
+    summary: 'This account’s most recent invoices (at most 24), newest first',
+  })
+  invoices(@Req() req: AuthRequest) {
+    return this.billing.invoices(req.account.id);
+  }
+
   @Post('sync')
   @ApiBearerAuth()
   @UseGuards(AuthGuard)

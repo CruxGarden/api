@@ -18,12 +18,21 @@ export interface SubscriptionRow {
   current_period_start: Date | string | null;
   current_period_end: Date | string | null;
   cancel_at_period_end: boolean;
+  /** Stripe `cancel_at`: a scheduled cancellation date (ADR 0083) */
+  cancel_at?: Date | string | null;
   trial_end: Date | string | null;
+  /** first time this account had a subscription that started; never cleared (trial eligibility) */
+  subscription_started_at?: Date | string | null;
   /** when the account first went past_due (the grace clock); null when not past due */
   past_due_since?: Date | string | null;
   /** the checkout session last opened; sync recovers from it if no webhook came */
   pending_session_id?: string | null;
   updated: Date | string;
+}
+
+export interface AccountSuspension {
+  suspended: Date | string | null;
+  reason: string | null;
 }
 
 export interface CheckoutAttempt {
@@ -225,6 +234,63 @@ export class BillingRepository {
       return success(row?.email ?? null);
     } catch (error) {
       this.logger.error('accountEmail failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** Operator hold on the account (ADR 0083). Null data: no such live account. */
+  async accountSuspension(
+    accountId: string,
+  ): Promise<RepositoryResponse<AccountSuspension | null>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('accounts')
+        .where({ id: accountId })
+        .whereNull('deleted')
+        .first<{
+          suspended: Date | string | null;
+          suspended_reason: string | null;
+        }>('suspended', 'suspended_reason');
+      return success(
+        row
+          ? {
+              suspended: row.suspended ?? null,
+              reason: row.suspended_reason ?? null,
+            }
+          : null,
+      );
+    } catch (error) {
+      this.logger.error('accountSuspension failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** The account that owns an author, with its hold. */
+  async authorSuspension(
+    authorId: string,
+  ): Promise<RepositoryResponse<AccountSuspension | null>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('authors as au')
+        .join('accounts as a', 'a.id', 'au.account_id')
+        .where('au.id', authorId)
+        .whereNull('a.deleted')
+        .first<{
+          suspended: Date | string | null;
+          suspended_reason: string | null;
+        }>('a.suspended', 'a.suspended_reason');
+      return success(
+        row
+          ? {
+              suspended: row.suspended ?? null,
+              reason: row.suspended_reason ?? null,
+            }
+          : null,
+      );
+    } catch (error) {
+      this.logger.error('authorSuspension failed', error as Error);
       return failure(error);
     }
   }

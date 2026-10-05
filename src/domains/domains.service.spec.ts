@@ -333,6 +333,7 @@ describe('DomainsService', () => {
     const repo = fakeRepo();
     const svc = new DomainsService(repo as never, logger, {
       planIdFor: async () => 'gardener',
+      assertNotSuspended: async () => undefined,
     } as never);
     const edge = new MockEdgeProvider();
     svc.useProviders(edge, {
@@ -361,6 +362,7 @@ describe('DomainsService', () => {
     const repo = fakeRepo();
     const svc = new DomainsService(repo as never, logger, {
       planIdFor: async () => 'gardener',
+      assertNotSuspended: async () => undefined,
     } as never);
     const edge = new MockEdgeProvider();
     edge.activeAfterChecks = 2;
@@ -448,7 +450,10 @@ describe('DomainsService', () => {
   it('custom domains are a Gardener feature: Free connects none, Gardener ten, a removed one frees its slot', async () => {
     const repo = fakeRepo();
     let planId = 'free';
-    const billing = { planIdFor: async () => planId } as never;
+    const billing = {
+      planIdFor: async () => planId,
+      assertNotSuspended: async () => undefined,
+    } as never;
     const svc = new DomainsService(repo as never, logger, billing);
     await expect(
       svc.add('c1', 'a1', 'one.example.com', 'acct-1'),

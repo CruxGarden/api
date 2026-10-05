@@ -20,6 +20,8 @@ export interface BillingNotice {
   attempts: number;
   lease_id: string | null;
   condition: NoticeCondition | string | null;
+  /** addressed at enqueue time; delivered even after the account is closed (ADR 0083) */
+  recipient_email?: string | null;
 }
 
 /** Small durable queues. Leases coordinate replicas; all writes use DbService's
@@ -50,6 +52,7 @@ export class BillingOperationsRepository {
     message: { subject: string; body: string },
     dedupeKey?: string,
     condition?: NoticeCondition,
+    recipientEmail?: string,
   ) {
     return this.result(async () => {
       await this.database
@@ -61,6 +64,7 @@ export class BillingOperationsRepository {
           due_at: new Date(),
           dedupe_key: dedupeKey ?? null,
           condition: condition ? JSON.stringify(condition) : null,
+          ...(recipientEmail ? { recipient_email: recipientEmail } : {}),
         })
         .onConflict('dedupe_key')
         .ignore();
@@ -265,6 +269,8 @@ export class BillingOperationsRepository {
         .update({
           sent_at: code ? null : now,
           outcome: code ? null : outcome,
+          // A closed account's address is kept only until its notice is finished.
+          ...(code || !notice.recipient_email ? {} : { recipient_email: null }),
           attempts,
           failure_code: code,
           due_at: new Date(

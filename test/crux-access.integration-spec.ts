@@ -233,7 +233,10 @@ describe('Crux access policy', () => {
       const response = await request(app.getHttpServer())
         .get(`/authors/alice/cruxes/${slug}`)
         .expect(200);
-      expect(response.body.meta).toEqual({ summary: 'Shared summary' });
+      expect(response.body.meta).toEqual({
+        summary: 'Shared summary',
+        conversationPublished: true,
+      });
     }
   });
 
@@ -244,7 +247,10 @@ describe('Crux access policy', () => {
         .get('/authors/alice?embed=root')
         .expect(200);
       if (root === publicId)
-        expect(response.body.root.meta).toEqual({ summary: 'Shared summary' });
+        expect(response.body.root.meta).toEqual({
+          summary: 'Shared summary',
+          conversationPublished: true,
+        });
       else expect(response.body.root).toBeUndefined();
     }
   });

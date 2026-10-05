@@ -194,13 +194,17 @@ describe('Reports, takedowns and sitemap', () => {
       expect(email.getLastEmail().body).toContain('This is my photograph.');
     });
 
-    it('needs no account, optional fields or notification address', async () => {
+    it('needs no account or optional fields; without an address the admin accounts hear', async () => {
       delete process.env.REPORTS_NOTIFY_EMAIL;
+      delete process.env.BOOTSTRAP_ADMIN_EMAIL;
       await http()
         .post('/explore/reports')
         .send({ cruxId: published, reason: 'other' })
         .expect(201, { ok: true });
-      expect(email.getSentEmails()).toHaveLength(0);
+      expect(email.getSentEmails()).toHaveLength(1);
+      expect(email.getLastEmail()).toMatchObject({
+        email: 'operator@example.com',
+      });
     });
 
     it('refuses a sixth request in a minute from one address', async () => {
@@ -218,6 +222,7 @@ describe('Reports, takedowns and sitemap', () => {
   describe('operator review', () => {
     it.each([
       ['get', '/admin/reports'],
+      ['get', '/admin/reports/summary'],
       ['patch', `/admin/reports/${randomUUID()}`],
       ['get', '/admin/takedowns'],
       ['post', '/admin/takedowns'],
@@ -255,6 +260,15 @@ describe('Reports, takedowns and sitemap', () => {
         .set('Authorization', asOperator())
         .expect(200);
       expect(open.body).toHaveLength(1);
+      const summary = await http()
+        .get('/admin/reports/summary')
+        .set('Authorization', asOperator())
+        .expect(200);
+      expect(summary.body).toEqual({
+        open: 1,
+        resolvedLast30d: 1,
+        takenDown: 0,
+      });
       await http()
         .patch(`/admin/reports/${randomUUID()}`)
         .set('Authorization', asOperator())
