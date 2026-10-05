@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
 import { LoggerService } from '../common/services/logger.service';
+import { webOrigin } from '../common/helpers/web-origin';
+import { buildSitemap, SitemapRow, SITEMAP_MAX_URLS } from './sitemap';
 import {
   ExploreRepository,
   ExploreCruxFilters,
@@ -29,5 +31,12 @@ export class ExploreService {
 
   async getPopularTags(limit?: number, kind?: string) {
     return this.exploreRepository.findPopularTags(limit, kind);
+  }
+
+  /** Author pages and crux pages on the public website, capped at the protocol's limit. */
+  async getSitemap(): Promise<string> {
+    const rows: SitemapRow[] =
+      await this.exploreRepository.findSitemapQuery(SITEMAP_MAX_URLS);
+    return buildSitemap(webOrigin(), rows);
   }
 }

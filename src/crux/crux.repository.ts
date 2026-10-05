@@ -7,6 +7,7 @@ import { LoggerService } from '../common/services/logger.service';
 import { RepositoryResponse } from '../common/types/interfaces';
 import { success, failure } from '../common/helpers/repository-helpers';
 import CruxRaw from './entities/crux-raw.entity';
+import TakedownRaw from './entities/takedown-raw.entity';
 import { CreateCruxDto } from './dto/create-crux.dto';
 import { UpdateCruxDto } from './dto/update-crux.dto';
 import Artifact from '../artifact/entities/artifact.entity';
@@ -26,6 +27,7 @@ export class CruxRepository {
 
   private static readonly TABLE_NAME = 'cruxes';
   private static readonly BASE_SELECT = '*';
+  private static readonly TAKEDOWNS_TABLE = 'takedowns';
 
   findAllByAuthorQuery(
     authorId: string,
@@ -439,6 +441,116 @@ export class CruxRepository {
       return failure(error);
     }
   }
+
+  /* takedowns */
+
+  // Takedowns are their own table rather than a column on `cruxes`: unpublish
+  // hard-deletes the crux row, and the refusal must outlive it so the same id
+  // cannot be synced and published again.
+
+  findTakedownsQuery(
+    activeOnly = false,
+  ): Knex.QueryBuilder<TakedownRaw, TakedownRaw[]> {
+    const query = this.dbService
+      .query()
+      .from<TakedownRaw>(CruxRepository.TAKEDOWNS_TABLE)
+      .select<TakedownRaw[]>('*')
+      .whereNull('deleted')
+      .orderBy('created', 'desc') as Knex.QueryBuilder<
+      TakedownRaw,
+      TakedownRaw[]
+    >;
+    if (activeOnly) query.whereNull('lifted');
+    return query;
+  }
+
+  async findActiveTakedown(
+    cruxId: string,
+  ): Promise<RepositoryResponse<TakedownRaw | undefined>> {
+    try {
+      const data = await this.dbService
+        .query()
+        .from<TakedownRaw>(CruxRepository.TAKEDOWNS_TABLE)
+        .select('*')
+        .where('crux_id', cruxId)
+        .whereNull('lifted')
+        .whereNull('deleted')
+        .first();
+
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  async createTakedown(takedown: {
+    id: string;
+    cruxId: string;
+    authorId?: string;
+    reason: string;
+    reportId?: string;
+    createdBy: string;
+  }): Promise<RepositoryResponse<TakedownRaw>> {
+    try {
+      await this.dbService
+        .query()
+        .from<TakedownRaw>(CruxRepository.TAKEDOWNS_TABLE)
+        .insert({
+          ...toTableFields(takedown),
+          created: new Date(),
+          updated: new Date(),
+        });
+
+      const data = await this.dbService
+        .query()
+        .from<TakedownRaw>(CruxRepository.TAKEDOWNS_TABLE)
+        .select('*')
+        .where('id', takedown.id)
+        .first();
+
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  /** Returns the lifted record, or undefined when no takedown was active. */
+  async liftTakedown(
+    cruxId: string,
+    liftedBy: string,
+  ): Promise<RepositoryResponse<TakedownRaw | undefined>> {
+    try {
+      const active = await this.dbService
+        .query()
+        .from<TakedownRaw>(CruxRepository.TAKEDOWNS_TABLE)
+        .select('id')
+        .where('crux_id', cruxId)
+        .whereNull('lifted')
+        .whereNull('deleted')
+        .first();
+      if (!active) return success(undefined);
+
+      const now = new Date();
+      await this.dbService
+        .query()
+        .from<TakedownRaw>(CruxRepository.TAKEDOWNS_TABLE)
+        .where('id', active.id)
+        .update({ lifted: now, lifted_by: liftedBy, updated: now });
+
+      const data = await this.dbService
+        .query()
+        .from<TakedownRaw>(CruxRepository.TAKEDOWNS_TABLE)
+        .select('*')
+        .where('id', active.id)
+        .first();
+
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  /* ~takedowns */
 
   async findAllByAuthorId(
     authorId: string,

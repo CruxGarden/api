@@ -11,6 +11,7 @@ import {
   Injectable,
   ServiceUnavailableException,
   ConflictException,
+  ForbiddenException,
   BadRequestException,
   PayloadTooLargeException,
   NotFoundException,
@@ -22,6 +23,7 @@ import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { DimensionService } from '../dimension/dimension.service';
 import Crux from './entities/crux.entity';
+import Takedown from './entities/takedown.entity';
 import {
   CruxStatus,
   CruxType,
@@ -44,6 +46,9 @@ import {
   inspectToolPackage,
   TOOL_PACKAGE_PATH,
 } from '../common/publish/tool-package';
+
+export const CRUX_TAKEN_DOWN =
+  'This creation was taken down by Crux Garden and cannot be published again.';
 
 @Injectable()
 export class CruxService extends CruxGraphService {
@@ -82,6 +87,8 @@ export class CruxService extends CruxGraphService {
     input: CreateCruxDto,
     authorId?: string,
   ): Promise<Crux> {
+    // Sync-on-publish recreates the row by id; a taken-down id stays off the host.
+    if (input.id) await this.assertNotTakenDown(input.id);
     const dto: CreateCruxDto = {
       ...input,
       authorId: authorId ?? input.authorId,
@@ -247,6 +254,7 @@ export class CruxService extends CruxGraphService {
         'Publishing is awaiting the revision-aware origin router. Deploy the router, then enable PUBLISH_REVISION_ROUTING.',
       );
     const crux = await this.findById(cruxId);
+    await this.assertNotTakenDown(crux.id);
 
     if (crux.meta?.publicationRemoving)
       throw new ConflictException(
@@ -473,6 +481,87 @@ export class CruxService extends CruxGraphService {
     // Return the crux state as it was before deletion (for client-side update)
     return crux;
   }
+
+  /* takedowns */
+
+  /** Fails closed: an unreadable takedown list must not let a publish through. */
+  private async assertNotTakenDown(cruxId: string): Promise<void> {
+    const { data, error } =
+      await this.cruxRepository.findActiveTakedown(cruxId);
+    if (error)
+      throw new InternalServerErrorException(
+        'Could not check whether this creation may be published',
+        { cause: error },
+      );
+    if (data) throw new ForbiddenException(CRUX_TAKEN_DOWN);
+  }
+
+  /**
+   * Operator takedown. The record is written before the ordinary unpublish
+   * path runs, so a teardown that fails half-way still blocks republishing
+   * and the whole call can simply be retried. The crux may already be gone
+   * (the author unpublished after a report); the id is blocked all the same.
+   */
+  async takeDownCrux(
+    cruxId: string,
+    operatorId: string,
+    reason: string,
+    reportId?: string,
+  ): Promise<Takedown> {
+    const found = await this.cruxRepository.findBy('id', cruxId);
+    if (found.error)
+      throw new InternalServerErrorException('Could not load Crux', {
+        cause: found.error,
+      });
+    const active = await this.cruxRepository.findActiveTakedown(cruxId);
+    if (active.error)
+      throw new InternalServerErrorException('Takedown error', {
+        cause: active.error,
+      });
+
+    let takedown = active.data;
+    if (!takedown) {
+      const created = await this.cruxRepository.createTakedown({
+        id: this.keyMaster.generateId(),
+        cruxId,
+        authorId: found.data?.author_id,
+        reason,
+        reportId,
+        createdBy: operatorId,
+      });
+      if (created.error)
+        throw new InternalServerErrorException('Takedown error', {
+          cause: created.error,
+        });
+      takedown = created.data;
+    }
+    this.logger.warn('Crux taken down', { cruxId, operatorId, reportId });
+
+    if (found.data) await this.unpublishCrux(cruxId);
+
+    return new Takedown(toEntityFields(takedown));
+  }
+
+  async liftTakedown(cruxId: string, operatorId: string): Promise<Takedown> {
+    const { data, error } = await this.cruxRepository.liftTakedown(
+      cruxId,
+      operatorId,
+    );
+    if (error)
+      throw new InternalServerErrorException('Takedown error', {
+        cause: error,
+      });
+    if (!data)
+      throw new NotFoundException('No active takedown for this creation');
+    this.logger.warn('Takedown lifted', { cruxId, operatorId });
+    return new Takedown(toEntityFields(data));
+  }
+
+  findTakedownsQuery(activeOnly = false) {
+    return this.cruxRepository.findTakedownsQuery(activeOnly);
+  }
+
+  /* ~takedowns */
 
   /** One committed head and inventory, captured before any storage reads. */
   async publishedRevision(

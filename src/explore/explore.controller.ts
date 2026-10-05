@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, Res } from '@nestjs/common';
+import { Controller, Get, Header, Query, Req, Res } from '@nestjs/common';
 import { withPublicMeta } from '../common/publish/public-meta';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Request, Response } from 'express';
@@ -101,5 +101,15 @@ export class ExploreController {
     const n = Math.min(200, positiveIntegerQuery(limit, 'limit', 50));
     const data = await this.exploreService.getPopularTags(n, kind || undefined);
     return { data };
+  }
+
+  @Get('sitemap.xml')
+  @Header('Content-Type', 'application/xml; charset=utf-8')
+  @Header('Cache-Control', 'public, max-age=3600')
+  @ApiOperation({
+    summary: 'XML sitemap of discoverable cruxes and their authors',
+  })
+  async sitemap(): Promise<string> {
+    return this.exploreService.getSitemap();
   }
 }

@@ -1,3 +1,4 @@
+import { isReservedUsername } from '../common/helpers/reserved-usernames';
 import { MAX_ARTIFACT_SIZE } from '../common/types/constants';
 import {
   Controller,
@@ -100,6 +101,7 @@ export class AuthorController {
     @Query('username') username: string,
     @Req() req: AuthRequest,
   ): Promise<{ available: boolean }> {
+    if (isReservedUsername(username ?? '')) return { available: false };
     const existingAuthor =
       await this.authorService.checkUsernameExists(username);
 

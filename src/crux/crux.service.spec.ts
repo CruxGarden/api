@@ -5,7 +5,7 @@ import {
   ConflictException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { CruxService } from './crux.service';
+import { CruxService, CRUX_TAKEN_DOWN } from './crux.service';
 import { CruxRepository } from './crux.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
@@ -46,6 +46,12 @@ describe('CruxService', () => {
   beforeEach(async () => {
     const mockRepository = {
       findBy: jest.fn(),
+      findActiveTakedown: jest
+        .fn()
+        .mockResolvedValue({ data: undefined, error: null }),
+      createTakedown: jest.fn(),
+      liftTakedown: jest.fn(),
+      beginPublicationRemoval: jest.fn(),
       findByIdIncludingDeleted: jest
         .fn()
         .mockResolvedValue({ data: null, error: null }),
@@ -457,6 +463,160 @@ describe('CruxService', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe(mockCruxRaw.id);
+    });
+  });
+  describe('takedowns', () => {
+    const takedownRaw = {
+      id: 'takedown-1',
+      crux_id: 'crux-id-123',
+      author_id: 'author-123',
+      reason: 'Illegal content',
+      report_id: null,
+      created_by: 'operator-1',
+      lifted: null,
+      lifted_by: null,
+      created: new Date(),
+      updated: new Date(),
+      deleted: null,
+    };
+    const routing = process.env.PUBLISH_REVISION_ROUTING;
+    afterEach(() => {
+      process.env.PUBLISH_REVISION_ROUTING = routing;
+    });
+
+    it('records the takedown before unpublishing through the ordinary path', async () => {
+      repository.findBy.mockResolvedValue({ data: mockCruxRaw, error: null });
+      repository.createTakedown.mockResolvedValue({
+        data: takedownRaw,
+        error: null,
+      });
+      const order: string[] = [];
+      repository.createTakedown.mockImplementationOnce(async () => {
+        order.push('record');
+        return { data: takedownRaw, error: null };
+      });
+      const unpublish = jest
+        .spyOn(service, 'unpublishCrux')
+        .mockImplementation(async () => {
+          order.push('unpublish');
+          return service.asCrux(mockCruxRaw);
+        });
+
+      const result = await service.takeDownCrux(
+        'crux-id-123',
+        'operator-1',
+        'Illegal content',
+        'report-1',
+      );
+
+      expect(order).toEqual(['record', 'unpublish']);
+      expect(repository.createTakedown).toHaveBeenCalledWith({
+        id: 'generated-id',
+        cruxId: 'crux-id-123',
+        authorId: mockCruxRaw.author_id,
+        reason: 'Illegal content',
+        reportId: 'report-1',
+        createdBy: 'operator-1',
+      });
+      expect(unpublish).toHaveBeenCalledWith('crux-id-123');
+      expect(result.cruxId).toBe('crux-id-123');
+    });
+
+    it('keeps the takedown when the teardown fails, and retries without a second record', async () => {
+      repository.findBy.mockResolvedValue({ data: mockCruxRaw, error: null });
+      repository.createTakedown.mockResolvedValue({
+        data: takedownRaw,
+        error: null,
+      });
+      const unpublish = jest
+        .spyOn(service, 'unpublishCrux')
+        .mockRejectedValueOnce(new Error('storage down'))
+        .mockResolvedValueOnce(service.asCrux(mockCruxRaw));
+
+      await expect(
+        service.takeDownCrux('crux-id-123', 'operator-1', 'Illegal content'),
+      ).rejects.toThrow('storage down');
+      repository.findActiveTakedown.mockResolvedValue({
+        data: takedownRaw,
+        error: null,
+      });
+      await service.takeDownCrux(
+        'crux-id-123',
+        'operator-1',
+        'Illegal content',
+      );
+
+      expect(repository.createTakedown).toHaveBeenCalledTimes(1);
+      expect(unpublish).toHaveBeenCalledTimes(2);
+    });
+
+    it('blocks an id whose crux is already gone without unpublishing', async () => {
+      repository.findBy.mockResolvedValue({ data: null, error: null });
+      repository.createTakedown.mockResolvedValue({
+        data: { ...takedownRaw, author_id: null },
+        error: null,
+      });
+      const unpublish = jest.spyOn(service, 'unpublishCrux');
+
+      await service.takeDownCrux('crux-id-123', 'operator-1', 'Spam');
+
+      expect(repository.createTakedown).toHaveBeenCalled();
+      expect(unpublish).not.toHaveBeenCalled();
+    });
+
+    it('refuses to publish a taken-down crux with 403', async () => {
+      process.env.PUBLISH_REVISION_ROUTING = '1';
+      repository.findBy.mockResolvedValue({ data: mockCruxRaw, error: null });
+      repository.findActiveTakedown.mockResolvedValue({
+        data: takedownRaw,
+        error: null,
+      });
+
+      await expect(
+        service.publishCrux('crux-id-123', [], [], 'author-123'),
+      ).rejects.toMatchObject({ status: 403, message: CRUX_TAKEN_DOWN });
+    });
+
+    it('refuses to publish when the takedown list cannot be read', async () => {
+      process.env.PUBLISH_REVISION_ROUTING = '1';
+      repository.findBy.mockResolvedValue({ data: mockCruxRaw, error: null });
+      repository.findActiveTakedown.mockResolvedValue({
+        data: null,
+        error: new Error('db down'),
+      });
+
+      await expect(
+        service.publishCrux('crux-id-123', [], [], 'author-123'),
+      ).rejects.toMatchObject({ status: 500 });
+    });
+
+    it('refuses to recreate a taken-down crux id', async () => {
+      repository.findActiveTakedown.mockResolvedValue({
+        data: takedownRaw,
+        error: null,
+      });
+
+      await expect(
+        service.create({ id: 'crux-id-123', slug: 'again' } as any, 'author'),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('lifts an active takedown and 404s when there is none', async () => {
+      repository.liftTakedown.mockResolvedValueOnce({
+        data: { ...takedownRaw, lifted: new Date(), lifted_by: 'operator-2' },
+        error: null,
+      });
+      const lifted = await service.liftTakedown('crux-id-123', 'operator-2');
+      expect(lifted.liftedBy).toBe('operator-2');
+
+      repository.liftTakedown.mockResolvedValueOnce({
+        data: undefined,
+        error: null,
+      });
+      await expect(
+        service.liftTakedown('crux-id-123', 'operator-2'),
+      ).rejects.toMatchObject({ status: 404 });
     });
   });
 });

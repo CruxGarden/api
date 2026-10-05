@@ -25,7 +25,15 @@ describe('Auth Integration Tests', () => {
   let mockAccountRepository: any;
   let mockAuthorRepository: any;
 
+  const env = { ...process.env };
+
   beforeAll(async () => {
+    // This suite signs in far more often than one address may in a minute;
+    // the limits themselves are covered in auth-limits.integration-spec.ts.
+    process.env.AUTH_CODE_PER_MINUTE_PER_IP = '1000';
+    process.env.AUTH_LOGIN_PER_MINUTE_PER_IP = '1000';
+    process.env.AUTH_TOKEN_PER_MINUTE_PER_IP = '1000';
+
     // Create mock instances
     mockRedis = new MockRedisService();
     mockEmail = new MockEmailService();
@@ -79,6 +87,7 @@ describe('Auth Integration Tests', () => {
   });
 
   afterAll(async () => {
+    process.env = env;
     await app.close();
   });
 

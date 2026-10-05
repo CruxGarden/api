@@ -1,5 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AuthService } from './auth.service';
+import {
+  AuthService,
+  CODE_REQUESTS_LIMITED,
+  CODE_REQUESTS_PER_EMAIL,
+  LOGIN_ATTEMPTS_LIMITED,
+} from './auth.service';
 import { AccountService } from '../account/account.service';
 import { AuthorService } from '../author/author.service';
 import { EmailService } from '../common/services/email.service';
@@ -58,6 +63,7 @@ describe('AuthService', () => {
       get: jest.fn(),
       set: jest.fn(),
       del: jest.fn(),
+      incr: jest.fn().mockResolvedValue(1),
     };
 
     const mockKeyMaster = {
@@ -294,10 +300,36 @@ describe('AuthService', () => {
         body: 'Your auth code is generated-token',
       });
     });
+
+    it('should count requests per email and lift the wrong-code lockout', async () => {
+      await service.code({ email: 'Test@Example.com' });
+
+      expect(redisService.incr).toHaveBeenCalledWith(
+        'crux:auth:code-requests:test@example.com',
+        900,
+      );
+      expect(redisService.del).toHaveBeenCalledWith(
+        'crux:auth:login-attempts:test@example.com',
+      );
+    });
+
+    it('should refuse a sixth code for one email within the window without sending', async () => {
+      redisService.incr.mockResolvedValue(CODE_REQUESTS_PER_EMAIL + 1);
+
+      await expect(
+        service.code({ email: 'test@example.com' }),
+      ).rejects.toMatchObject({
+        status: 429,
+        response: { message: CODE_REQUESTS_LIMITED },
+      });
+      expect(redisService.set).not.toHaveBeenCalled();
+      expect(emailService.send).not.toHaveBeenCalled();
+    });
   });
 
   describe('login', () => {
     it('should login existing user successfully', async () => {
+      redisService.get.mockResolvedValueOnce(null); // failed attempts so far
       redisService.get.mockResolvedValueOnce('test@example.com'); // getEmailByCode
       redisService.get.mockResolvedValueOnce('grant-123'); // getGrantIdByEmail
       redisService.set.mockResolvedValue('OK');
@@ -328,9 +360,42 @@ describe('AuthService', () => {
       });
 
       expect(result).toBeNull();
+      expect(redisService.incr).toHaveBeenCalledWith(
+        'crux:auth:login-attempts:test@example.com',
+        900,
+      );
+    });
+
+    it('should refuse further attempts after five wrong codes, even a right one', async () => {
+      redisService.get.mockResolvedValueOnce('5'); // failed attempts so far
+      redisService.get.mockResolvedValueOnce('test@example.com'); // the code would match
+
+      await expect(
+        service.login({ email: 'Test@Example.com', code: 'code-123' }),
+      ).rejects.toMatchObject({
+        status: 429,
+        response: { message: LOGIN_ATTEMPTS_LIMITED },
+      });
+      expect(redisService.get).toHaveBeenCalledTimes(1);
+      expect(accountService.findByEmail).not.toHaveBeenCalled();
+    });
+
+    it('should clear the failed-attempt count on a successful login', async () => {
+      redisService.get.mockResolvedValueOnce('4'); // failed attempts so far
+      redisService.get.mockResolvedValueOnce('test@example.com'); // getEmailByCode
+      redisService.get.mockResolvedValueOnce('grant-123'); // getGrantIdByEmail
+      accountService.findByEmail.mockResolvedValue(mockAccount as any);
+
+      await service.login({ email: 'test@example.com', code: 'code-123' });
+
+      expect(redisService.del).toHaveBeenCalledWith(
+        'crux:auth:login-attempts:test@example.com',
+      );
+      expect(redisService.incr).not.toHaveBeenCalled();
     });
 
     it('should create new account and author for new user', async () => {
+      redisService.get.mockResolvedValueOnce(null); // failed attempts so far
       redisService.get.mockResolvedValueOnce('test@example.com'); // getEmailByCode
       redisService.get.mockResolvedValueOnce(null); // getGrantIdByEmail (no existing grant)
       redisService.set.mockResolvedValue('OK');
@@ -361,6 +426,7 @@ describe('AuthService', () => {
     });
 
     it('should handle account creation error gracefully', async () => {
+      redisService.get.mockResolvedValueOnce(null); // failed attempts so far
       redisService.get.mockResolvedValueOnce('test@example.com');
       redisService.get.mockResolvedValueOnce(null);
       redisService.set.mockResolvedValue('OK');
@@ -376,6 +442,7 @@ describe('AuthService', () => {
     });
 
     it('should handle author creation error', async () => {
+      redisService.get.mockResolvedValueOnce(null); // failed attempts so far
       redisService.get.mockResolvedValueOnce('test@example.com');
       redisService.get.mockResolvedValueOnce(null);
       redisService.set.mockResolvedValue('OK');

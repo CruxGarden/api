@@ -32,6 +32,15 @@ export class MockRedisService {
     return value;
   }
 
+  async incr(key: string, expire: number): Promise<number> {
+    const current = await this.get(key);
+    const count = (Number(current) || 0) + 1;
+    const expiresAt =
+      this.store.get(key)?.expiresAt ?? Date.now() + expire * 1000;
+    this.store.set(key, { value: String(count), expiresAt });
+    return count;
+  }
+
   async del(key: string): Promise<void> {
     this.store.delete(key);
   }

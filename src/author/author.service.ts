@@ -1,3 +1,4 @@
+import { isReservedUsername } from '../common/helpers/reserved-usernames';
 import {
   Injectable,
   NotFoundException,
@@ -143,7 +144,9 @@ export class AuthorService {
   async create(createAuthorDto: CreateAuthorDto): Promise<Author> {
     createAuthorDto.id = this.keyMaster.generateId();
 
-    // 2) check if username already exists
+    // 2) check if username is kept for the website or already exists
+    if (isReservedUsername(createAuthorDto.username))
+      throw new ConflictException('That username is kept for the website');
     const existingByUsername = await this.checkUsernameExists(
       createAuthorDto.username,
     );
@@ -180,6 +183,8 @@ export class AuthorService {
       updateAuthorDto.username.toLowerCase() !==
         authorToUpdate.username.toLowerCase()
     ) {
+      if (isReservedUsername(updateAuthorDto.username))
+        throw new ConflictException('That username is kept for the website');
       const existingAuthor = await this.checkUsernameExists(
         updateAuthorDto.username,
       );

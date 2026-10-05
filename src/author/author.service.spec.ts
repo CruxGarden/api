@@ -172,6 +172,15 @@ describe('AuthorService', () => {
       );
     });
 
+    it('should refuse a username the website keeps for itself', async () => {
+      repository.findByUsername.mockResolvedValue({ data: null, error: null });
+
+      await expect(
+        service.create({ ...createDto, username: 'Terms' }),
+      ).rejects.toThrow('That username is kept for the website');
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
     it('should throw ConflictException when account already has author', async () => {
       repository.findByUsername.mockResolvedValue({ data: null, error: null });
       repository.findBy.mockResolvedValue({

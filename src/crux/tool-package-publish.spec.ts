@@ -40,6 +40,7 @@ function fixture(layout: 'shared' | 'bucket-per-crux') {
     },
   });
   const repository = {
+    findActiveTakedown: jest.fn(async () => ({ data: undefined, error: null })),
     commitPublication: jest.fn(
       async (_id, _author, _version, _artifacts, meta) => ({
         data: { ...crux, meta },

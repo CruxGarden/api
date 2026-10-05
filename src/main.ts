@@ -21,6 +21,19 @@ const API_VERSION = version;
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Per-IP rate limits and the report IP hash read `req.ip`. Behind a load
+  // balancer that is the balancer unless Express is told how many proxies to
+  // trust — otherwise every visitor shares one bucket. Unset = direct socket.
+  const trustProxy = process.env.TRUST_PROXY;
+  if (trustProxy)
+    app
+      .getHttpAdapter()
+      .getInstance()
+      .set(
+        'trust proxy',
+        /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy,
+      );
+
   // Increase JSON body limit for large meta payloads (chat history). `verify`
   // keeps the raw bytes so Stripe webhook signatures can be checked.
   app.use(

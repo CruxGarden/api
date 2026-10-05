@@ -200,6 +200,24 @@ export class ExploreRepository {
   }
 
   /**
+   * What the sitemap lists: the same discoverable cruxes Explore shows, most
+   * recently updated first, with the author's username for the public URL.
+   */
+  findSitemapQuery(limit: number): Knex.QueryBuilder {
+    return this.dbService
+      .query()
+      .from('cruxes as c')
+      .select('a.username', 'c.slug', 'c.updated')
+      .join('authors as a', 'a.id', 'c.author_id')
+      .where('c.visibility', 'public')
+      .where('c.discoverable', true)
+      .whereNull('c.deleted')
+      .whereNull('a.deleted')
+      .orderBy('c.updated', 'desc')
+      .limit(limit);
+  }
+
+  /**
    * Popular tags across discoverable cruxes, with counts.
    */
   async findPopularTags(
