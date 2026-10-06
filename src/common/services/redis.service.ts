@@ -50,6 +50,19 @@ export class RedisService implements OnModuleInit {
     return redis.get(key) || null;
   }
 
+  async take(key: string): Promise<string | null> {
+    await this.connect();
+    return redis.getDel(key);
+  }
+
+  /** Atomic counter for rate limits. The window opens on the first hit and later hits do not extend it. */
+  async incr(key: string, expire: number): Promise<number> {
+    await this.connect();
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, expire);
+    return count;
+  }
+
   async del(key: string) {
     await this.connect();
     return redis.del(key);

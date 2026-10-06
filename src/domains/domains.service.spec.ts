@@ -243,6 +243,20 @@ describe('DomainsService', () => {
     expect(await svc.resolveHost('nobody.example.com')).toBeNull();
   });
 
+  it('does not turn a failed publication lookup into a cached not-found answer', async () => {
+    const repo = fakeRepo();
+    repo.publishState.mockResolvedValueOnce({
+      data: null,
+      error: new Error('Database unavailable'),
+    } as never);
+    const svc = new DomainsService(repo as never, logger);
+    await expect(
+      svc.resolveHost(
+        '550e8400-e29b-41d4-a716-446655440000.publish.crux.garden',
+      ),
+    ).rejects.toThrow('Could not resolve publication');
+  });
+
   it('records a failed certificate request and lets the user retry', async () => {
     const repo = fakeRepo();
     const svc = new DomainsService(repo as never, logger);
@@ -319,6 +333,7 @@ describe('DomainsService', () => {
     const repo = fakeRepo();
     const svc = new DomainsService(repo as never, logger, {
       planIdFor: async () => 'gardener',
+      assertNotSuspended: async () => undefined,
     } as never);
     const edge = new MockEdgeProvider();
     svc.useProviders(edge, {
@@ -347,6 +362,7 @@ describe('DomainsService', () => {
     const repo = fakeRepo();
     const svc = new DomainsService(repo as never, logger, {
       planIdFor: async () => 'gardener',
+      assertNotSuspended: async () => undefined,
     } as never);
     const edge = new MockEdgeProvider();
     edge.activeAfterChecks = 2;
@@ -434,7 +450,10 @@ describe('DomainsService', () => {
   it('custom domains are a Gardener feature: Free connects none, Gardener ten, a removed one frees its slot', async () => {
     const repo = fakeRepo();
     let planId = 'free';
-    const billing = { planIdFor: async () => planId } as never;
+    const billing = {
+      planIdFor: async () => planId,
+      assertNotSuspended: async () => undefined,
+    } as never;
     const svc = new DomainsService(repo as never, logger, billing);
     await expect(
       svc.add('c1', 'a1', 'one.example.com', 'acct-1'),
@@ -578,5 +597,53 @@ describe('DomainsService', () => {
     // a pending row (tenant not yet created) is still a claim: nothing to sweep
     await svc.add('c3', 'a3', 'soon.example.com');
     expect(await svc.sweepTenants()).toBe(0);
+  });
+});
+
+describe('Explicit domain teardown failures', () => {
+  it('refuses an unreadable domain list', async () => {
+    const repo = fakeRepo();
+    repo.findByCrux.mockResolvedValueOnce({
+      data: null,
+      error: new Error('Database unavailable'),
+    } as never);
+    const svc = new DomainsService(repo as never, logger);
+    await expect(svc.removeAllForCrux('c1')).rejects.toThrow('Could not read');
+  });
+  it('keeps a failed edge removal retryable and propagates a failed domain record removal', async () => {
+    const repo = fakeRepo();
+    const row = (
+      await repo.create({
+        crux_id: 'c1',
+        author_id: 'a1',
+        hostname: 'example.test',
+        tenant_id: 'tenant',
+        status: 'active',
+      })
+    ).data;
+    const svc = new DomainsService(repo as never, logger);
+    const edge = new MockEdgeProvider();
+    svc.useProviders(edge, {
+      cnameTargets: async () => [],
+      txtValues: async () => [],
+      addresses: async () => [],
+    });
+    const remove = jest
+      .spyOn(edge, 'deleteTenant')
+      .mockRejectedValueOnce(new Error('Edge unavailable'))
+      .mockResolvedValue('deleted');
+    await expect(svc.removeAllForCrux('c1')).rejects.toThrow();
+    expect(repo.rows.get(row.id)!.deleted).toBeNull();
+    expect(repo.rows.get(row.id)!.tenant_id).toBe('tenant');
+    repo.remove.mockResolvedValueOnce({
+      data: null,
+      error: new Error('Database unavailable'),
+    } as never);
+    await expect(svc.removeAllForCrux('c1')).rejects.toThrow(
+      'Could not remove',
+    );
+    await svc.removeAllForCrux('c1');
+    expect(repo.rows.get(row.id)!.deleted).toBeTruthy();
+    expect(remove).toHaveBeenCalledTimes(2);
   });
 });

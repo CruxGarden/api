@@ -1,3 +1,5 @@
+import type { CheckoutRequest } from './provider';
+import { accountTransaction } from '../common/helpers/account-transaction';
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../common/services/db.service';
 import { LoggerService } from '../common/services/logger.service';
@@ -16,12 +18,33 @@ export interface SubscriptionRow {
   current_period_start: Date | string | null;
   current_period_end: Date | string | null;
   cancel_at_period_end: boolean;
+  /** Stripe `cancel_at`: a scheduled cancellation date (ADR 0083) */
+  cancel_at?: Date | string | null;
   trial_end: Date | string | null;
+  /** first time this account had a subscription that started; never cleared (trial eligibility) */
+  subscription_started_at?: Date | string | null;
   /** when the account first went past_due (the grace clock); null when not past due */
   past_due_since?: Date | string | null;
   /** the checkout session last opened; sync recovers from it if no webhook came */
   pending_session_id?: string | null;
   updated: Date | string;
+}
+
+export interface AccountSuspension {
+  suspended: Date | string | null;
+  reason: string | null;
+}
+
+export interface CheckoutAttempt {
+  account_id: string;
+  id: string;
+  provider: string;
+  request: CheckoutRequest;
+  status: 'preparing' | 'open' | 'completed' | 'expired';
+  session_id: string | null;
+  session_url: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
 }
 
 @Injectable()
@@ -32,6 +55,78 @@ export class BillingRepository {
     loggerService: LoggerService,
   ) {
     this.logger = loggerService.createChildLogger('BillingRepository');
+  }
+
+  /** One account's provider observation, projection and receipt commit together.
+   * Provider calls in this operation must be bounded; notification delivery runs afterward.
+   */
+  async forAccount<T>(
+    accountId: string,
+    work: (closed: boolean) => Promise<T>,
+    scope: 'live' | 'retained' = 'live',
+  ): Promise<T> {
+    return accountTransaction(this.dbService, accountId, work, scope);
+  }
+
+  async isClosing(accountId: string): Promise<RepositoryResponse<boolean>> {
+    try {
+      const state = await this.dbService
+        .query()('billing_account_state')
+        .where({ account_id: accountId })
+        .first();
+      return success(!!state?.closing_at);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  async markClosing(accountId: string): Promise<RepositoryResponse<void>> {
+    try {
+      await this.dbService
+        .query()('billing_account_state')
+        .insert({ account_id: accountId, closing_at: new Date() })
+        .onConflict('account_id')
+        .merge({ closing_at: new Date() });
+      return success(undefined);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  async checkoutAttempt(
+    accountId: string,
+  ): Promise<RepositoryResponse<CheckoutAttempt | null>> {
+    try {
+      const row = await this.dbService
+        .query()('billing_checkout_attempts')
+        .where({ account_id: accountId })
+        .first();
+      if (row && typeof row.request === 'string')
+        row.request = JSON.parse(row.request);
+      return success(row ?? null);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  async saveCheckoutAttempt(
+    attempt: CheckoutAttempt,
+  ): Promise<RepositoryResponse<void>> {
+    try {
+      const row = {
+        ...attempt,
+        request: JSON.stringify(attempt.request),
+        updated_at: new Date(),
+      };
+      await this.dbService
+        .query()('billing_checkout_attempts')
+        .insert(row)
+        .onConflict('account_id')
+        .merge(row);
+      return success(undefined);
+    } catch (error) {
+      return failure(error);
+    }
   }
 
   async byAccount(
@@ -104,6 +199,7 @@ export class BillingRepository {
   async setPendingSession(
     accountId: string,
     sessionId: string | null,
+    provider = 'stripe',
   ): Promise<RepositoryResponse<void>> {
     try {
       await this.dbService
@@ -112,6 +208,7 @@ export class BillingRepository {
         .insert({
           account_id: accountId,
           pending_session_id: sessionId,
+          provider,
           plan_id: 'free',
           status: 'none',
           updated: new Date(),
@@ -121,30 +218,6 @@ export class BillingRepository {
       return success(undefined);
     } catch (error) {
       this.logger.error('setPendingSession failed', error as Error);
-      return failure(error);
-    }
-  }
-
-  async setCustomer(
-    accountId: string,
-    customerId: string,
-  ): Promise<RepositoryResponse<void>> {
-    try {
-      await this.dbService
-        .query()
-        .from('subscriptions')
-        .insert({
-          account_id: accountId,
-          customer_id: customerId,
-          plan_id: 'free',
-          status: 'none',
-          updated: new Date(),
-        })
-        .onConflict('account_id')
-        .merge({ customer_id: customerId, updated: new Date() });
-      return success(undefined);
-    } catch (error) {
-      this.logger.error('setCustomer failed', error as Error);
       return failure(error);
     }
   }
@@ -165,10 +238,85 @@ export class BillingRepository {
     }
   }
 
+  /** Operator hold on the account (ADR 0083). Null data: no such live account. */
+  async accountSuspension(
+    accountId: string,
+  ): Promise<RepositoryResponse<AccountSuspension | null>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('accounts')
+        .where({ id: accountId })
+        .whereNull('deleted')
+        .first<{
+          suspended: Date | string | null;
+          suspended_reason: string | null;
+        }>('suspended', 'suspended_reason');
+      return success(
+        row
+          ? {
+              suspended: row.suspended ?? null,
+              reason: row.suspended_reason ?? null,
+            }
+          : null,
+      );
+    } catch (error) {
+      this.logger.error('accountSuspension failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** The account that owns an author, with its hold. */
+  async authorSuspension(
+    authorId: string,
+  ): Promise<RepositoryResponse<AccountSuspension | null>> {
+    try {
+      const row = await this.dbService
+        .query()
+        .from('authors as au')
+        .join('accounts as a', 'a.id', 'au.account_id')
+        .where('au.id', authorId)
+        .whereNull('a.deleted')
+        .first<{
+          suspended: Date | string | null;
+          suspended_reason: string | null;
+        }>('a.suspended', 'a.suspended_reason');
+      return success(
+        row
+          ? {
+              suspended: row.suspended ?? null,
+              reason: row.suspended_reason ?? null,
+            }
+          : null,
+      );
+    } catch (error) {
+      this.logger.error('authorSuspension failed', error as Error);
+      return failure(error);
+    }
+  }
+
+  /** A completed receipt remains a duplicate even after its account is closed. */
+  async eventCompleted(
+    id: string,
+    provider: string,
+  ): Promise<RepositoryResponse<boolean>> {
+    try {
+      const row = await this.dbService
+        .query()('billing_events')
+        .where({ id, provider })
+        .whereNotNull('payload')
+        .first('id');
+      return success(!!row);
+    } catch (error) {
+      this.logger.error('eventCompleted failed', error as Error);
+      return failure(error);
+    }
+  }
+
   /**
-   * Claim a webhook event before acting on it: the INSERT is the idempotency
-   * lock, so two deliveries (Stripe retries, two API instances) cannot both
-   * run. Returns true when this caller owns the event.
+   * Called inside forAccount: claim, projection and payload completion share
+   * one transaction. A process exit rolls them back. An old null-payload claim
+   * from the former nontransactional handler is recoverable on redelivery.
    */
   async claimEvent(
     id: string,
@@ -178,43 +326,14 @@ export class BillingRepository {
     try {
       const rows = await this.dbService.query().raw(
         `INSERT INTO billing_events (id, provider, type) VALUES (?, ?, ?)
-         ON CONFLICT (id) DO NOTHING RETURNING id`,
+         ON CONFLICT (id) DO UPDATE SET type = EXCLUDED.type
+         WHERE billing_events.payload IS NULL RETURNING id`,
         [id, provider, type],
       );
       const list = (rows.rows ?? rows) as unknown[];
       return success(list.length > 0);
     } catch (error) {
       this.logger.error('claimEvent failed', error as Error);
-      return failure(error);
-    }
-  }
-
-  /** Give a claim back when processing threw, so the provider's retry gets another go. */
-  async releaseEvent(id: string): Promise<RepositoryResponse<void>> {
-    try {
-      await this.dbService
-        .query()
-        .from('billing_events')
-        .where({ id })
-        .delete();
-      return success(undefined);
-    } catch (error) {
-      this.logger.error('releaseEvent failed', error as Error);
-      return failure(error);
-    }
-  }
-
-  /** true when this event id was already processed (idempotency) */
-  async eventSeen(id: string): Promise<RepositoryResponse<boolean>> {
-    try {
-      const row = await this.dbService
-        .query()
-        .from('billing_events')
-        .where({ id })
-        .first('id');
-      return success(!!row);
-    } catch (error) {
-      this.logger.error('eventSeen failed', error as Error);
       return failure(error);
     }
   }

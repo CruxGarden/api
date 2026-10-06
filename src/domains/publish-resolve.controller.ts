@@ -27,7 +27,7 @@ export class PublishResolveController {
   async resolve(
     @Query('host') host: string,
     @Headers('x-crux-origin-secret') secret: string | undefined,
-  ): Promise<{ cruxId: string; legacy: boolean }> {
+  ): Promise<{ cruxId: string; legacy: boolean; storageId?: string }> {
     const expected = process.env.PUBLISH_ORIGIN_SECRET;
     if (!expected || !secret || !safeEqual(secret, expected))
       throw new UnauthorizedException('Bad origin secret');

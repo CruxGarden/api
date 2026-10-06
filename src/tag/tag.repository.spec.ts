@@ -6,7 +6,6 @@ import { ResourceType } from '../common/types/enums';
 
 describe('TagRepository', () => {
   let repository: TagRepository;
-  let dbService: jest.Mocked<DbService>;
   let mockQueryBuilder: any;
 
   const mockTag = {
@@ -59,7 +58,6 @@ describe('TagRepository', () => {
     }).compile();
 
     repository = module.get<TagRepository>(TagRepository);
-    dbService = module.get(DbService);
   });
 
   afterEach(() => {
@@ -239,51 +237,6 @@ describe('TagRepository', () => {
 
       expect(result.data).toBeNull();
       expect(result.error).toBeTruthy();
-    });
-  });
-
-  describe('findAllQuery', () => {
-    it('should build query with resource type filter', () => {
-      repository.findAllQuery(ResourceType.CRUX);
-
-      expect(dbService.query).toHaveBeenCalled();
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'resource_type',
-        ResourceType.CRUX,
-      );
-    });
-
-    it('should build query with search filter', () => {
-      repository.findAllQuery(undefined, 'test');
-
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'label',
-        'ilike',
-        '%test%',
-      );
-    });
-
-    it('should build query with label filter', () => {
-      repository.findAllQuery(undefined, undefined, 'count', 'javascript');
-
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'label',
-        'javascript',
-      );
-    });
-
-    it('should build query with alpha sort', () => {
-      repository.findAllQuery(undefined, undefined, 'alpha');
-
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('label', 'asc');
-    });
-
-    it('should build query with count sort (default)', () => {
-      repository.findAllQuery(undefined, undefined, 'count');
-
-      expect(mockQueryBuilder.groupBy).toHaveBeenCalledWith('label');
-      expect(mockQueryBuilder.count).toHaveBeenCalledWith('* as count');
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('count', 'desc');
     });
   });
 });

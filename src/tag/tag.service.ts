@@ -51,7 +51,11 @@ export class TagService {
       fieldName,
       fieldValue,
     );
-    if (error || !tag) throw new NotFoundException('Tag not found');
+    if (error)
+      throw new InternalServerErrorException('Could not load Tag', {
+        cause: error,
+      });
+    if (!tag) throw new NotFoundException('Tag not found');
 
     return this.asTag(tag);
   }
@@ -64,9 +68,9 @@ export class TagService {
     const tagToUpdate = await this.findById(tagId);
     const updated = await this.tagRepository.update(tagToUpdate.id, updateDto);
     if (updated.error)
-      throw new InternalServerErrorException(
-        `Tag update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Could not update Tag', {
+        cause: updated.error,
+      });
 
     return this.asTag(updated.data);
   }
@@ -75,9 +79,9 @@ export class TagService {
     const tagToDelete = await this.findById(tagId);
     const deleted = await this.tagRepository.delete(tagToDelete.id);
     if (deleted.error) {
-      throw new InternalServerErrorException(
-        `Tag deletion error: ${deleted.error}`,
-      );
+      throw new InternalServerErrorException('Could not delete Tag', {
+        cause: deleted.error,
+      });
     }
 
     return null;
@@ -94,7 +98,9 @@ export class TagService {
     );
 
     if (error) {
-      throw new InternalServerErrorException(`Error fetching tags: ${error}`);
+      throw new InternalServerErrorException('Error fetching tags', {
+        cause: error,
+      });
     }
 
     let tags = data || [];
@@ -122,9 +128,9 @@ export class TagService {
       await this.tagRepository.findByResource(resourceType, resourceId);
 
     if (fetchError) {
-      throw new InternalServerErrorException(
-        `Error fetching existing tags: ${fetchError}`,
-      );
+      throw new InternalServerErrorException('Error fetching existing tags', {
+        cause: fetchError,
+      });
     }
 
     const existingLabels = (existingTags || []).map((tag) => tag.label);
@@ -143,9 +149,9 @@ export class TagService {
     for (const tag of tagsToRemove) {
       const deleteResult = await this.tagRepository.delete(tag.id);
       if (deleteResult.error) {
-        throw new InternalServerErrorException(
-          `Error deleting tag: ${deleteResult.error}`,
-        );
+        throw new InternalServerErrorException('Error deleting tag', {
+          cause: deleteResult.error,
+        });
       }
     }
 
@@ -166,9 +172,9 @@ export class TagService {
       const createResult = await this.tagRepository.createMany(tagsToCreate);
 
       if (createResult.error) {
-        throw new InternalServerErrorException(
-          `Error creating tags: ${createResult.error}`,
-        );
+        throw new InternalServerErrorException('Error creating tags', {
+          cause: createResult.error,
+        });
       }
     }
 
@@ -177,9 +183,9 @@ export class TagService {
       await this.tagRepository.findByResource(resourceType, resourceId);
 
     if (finalError) {
-      throw new InternalServerErrorException(
-        `Error fetching final tags: ${finalError}`,
-      );
+      throw new InternalServerErrorException('Error fetching final tags', {
+        cause: finalError,
+      });
     }
 
     return this.asTags(finalTags || []);

@@ -6,7 +6,7 @@ export default class Path {
   type: 'living' | 'frozen';
   visibility: 'public' | 'private' | 'unlisted';
   kind: 'guide' | 'wander';
-  entry: string;
+  entry: string | null;
   authorId: string;
   homeId: string;
   meta?: any;

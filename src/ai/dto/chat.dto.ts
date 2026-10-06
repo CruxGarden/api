@@ -16,7 +16,7 @@ export class ChatDto {
 
   @ApiPropertyOptional({
     description: 'Model to use',
-    default: 'claude-sonnet-4-20250514',
+    default: 'claude-sonnet-5-5',
   })
   @IsOptional()
   @IsString()

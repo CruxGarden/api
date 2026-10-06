@@ -56,7 +56,12 @@ export const snakeCaseKey = toSnakeCase;
  */
 export function toTableFields<T>(obj: T): Record<string, unknown> {
   return convertKeys(
-    { ...(obj as unknown as Record<string, unknown>) },
+    // Omitted fields must remain omitted so database defaults apply on insert.
+    Object.fromEntries(
+      Object.entries(obj as Record<string, unknown>).filter(
+        ([, value]) => value !== undefined,
+      ),
+    ),
     toSnakeCase,
   ) as Record<string, unknown>;
 }

@@ -12,7 +12,7 @@ import { LoggerService } from '../common/services/logger.service';
 import { toEntityFields } from '../common/helpers/case-helpers';
 import Dimension from './entities/dimension.entity';
 import DimensionRaw from './entities/dimension-raw.entity';
-import { DimensionType } from 'src/common';
+import { DimensionType } from '../common/types/enums';
 
 @Injectable()
 export class DimensionService {
@@ -53,7 +53,11 @@ export class DimensionService {
   async findById(id: string): Promise<Dimension> {
     const { data, error } = await this.dimensionRepository.findBy('id', id);
 
-    if (error || !data) {
+    if (error)
+      throw new InternalServerErrorException('Could not load Dimension', {
+        cause: error,
+      });
+    if (!data) {
       throw new NotFoundException('Dimension not found');
     }
 
@@ -65,9 +69,9 @@ export class DimensionService {
 
     const created = await this.dimensionRepository.create(createDimensionDto);
     if (created.error)
-      throw new InternalServerErrorException(
-        `Dimension creation error: ${created.error}`,
-      );
+      throw new InternalServerErrorException('Dimension creation error', {
+        cause: created.error,
+      });
 
     return this.asDimension(created.data);
   }
@@ -80,12 +84,17 @@ export class DimensionService {
 
     const updated = await this.dimensionRepository.update(
       dimensionToUpdate.id,
-      updateDimensionDto,
+      {
+        ...updateDimensionDto,
+        ...(updateDimensionDto.meta !== undefined
+          ? { meta: { ...dimensionToUpdate.meta, ...updateDimensionDto.meta } }
+          : {}),
+      },
     );
     if (updated.error) {
-      throw new InternalServerErrorException(
-        `Dimension update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Dimension update error', {
+        cause: updated.error,
+      });
     }
     return this.asDimension(updated.data);
   }
@@ -98,9 +107,9 @@ export class DimensionService {
     );
 
     if (deleteError) {
-      throw new InternalServerErrorException(
-        `Dimension deletion error: ${deleteError}`,
-      );
+      throw new InternalServerErrorException('Dimension deletion error', {
+        cause: deleteError,
+      });
     }
 
     return null;

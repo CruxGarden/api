@@ -6,7 +6,7 @@ export default interface PathRaw {
   type: 'living' | 'frozen';
   visibility: 'public' | 'private' | 'unlisted';
   kind: 'guide' | 'wander';
-  entry: string;
+  entry: string | null;
   author_id: string;
   home_id: string;
   meta?: any;

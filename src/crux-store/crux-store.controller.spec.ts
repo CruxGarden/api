@@ -1,17 +1,24 @@
+import { ForbiddenException } from '@nestjs/common';
+import { PublishedAuthService } from '../published-auth/published-auth.service';
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { StoreController } from './crux-store.controller';
 import { StoreService } from './crux-store.service';
 import { CruxService } from '../crux/crux.service';
 import { AuthorService } from '../author/author.service';
 import { UsageService } from '../usage/usage.service';
+import { LimitsService } from '../usage/limits.service';
 import { LoggerService } from '../common/services/logger.service';
 import { AuthRequest } from '../common/types/interfaces';
 import { ThrottlerStorage } from '@nestjs/throttler';
+import { FunctionsService } from '../functions/functions.service';
 
 describe('StoreController', () => {
   let controller: StoreController;
   let storeService: jest.Mocked<StoreService>;
   let usage: { noteStoreRequest: jest.Mock };
+  let limits: { assertAuthorNotSuspended: jest.Mock };
+  let functions: { emit: jest.Mock };
 
   const CRUX = 'crux-1';
   const now = new Date('2026-09-05T12:00:00Z');
@@ -38,18 +45,27 @@ describe('StoreController', () => {
       findByAccountId: jest.fn(async (accountId: string) => {
         if (accountId === 'acct-alice') return { id: 'author-alice' };
         if (accountId === 'acct-owner') return { id: 'author-owner' };
-        throw new Error('no author');
+        throw new NotFoundException('no author');
       }),
     };
     usage = { noteStoreRequest: jest.fn() };
+    limits = {
+      assertAuthorNotSuspended: jest.fn().mockResolvedValue(undefined),
+    };
+    functions = {
+      emit: jest.fn().mockResolvedValue({ handlers: 0, results: {} }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [StoreController],
       providers: [
+        { provide: PublishedAuthService, useValue: {} },
         { provide: StoreService, useValue: storeService },
         { provide: CruxService, useValue: cruxService },
         { provide: AuthorService, useValue: authorService },
         { provide: UsageService, useValue: usage },
+        { provide: LimitsService, useValue: limits },
+        { provide: FunctionsService, useValue: functions },
         {
           provide: ThrottlerStorage,
           useValue: {
@@ -90,6 +106,20 @@ describe('StoreController', () => {
   });
 
   describe('PUT /store/:cruxId/:key', () => {
+    it("refuses a write to a suspended owner's Store and writes nothing", async () => {
+      limits.assertAuthorNotSuspended.mockRejectedValue(
+        new ForbiddenException('This account is suspended. Contact support.'),
+      );
+      await expect(
+        controller.set(CRUX, 'board', { value: ['a'], mode: 'public' }, alice),
+      ).rejects.toThrow('suspended');
+      expect(limits.assertAuthorNotSuspended).toHaveBeenCalledWith(
+        'author-owner',
+      );
+      expect(storeService.set).not.toHaveBeenCalled();
+      expect(usage.noteStoreRequest).not.toHaveBeenCalled();
+    });
+
     it('passes mode public and the visitor through, then meters a write', async () => {
       storeService.set.mockResolvedValue({ value: ['a'] } as any);
       const body = await controller.set(
@@ -108,6 +138,86 @@ describe('StoreController', () => {
         'author-alice',
       );
       expect(usage.noteStoreRequest).toHaveBeenCalledWith(CRUX, 'write');
+    });
+
+    it('runs the store:write hook first; a refusal is the answer and nothing is written', async () => {
+      storeService.get.mockResolvedValue({ value: 7 } as any);
+      functions.emit.mockResolvedValue({
+        handlers: 1,
+        results: {
+          'on-store': { status: 422, body: { error: 'scores only go up' } },
+        },
+      });
+      await expect(
+        controller.set(CRUX, 'score', { value: 3, mode: 'public' }, alice),
+      ).rejects.toMatchObject({ status: 422, message: 'scores only go up' });
+      expect(functions.emit).toHaveBeenCalledWith(
+        CRUX,
+        'store:write',
+        { key: 'score', value: 3, mode: 'public', before: 7 },
+        'author-alice',
+        0,
+        false,
+        true,
+      );
+      expect(storeService.set).not.toHaveBeenCalled();
+      expect(usage.noteStoreRequest).not.toHaveBeenCalled();
+    });
+
+    it.each(['protected', 'public'] as const)(
+      'runs private validation without broadcasting a protected previous value (requested %s)',
+      async (mode) => {
+        storeService.get.mockResolvedValue({
+          value: 'private before',
+          mode: 'protected',
+        } as any);
+        functions.emit.mockResolvedValue({
+          handlers: 1,
+          results: {
+            guard: { status: 422, body: { error: 'Refused privately' } },
+          },
+        });
+        await expect(
+          controller.set(
+            CRUX,
+            'private',
+            { value: 'private after', mode },
+            alice,
+          ),
+        ).rejects.toMatchObject({ status: 422 });
+        expect(functions.emit).toHaveBeenCalledWith(
+          CRUX,
+          'store:write',
+          {
+            key: 'private',
+            value: 'private after',
+            mode,
+            before: 'private before',
+          },
+          'author-alice',
+          0,
+          false,
+          false,
+        );
+        expect(storeService.set).not.toHaveBeenCalled();
+      },
+    );
+
+    it('a broken hook (500) or a failing runner never blocks the write', async () => {
+      storeService.get.mockResolvedValue(null);
+      storeService.set.mockResolvedValue({ value: 3 } as any);
+      functions.emit.mockResolvedValueOnce({
+        handlers: 1,
+        results: { 'on-store': { status: 500, body: { error: 'boom' } } },
+      });
+      await expect(
+        controller.set(CRUX, 'score', { value: 3, mode: 'public' }, alice),
+      ).resolves.toEqual({ value: 3 });
+      functions.emit.mockRejectedValueOnce(new Error('runner down'));
+      await expect(
+        controller.set(CRUX, 'score', { value: 3, mode: 'public' }, alice),
+      ).resolves.toEqual({ value: 3 });
+      expect(storeService.set).toHaveBeenCalledTimes(2);
     });
 
     it('normalises the deprecated alias common to public before the service sees it', async () => {

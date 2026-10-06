@@ -1,5 +1,7 @@
+import { PUBLICATION_META_KEYS } from '../src/common/publish/publication-state';
+import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
@@ -21,6 +23,7 @@ import { ResourceType } from '../src/common/types/enums';
 
 describe('Crux Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockCruxRepository: jest.Mocked<CruxRepository>;
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
   let mockDimensionRepository: jest.Mocked<DimensionRepository>;
@@ -28,7 +31,7 @@ describe('Crux Integration Tests', () => {
 
   const testAccountId = 'account-123';
   const testAuthorId = 'author-123';
-  const testCruxId = 'crux-123';
+  const testCruxId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
   const testAuthorRaw: AuthorRaw = {
     id: testAuthorId,
@@ -57,6 +60,10 @@ describe('Crux Integration Tests', () => {
   };
 
   const generateToken = (accountId: string): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role: 'author' },
       process.env.JWT_SECRET || 'test-secret',
@@ -70,7 +77,10 @@ describe('Crux Integration Tests', () => {
     // Create mock repositories
     mockCruxRepository = {
       findAll: jest.fn(),
-      findAllByAuthorQuery: jest.fn(),
+      findAllByAuthorQuery: jest.fn().mockReturnValue({
+        clearSelect: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+      }),
       findBy: jest.fn(),
       findByIdIncludingDeleted: jest
         .fn()
@@ -113,7 +123,7 @@ describe('Crux Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(CruxRepository)
@@ -129,15 +139,10 @@ describe('Crux Integration Tests', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
+    app.useGlobalPipes(createRequestValidationPipe());
 
-    await app.init();
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
 
     // Set environment
     process.env.JWT_SECRET = 'test-secret';
@@ -149,6 +154,8 @@ describe('Crux Integration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
+    mockCruxRepository.findByAuthorAndSlug.mockResolvedValue(success(null));
   });
 
   describe('GET /cruxes', () => {
@@ -163,6 +170,7 @@ describe('Crux Integration Tests', () => {
         offset: jest.fn().mockReturnThis(),
         whereNull: jest.fn().mockReturnThis(),
         leftJoin: jest.fn().mockReturnThis(),
+        clearSelect: jest.fn().mockReturnThis(),
       } as any);
 
       const response = await request(app.getHttpServer())
@@ -203,10 +211,7 @@ describe('Crux Integration Tests', () => {
         slug: 'test-crux',
         title: 'Test Crux',
       });
-      expect(mockCruxRepository.findBy).toHaveBeenCalledWith(
-        'slug',
-        testCruxId,
-      );
+      expect(mockCruxRepository.findBy).toHaveBeenCalledWith('id', testCruxId);
     });
 
     it('should return 404 when crux not found', async () => {
@@ -327,6 +332,7 @@ describe('Crux Integration Tests', () => {
       expect(mockCruxRepository.update).toHaveBeenCalledWith(
         testCruxId,
         expect.objectContaining(updateCruxDto),
+        PUBLICATION_META_KEYS,
       );
     });
 
@@ -427,6 +433,7 @@ describe('Crux Integration Tests', () => {
 
       mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
       mockDimensionRepository.findBySourceIdAndTypeQuery.mockReturnValue({
+        whereIn: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
@@ -449,6 +456,7 @@ describe('Crux Integration Tests', () => {
 
       mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
       mockDimensionRepository.findBySourceIdAndTypeQuery.mockReturnValue({
+        whereIn: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
@@ -506,7 +514,8 @@ describe('Crux Integration Tests', () => {
       mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
       mockCruxRepository.findBy
         .mockResolvedValueOnce(success(testCruxRaw))
-        .mockResolvedValueOnce(success({ ...testCruxRaw, id: targetCruxId }));
+        .mockResolvedValueOnce(success({ ...testCruxRaw, id: targetCruxId }))
+        .mockResolvedValueOnce(success(testCruxRaw));
       mockDimensionRepository.create.mockResolvedValue(
         success(newDimensionRaw),
       );
@@ -522,6 +531,45 @@ describe('Crux Integration Tests', () => {
         weight: 1,
       });
       expect(mockDimensionRepository.create).toHaveBeenCalled();
+    });
+
+    it('preserves relationship role and metadata through the HTTP create contract', async () => {
+      const payload = {
+        ...createDimensionDto,
+        type: 'garden',
+        kind: 'membership',
+        meta: { displayOrder: 3, origin: { cruxId: targetCruxId } },
+      };
+      mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
+      mockCruxRepository.findBy.mockResolvedValue(success(testCruxRaw));
+      mockDimensionRepository.create.mockImplementation(async (dto) =>
+        success({
+          id: dto.id,
+          source_id: dto.sourceId,
+          target_id: dto.targetId,
+          type: dto.type,
+          kind: dto.kind,
+          meta: dto.meta,
+          author_id: dto.authorId,
+          home_id: dto.homeId,
+          created: new Date(),
+          updated: new Date(),
+        } as DimensionRaw),
+      );
+      const response = await request(app.getHttpServer())
+        .post(`/cruxes/${testCruxId}/dimensions`)
+        .set(authHeader(generateToken(testAccountId)))
+        .send(payload)
+        .expect(201);
+      expect(response.body).toMatchObject({
+        sourceId: testCruxId,
+        targetId: targetCruxId,
+        kind: payload.kind,
+        meta: payload.meta,
+      });
+      expect(mockDimensionRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: payload.kind, meta: payload.meta }),
+      );
     });
 
     it('should return 404 when source crux not found', async () => {

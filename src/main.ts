@@ -3,7 +3,7 @@ require('dotenv').config({ quiet: true });
 import { NestFactory } from '@nestjs/core';
 import { makeOriginCheck } from './common/cors-origin';
 import { DomainsService } from './domains/domains.service';
-import { ValidationPipe } from '@nestjs/common';
+import { createRequestValidationPipe } from './common/validation/request-validation';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { json } from 'express';
 import helmet from 'helmet';
@@ -20,6 +20,19 @@ const API_VERSION = version;
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Per-IP rate limits and the report IP hash read `req.ip`. Behind a load
+  // balancer that is the balancer unless Express is told how many proxies to
+  // trust — otherwise every visitor shares one bucket. Unset = direct socket.
+  const trustProxy = process.env.TRUST_PROXY;
+  if (trustProxy)
+    app
+      .getHttpAdapter()
+      .getInstance()
+      .set(
+        'trust proxy',
+        /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy,
+      );
 
   // Increase JSON body limit for large meta payloads (chat history). `verify`
   // keeps the raw bytes so Stripe webhook signatures can be checked.
@@ -42,14 +55,7 @@ async function bootstrap() {
   const originAllowed = makeOriginCheck(
     async (hostname) => (await domains.resolve(hostname)) !== null,
   );
-  app.enableCors({
-    origin: (origin, callback) => {
-      originAllowed(origin).then(
-        (ok) =>
-          ok ? callback(null, true) : callback(new Error('CORS blocked')),
-        () => callback(new Error('CORS blocked')),
-      );
-    },
+  const corsBase = {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
@@ -58,21 +64,26 @@ async function bootstrap() {
       'X-Anthropic-Key',
       'X-Request-Id',
     ],
+  };
+  app.enableCors((req, callback) => {
+    // A crux's functions and events are its public API (CRUX-FUNCTIONS-PLAN):
+    // any page may call them, as any page may call a published site.
+    const url = (req as { url?: string }).url ?? '';
+    if (url.startsWith('/fn/') || url.startsWith('/events/'))
+      return callback(null, { ...corsBase, origin: true });
+    const origin = (req as { headers?: Record<string, string> }).headers
+      ?.origin;
+    originAllowed(origin).then(
+      (ok) =>
+        ok
+          ? callback(null, { ...corsBase, origin: true })
+          : callback(new Error('CORS blocked')),
+      () => callback(new Error('CORS blocked')),
+    );
   });
 
-  // Request validation. Without this every class-validator decorator on the
-  // DTOs is inert — invalid enum values and wrong-typed fields reached the
-  // repositories untouched. `whitelist` strips undeclared top-level properties
-  // only; it does not recurse into `meta`, which is declared @IsOptional and
-  // therefore keeps its full contents (the app relies on that for persona and
-  // author snapshots).
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidUnknownValues: false,
-    }),
-  );
+  // Reject undeclared request fields; DTO-declared meta retains its contents.
+  app.useGlobalPipes(createRequestValidationPipe());
 
   // Security headers
   app.use(

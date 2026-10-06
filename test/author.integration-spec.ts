@@ -1,5 +1,6 @@
+import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
@@ -14,6 +15,7 @@ import AuthorRaw from '../src/author/entities/author-raw.entity';
 
 describe('Author Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
 
   const testAccountId = 'account-123';
@@ -34,6 +36,10 @@ describe('Author Integration Tests', () => {
   };
 
   const generateToken = (accountId: string): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role: 'author' },
       process.env.JWT_SECRET || 'test-secret',
@@ -66,7 +72,7 @@ describe('Author Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(AuthorRepository)
@@ -76,15 +82,10 @@ describe('Author Integration Tests', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
+    app.useGlobalPipes(createRequestValidationPipe());
 
-    await app.init();
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
 
     // Set environment
     process.env.JWT_SECRET = 'test-secret';

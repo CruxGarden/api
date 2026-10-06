@@ -12,6 +12,8 @@ export type SubscriptionStatus =
   | 'past_due'
   | 'canceled'
   | 'incomplete'
+  /** the first payment never completed; nothing started, checkout may run again */
+  | 'incomplete_expired'
   | 'unpaid';
 
 /** What we know about a subscription, normalized. */
@@ -23,12 +25,21 @@ export interface SubscriptionSnapshot {
   currentPeriodStart: Date | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /** a scheduled cancellation date (Stripe `cancel_at`), when one is set */
+  cancelAt?: Date | null;
   trialEnd: Date | null;
   /** accountId we stamped on the subscription/checkout, when present */
   accountId: string | null;
 }
 
 export type BillingEvent =
+  | {
+      id: string;
+      type: 'checkout.completed';
+      accountId: string | null;
+      customerId: string;
+      subscriptionId: string;
+    }
   | {
       id: string;
       type: 'subscription.changed';
@@ -48,6 +59,8 @@ export type BillingEvent =
   | { id: string; type: 'ignored'; raw: string };
 
 export interface CheckoutRequest {
+  /** Persisted before external creation; required by the Stripe adapter. */
+  idempotencyKey?: string;
   accountId: string;
   email: string;
   /** existing provider customer, so a returning account never gets a second one */
@@ -63,20 +76,58 @@ export interface PriceInfo {
   amount: number; // minor units
   currency: string;
   interval: BillingInterval;
+  /** how the provider treats tax on this price, when it says */
+  taxBehavior?: 'exclusive' | 'inclusive' | 'unspecified';
 }
+
+/** One invoice, normalized for Settings and the account-closure email. */
+export interface InvoiceSummary {
+  id: string;
+  number: string | null;
+  /** ISO timestamp the invoice was created */
+  date: string;
+  totalCents: number;
+  currency: string;
+  status: string;
+  hostedUrl: string | null;
+  pdfUrl: string | null;
+}
+
+/** How many invoices Settings and the closure email carry. */
+export const INVOICE_LIMIT = 24;
 
 export interface BillingProvider {
   readonly name: string;
+  readonly instantCheckout?: boolean;
+  /** the provider computes tax at checkout (Stripe Tax) */
+  readonly automaticTax?: boolean;
   createCheckout(
     req: CheckoutRequest,
   ): Promise<{ url: string; sessionId: string }>;
   portalUrl(customerId: string, returnUrl: string): Promise<string>;
-  /** Verify and normalize a webhook. Throws on a bad signature. */
+  /** Most recent invoices first, at most `limit`. A customer the provider no
+   * longer has returns []; unavailability throws. */
+  invoices(customerId: string, limit: number): Promise<InvoiceSummary[]>;
+  /** Has this customer ever had a subscription that started? A second guard
+   * for trial eligibility beside local records; omitted means "unknown". */
+  hasSubscriptionHistory?(customerId: string): Promise<boolean>;
+  /** Stop billing and pending checkout before an account is closed: cancel any
+   * live subscription immediately (no refund) and remove the customer. Must be
+   * retryable. Capture invoices first — they may be unreachable afterwards. */
+  closeAccount(input: {
+    accountId: string;
+    customerId?: string;
+    pendingSessionId?: string;
+  }): Promise<void>;
+  /** Verify and normalize without network calls. Provider enrichment belongs
+   * after durable receipt deduplication, inside monitored event processing.
+   * Throws on a bad signature.
+   */
   parseWebhook(
     rawBody: Buffer,
     signature: string | undefined,
   ): Promise<BillingEvent>;
-  /** Pull the current state of a subscription (re-sync after checkout, admin repair). */
+  /** Pull current state. Return null only for confirmed absence; unavailability throws. */
   fetchSubscription(
     subscriptionId: string,
   ): Promise<SubscriptionSnapshot | null>;
@@ -89,6 +140,8 @@ export interface BillingProvider {
    * it completed. Lets sync recover an account whose webhook never arrived.
    */
   fetchCheckoutSession(sessionId: string): Promise<CheckoutSessionInfo | null>;
+  /** Expire an open session and return its confirmed state; never cancels a paid plan. */
+  expireCheckout(sessionId: string): Promise<CheckoutSessionInfo>;
   /** Amounts for the catalog. */
   prices(priceIds: string[]): Promise<PriceInfo[]>;
 }
@@ -101,12 +154,15 @@ export interface BillingProvider {
 export interface CheckoutSessionInfo {
   customerId: string | null;
   subscriptionId: string | null;
-  /** the session finished and payment (or trial) is in place */
-  complete: boolean;
+  status: 'open' | 'complete' | 'expired';
+  accountId: string | null;
+  attemptId: string | null;
+  url: string | null;
 }
 
 export class MockBillingProvider implements BillingProvider {
   readonly name = 'mock';
+  readonly instantCheckout = true;
   subscriptions = new Map<string, SubscriptionSnapshot>();
   customersByAccount = new Map<string, string>();
   /** sessionId → what it produced (the mock completes checkout instantly) */
@@ -143,7 +199,10 @@ export class MockBillingProvider implements BillingProvider {
     this.sessions.set(sessionId, {
       customerId,
       subscriptionId,
-      complete: true,
+      status: 'complete',
+      accountId: req.accountId,
+      attemptId: req.idempotencyKey ?? null,
+      url: req.successUrl.replace('{CHECKOUT_SESSION_ID}', sessionId),
     });
     return {
       url: `${req.successUrl.replace('{CHECKOUT_SESSION_ID}', sessionId)}`,
@@ -152,6 +211,44 @@ export class MockBillingProvider implements BillingProvider {
   }
   async fetchCheckoutSession(sessionId: string) {
     return this.sessions.get(sessionId) ?? null;
+  }
+  async expireCheckout(sessionId: string) {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error('Checkout session not found');
+    if (session.status === 'open') {
+      session.status = 'expired';
+      session.url = null;
+    }
+    return session;
+  }
+  async closeAccount(input: {
+    accountId: string;
+    customerId?: string;
+    pendingSessionId?: string;
+  }) {
+    for (const [id, subscription] of this.subscriptions) {
+      if (
+        subscription.accountId === input.accountId ||
+        subscription.customerId === input.customerId
+      )
+        this.subscriptions.set(id, {
+          ...subscription,
+          status: 'canceled',
+          cancelAtPeriodEnd: false,
+        });
+    }
+  }
+  /** test fixture: invoices by customer id, newest first */
+  mockInvoices = new Map<string, InvoiceSummary[]>();
+  async invoices(customerId: string, limit: number) {
+    return (this.mockInvoices.get(customerId) ?? []).slice(0, limit);
+  }
+  async hasSubscriptionHistory(customerId: string) {
+    return [...this.subscriptions.values()].some(
+      (s) =>
+        s.customerId === customerId &&
+        !['none', 'incomplete', 'incomplete_expired'].includes(s.status),
+    );
   }
   async portalUrl(customerId: string, returnUrl: string) {
     return `https://billing.mock/portal/${customerId}?return=${encodeURIComponent(returnUrl)}`;
@@ -171,7 +268,10 @@ export class MockBillingProvider implements BillingProvider {
   async fetchCustomerSubscription(customerId: string) {
     return (
       [...this.subscriptions.values()].find(
-        (s) => s.customerId === customerId && s.status !== 'canceled',
+        (s) =>
+          s.customerId === customerId &&
+          s.status !== 'canceled' &&
+          s.status !== 'incomplete_expired',
       ) ?? null
     );
   }

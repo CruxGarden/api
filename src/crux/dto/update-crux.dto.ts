@@ -3,7 +3,6 @@ import {
   IsOptional,
   IsString,
   IsEnum,
-  IsArray,
   IsBoolean,
   ValidateIf,
 } from 'class-validator';
@@ -86,16 +85,6 @@ export class UpdateCruxDto {
   @IsOptional()
   @IsBoolean()
   discoverable?: boolean;
-
-  @ApiPropertyOptional({
-    description: 'Updated array of tag names to associate with the crux',
-    type: [String],
-    example: ['updated-tag', 'new-category'],
-  })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  tags?: string[];
 
   @ApiPropertyOptional({
     description: 'Updated metadata object for the crux',

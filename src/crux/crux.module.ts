@@ -17,8 +17,10 @@ import { DomainsModule } from '../domains/domains.module';
     forwardRef(() => DimensionModule),
     forwardRef(() => HomeModule),
     forwardRef(() => ArtifactModule),
-    UsageModule,
-    DomainsModule,
+    // Lazy: UsageModule → AuthorModule → CruxModule is a file-level cycle
+    // whenever UsageModule loads first (InferenceModule imports it).
+    forwardRef(() => UsageModule),
+    forwardRef(() => DomainsModule),
   ],
   controllers: [CruxController],
   providers: [CruxService, CruxRepository],

@@ -32,7 +32,7 @@ export const TagSwagger = {
       ApiOperation({
         summary: 'List all tags',
         description:
-          'Retrieves all tags with optional filtering by resource type, search term, and sorting. Results are paginated - use Link and Pagination response headers for navigation.',
+          'Requires admin or keeper privileges. Retrieves all live tag records (one per resource association) with optional filtering by resource type, search term, and sorting. Results are paginated - use Link and Pagination response headers for navigation.',
       }),
       ApiQuery({
         name: 'resourceType',
@@ -70,7 +70,7 @@ export const TagSwagger = {
       }),
       ApiQuery({
         name: 'perPage',
-        description: 'Number of results per page (default: 25)',
+        description: 'Number of results per page (default: 25, maximum: 100)',
         required: false,
         example: 25,
       }),
@@ -116,7 +116,8 @@ export const TagSwagger = {
     combineDecorators(
       ApiOperation({
         summary: 'Get a tag by ID',
-        description: 'Retrieves a single tag by its UUID.',
+        description:
+          'Requires admin or keeper privileges. Retrieves a single tag by its UUID.',
       }),
       ApiParam({
         name: 'id',

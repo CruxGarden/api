@@ -21,6 +21,10 @@ export enum CruxKind {
   NOTES = 'notes',
   /** A shareable Mood: theme + background + persona + soundscape (.cruxmood) */
   MOOD = 'mood',
+  /** A Crux Tool published as a Template Crux: its built runtime and files, installed by cloning (ADR 0050) */
+  TOOL = 'tool',
+  /** A garden with people in it: its Store holds the members and the shelf, its functions the rules (GARDEN-MEMBERS-PLAN) */
+  GARDEN = 'garden',
 }
 
 export enum CruxVisibility {

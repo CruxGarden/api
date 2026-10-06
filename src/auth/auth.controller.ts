@@ -1,3 +1,4 @@
+import { AccountOriginGuard } from '../common/guards/account-origin.guard';
 import {
   Controller,
   Get,
@@ -13,6 +14,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { AuthCodeDto } from './dto/auth-code.dto';
 import { AuthLoginDto } from './dto/auth-login.dto';
@@ -24,7 +26,20 @@ import { LoggerService } from '../common/services/logger.service';
 import Account from '../account/entities/account.entity';
 import { AuthCredentials } from '../common/types/interfaces';
 
+const MINUTE_MS = 60_000;
+/**
+ * Per-IP ceilings on the unauthenticated sign-in routes, much tighter than the
+ * global throttle; the per-email limits live in AuthService. Read per request
+ * so a deployment (or a test) can tune them: `AUTH_CODE_PER_MINUTE_PER_IP`,
+ * `AUTH_LOGIN_PER_MINUTE_PER_IP`, `AUTH_TOKEN_PER_MINUTE_PER_IP`.
+ */
+export const authIpLimit = (name: string, fallback: number) => (): number => {
+  const n = parseInt(process.env[name] || '', 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
 @Controller('auth')
+@UseGuards(AccountOriginGuard)
 @UsePipes(
   new ValidationPipe({
     transform: true,
@@ -46,6 +61,12 @@ export class AuthController {
 
   @Post('code')
   @HttpCode(HttpStatus.OK)
+  @Throttle({
+    default: {
+      ttl: MINUTE_MS,
+      limit: authIpLimit('AUTH_CODE_PER_MINUTE_PER_IP', 5),
+    },
+  })
   @AuthSwagger.RequestCode()
   async code(@Body() codeDto: AuthCodeDto): Promise<{ message: string }> {
     const message = await this.authService.code(codeDto);
@@ -54,6 +75,12 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @Throttle({
+    default: {
+      ttl: MINUTE_MS,
+      limit: authIpLimit('AUTH_LOGIN_PER_MINUTE_PER_IP', 10),
+    },
+  })
   @AuthSwagger.Login()
   async login(@Body() loginDto: AuthLoginDto): Promise<AuthCredentials | null> {
     const creds = await this.authService.login(loginDto);
@@ -64,6 +91,12 @@ export class AuthController {
 
   @Post('token')
   @HttpCode(HttpStatus.OK)
+  @Throttle({
+    default: {
+      ttl: MINUTE_MS,
+      limit: authIpLimit('AUTH_TOKEN_PER_MINUTE_PER_IP', 30),
+    },
+  })
   @AuthSwagger.Token()
   async token(@Body() tokenDto: AuthTokenDto): Promise<AuthCredentials | null> {
     const creds = await this.authService.token(tokenDto);

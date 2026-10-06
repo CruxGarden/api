@@ -1,30 +1,35 @@
+import { functionName, scheduleOf } from '../functions/declarations';
+import { nextCron } from '../functions/cron';
+import { randomUUID } from 'node:crypto';
+import {
+  PUBLICATION_META_KEYS,
+  withoutPublicationState,
+} from '../common/publish/publication-state';
+import { toEntityFields } from '../common/helpers/case-helpers';
+import { CruxGraphService } from './crux-graph.service';
 import {
   Injectable,
-  NotFoundException,
+  ServiceUnavailableException,
   ConflictException,
+  ForbiddenException,
+  BadRequestException,
+  PayloadTooLargeException,
+  NotFoundException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { Knex } from 'knex';
-import { toEntityFields } from '../common/helpers/case-helpers';
 import { CreateCruxDto } from './dto/create-crux.dto';
-import { UpdateCruxDto } from './dto/update-crux.dto';
 import { CruxRepository } from './crux.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
 import { DimensionService } from '../dimension/dimension.service';
-import CruxRaw from './entities/crux-raw.entity';
 import Crux from './entities/crux.entity';
-import Dimension from '../dimension/entities/dimension.entity';
-import DimensionRaw from '../dimension/entities/dimension-raw.entity';
+import Takedown from './entities/takedown.entity';
 import {
   CruxStatus,
   CruxType,
   CruxVisibility,
-  DimensionType,
   ResourceType,
 } from '../common/types/enums';
-import { CreateDimensionDto } from '../dimension/dto/create-dimension.dto';
-import { UpdateDimensionDto } from '../dimension/dto/update-dimension.dto';
 import { TagService } from '../tag/tag.service';
 import Tag from '../tag/entities/tag.entity';
 import { ArtifactService } from '../artifact/artifact.service';
@@ -36,16 +41,35 @@ import { NotificationsService } from '../usage/notifications.service';
 import { DomainsService } from '../domains/domains.service';
 import Artifact from '../artifact/entities/artifact.entity';
 import { UploadArtifactDto } from '../artifact/dto/upload-artifact.dto';
+import { MAX_ARTIFACT_SIZE } from '../common/types/constants';
+import {
+  inspectToolPackage,
+  TOOL_PACKAGE_PATH,
+} from '../common/publish/tool-package';
+import { withConversationPolicy } from '../common/publish/public-meta';
+import {
+  summaryFromToolPackage,
+  ToolSummary,
+} from '../common/publish/tool-summary';
+import { UpdateCruxDto } from './dto/update-crux.dto';
+import { publishWarnings, PublishWarning } from './publish-warnings';
+
+/** A publish answer: the committed crux plus anything the creator should know. */
+export type PublishedCrux = Crux & { warnings: PublishWarning[] };
+
+export const CRUX_TAKEN_DOWN =
+  'This creation was taken down by Crux Garden and cannot be published again.';
 
 @Injectable()
-export class CruxService {
+export class CruxService extends CruxGraphService {
   private readonly logger: LoggerService;
+  protected override readonly protectedMetaKeys = PUBLICATION_META_KEYS;
 
   constructor(
-    private readonly cruxRepository: CruxRepository,
-    private readonly keyMaster: KeyMaster,
+    cruxRepository: CruxRepository,
+    keyMaster: KeyMaster,
     private readonly loggerService: LoggerService,
-    private readonly dimensionService: DimensionService,
+    dimensionService: DimensionService,
     private readonly tagService: TagService,
     private readonly artifactService: ArtifactService,
     private readonly storeService: StoreService,
@@ -55,6 +79,7 @@ export class CruxService {
     private readonly notifications: NotificationsService,
     private readonly domainsService: DomainsService,
   ) {
+    super(cruxRepository, keyMaster, dimensionService);
     this.logger = this.loggerService.createChildLogger('CruxService');
   }
 
@@ -65,143 +90,37 @@ export class CruxService {
       : 'shared';
   }
 
-  asCrux(data: CruxRaw): Crux {
-    const entityFields = toEntityFields(data);
-    return new Crux(entityFields);
+  /** Hosted defaults and server-owned metadata; creation shares the graph's
+   * non-destructive admission policy. Replacement belongs to publishCrux.
+   */
+  override async create(
+    input: CreateCruxDto,
+    authorId?: string,
+  ): Promise<Crux> {
+    // Sync-on-publish recreates the row by id; a taken-down id stays off the host.
+    if (input.id) await this.assertNotTakenDown(input.id);
+    const dto: CreateCruxDto = {
+      ...input,
+      authorId: authorId ?? input.authorId,
+      // ADR 0084: a private or excluded conversation never reaches the host.
+      meta: withConversationPolicy(withoutPublicationState(input.meta)),
+    };
+    this.applyDefaults(dto);
+    return super.create(dto);
   }
 
-  asCruxes(rows: CruxRaw[]): Crux[] {
-    return rows.map((data) => this.asCrux(data));
-  }
-
-  findAllByAuthorQuery(
-    authorId: string,
-  ): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
-    return this.cruxRepository.findAllByAuthorQuery(authorId);
-  }
-
-  findPublicByAuthorQuery(
-    authorId: string,
-  ): Knex.QueryBuilder<CruxRaw, CruxRaw[]> {
-    return this.cruxRepository.findPublicByAuthorQuery(authorId);
-  }
-
-  async findById(id: string): Promise<Crux> {
-    const { data, error } = await this.cruxRepository.findBy('id', id);
-
-    if (error || !data) {
-      throw new NotFoundException('Crux not found');
-    }
-
-    return this.asCrux(data);
-  }
-
-  async findBySlug(slug: string): Promise<Crux> {
-    const { data, error } = await this.cruxRepository.findBy('slug', slug);
-
-    if (error || !data) {
-      throw new NotFoundException('Crux not found');
-    }
-
-    return this.asCrux(data);
-  }
-
-  async findByAuthorAndSlug(authorId: string, slug: string): Promise<Crux> {
-    const { data, error } = await this.cruxRepository.findByAuthorAndSlug(
-      authorId,
-      slug,
+  /** Sync-on-publish metadata passes the same conversation policy as creation. */
+  override async update(
+    cruxId: string,
+    updateCruxDto: UpdateCruxDto,
+  ): Promise<Crux> {
+    const meta = updateCruxDto.meta;
+    return super.update(
+      cruxId,
+      meta && typeof meta === 'object' && !Array.isArray(meta)
+        ? { ...updateCruxDto, meta: withConversationPolicy(meta) }
+        : updateCruxDto,
     );
-
-    if (error || !data) {
-      throw new NotFoundException('Crux not found');
-    }
-
-    return this.asCrux(data);
-  }
-
-  async findByIdentifier(identifier: string): Promise<Crux> {
-    // If it looks like a UUID, search by ID
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (uuidPattern.test(identifier)) {
-      return this.findById(identifier);
-    }
-
-    // Otherwise, treat it as a slug
-    return this.findBySlug(identifier);
-  }
-
-  async create(createCruxDto: CreateCruxDto, authorId?: string): Promise<Crux> {
-    createCruxDto.id = createCruxDto.id || this.keyMaster.generateId();
-
-    this.applyDefaults(createCruxDto);
-
-    // Hard-delete a soft-deleted record with the same ID and same author
-    // (e.g. from a previous unpublish) so the INSERT doesn't hit a duplicate PK.
-    // Scoped to authorId to avoid clobbering another author's crux.
-    if (createCruxDto.id && (authorId || createCruxDto.authorId)) {
-      const existing = await this.cruxRepository.findByIdIncludingDeleted(
-        createCruxDto.id,
-      );
-      if (
-        existing.data?.deleted &&
-        existing.data.author_id === (authorId || createCruxDto.authorId)
-      ) {
-        await this.cruxRepository.delete(createCruxDto.id, undefined, true);
-      }
-    }
-
-    // If the same author+slug already exists (stale from a previous publish),
-    // hard-delete it so the new crux can take its place.
-    const effectiveAuthorId = authorId || createCruxDto.authorId;
-    if (effectiveAuthorId && createCruxDto.slug) {
-      const existing = await this.cruxRepository.findByAuthorAndSlug(
-        effectiveAuthorId,
-        createCruxDto.slug,
-      );
-      if (existing.data) {
-        await this.cruxRepository.delete(existing.data.id, undefined, true);
-      }
-    }
-
-    const created = await this.cruxRepository.create(createCruxDto);
-    if (created.error)
-      throw new InternalServerErrorException(
-        `Crux creation error: ${created.error}`,
-      );
-
-    return this.asCrux(created.data);
-  }
-
-  async update(cruxId: string, updateCruxDto: UpdateCruxDto): Promise<Crux> {
-    // 1) fetch crux
-    const cruxToUpdate = await this.findById(cruxId);
-
-    // 2) check slug uniqueness (per author, excluding this crux)
-    if (updateCruxDto.slug && updateCruxDto.slug !== cruxToUpdate.slug) {
-      const existing = await this.cruxRepository.findByAuthorAndSlug(
-        cruxToUpdate.authorId,
-        updateCruxDto.slug,
-      );
-      if (existing.data) {
-        throw new ConflictException(
-          `Slug "${updateCruxDto.slug}" is already in use`,
-        );
-      }
-    }
-
-    // 3) update crux
-    const updated = await this.cruxRepository.update(
-      cruxToUpdate.id,
-      updateCruxDto,
-    );
-    if (updated.error) {
-      throw new InternalServerErrorException(
-        `Crux update error: ${updated.error}`,
-      );
-    }
-
-    return this.asCrux(updated.data);
   }
 
   async delete(cruxId: string, hard = false): Promise<null> {
@@ -209,24 +128,8 @@ export class CruxService {
     const cruxToDelete = await this.findById(cruxId);
     if (!cruxToDelete) throw new NotFoundException('Crux not found');
 
-    // 1b) a deleted crux must not stay live, billed, or reachable by a custom domain
-    if (cruxToDelete.meta?.published) {
-      await this.artifactService
-        .deleteFromStaticBucket(cruxToDelete.id)
-        .catch((err: Error) =>
-          this.logger.error(
-            `static cleanup failed for ${cruxId}: ${err.message}`,
-          ),
-        );
-      await this.publishStorage
-        .deleteBucket(cruxToDelete.id)
-        .catch((err: Error) =>
-          this.logger.error(
-            `bucket cleanup failed for ${cruxId}: ${err.message}`,
-          ),
-        );
-      await this.usageService.clearStorage(cruxToDelete.id);
-      await this.domainsService.removeAllForCrux(cruxToDelete.id);
+    if (cruxToDelete.meta?.publishedAt) {
+      await this.removePublication(cruxToDelete.id);
     }
 
     // 2) delete crux
@@ -237,50 +140,13 @@ export class CruxService {
     );
 
     if (deleteError) {
-      throw new InternalServerErrorException(
-        `Crux deletion error: ${deleteError}`,
-      );
+      throw new InternalServerErrorException('Crux deletion error', {
+        cause: deleteError,
+      });
     }
 
     return null;
   }
-
-  /* crux dimensions */
-
-  getDimensionsQuery(
-    sourceCruxId: string,
-    dimensionType?: DimensionType,
-    embedSource = false,
-    embedTarget = true,
-  ): Knex.QueryBuilder<DimensionRaw, DimensionRaw[]> {
-    return this.dimensionService.findBySourceIdAndTypeQuery(
-      sourceCruxId,
-      dimensionType,
-      embedSource,
-      embedTarget,
-    );
-  }
-
-  async createDimension(
-    cruxId: string,
-    createDimensionDto: CreateDimensionDto,
-  ): Promise<Dimension> {
-    const sourceCrux = await this.findById(cruxId);
-    if (!sourceCrux) {
-      throw new NotFoundException('Crux not found');
-    }
-    createDimensionDto.sourceId = sourceCrux.id;
-    return this.dimensionService.create(createDimensionDto);
-  }
-
-  async updateDimension(
-    dimensionId: string,
-    updateDimensionDto: UpdateDimensionDto,
-  ): Promise<Dimension> {
-    return this.dimensionService.update(dimensionId, updateDimensionDto);
-  }
-
-  /* ~crux dimensions */
 
   /* crux tags */
 
@@ -346,7 +212,55 @@ export class CruxService {
       throw new NotFoundException('Artifact not found for this crux');
     }
 
-    return this.artifactService.downloadArtifact(artifactId);
+    const path = (artifact.meta as { path?: string } | null)?.path;
+    const published = async () => {
+      if (!path)
+        throw new NotFoundException('Published artifact path is missing');
+      if (
+        (artifact.meta?.publishLayout ||
+          crux.meta.publishLayout ||
+          this.publishLayout()) === 'bucket-per-crux'
+      ) {
+        const data = await this.publishStorage.downloadFile(
+          artifact.meta?.publishStorageId ||
+            crux.meta?.publishStorageId ||
+            crux.id,
+          path,
+        );
+        return {
+          data,
+          filename: artifact.filename,
+          mimeType: artifact.mimeType,
+        };
+      }
+      const result = await this.storeService.download({
+        namespace:
+          process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published',
+        path: `${artifact.meta?.publishStorageId || crux.meta?.publishStorageId || crux.id}/${path}`,
+      });
+      return {
+        data: result.data,
+        filename: artifact.filename,
+        mimeType: artifact.mimeType,
+      };
+    };
+    // Tool packages never have a separate working-file object. Go straight
+    // to the published archive rather than paying for a guaranteed S3 miss.
+    if (
+      crux.kind === 'tool' &&
+      crux.meta?.toolPackage?.artifactId === artifactId &&
+      crux.meta?.publishedAt &&
+      path
+    )
+      return published();
+    try {
+      return await this.artifactService.downloadArtifact(artifactId);
+    } catch (error) {
+      // Older publications and ordinary projects may also live only in the
+      // published store. Preserve their working-copy-first fallback.
+      if (!crux.meta?.publishedAt || !path) throw error;
+      return published();
+    }
   }
 
   /* ~crux artifacts */
@@ -359,8 +273,54 @@ export class CruxService {
     fileMetas: Array<{ path?: string; type?: string; kind?: string }>,
     authorId: string,
     accountId?: string,
-  ): Promise<Crux> {
+  ): Promise<PublishedCrux> {
+    if (process.env.PUBLISH_REVISION_ROUTING !== '1')
+      throw new ServiceUnavailableException(
+        'Publishing is awaiting the revision-aware origin router. Deploy the router, then enable PUBLISH_REVISION_ROUTING.',
+      );
     const crux = await this.findById(cruxId);
+    await this.assertNotTakenDown(crux.id);
+
+    if (crux.meta?.publicationRemoving)
+      throw new ConflictException(
+        'Finish removing the previous publication before publishing again.',
+      );
+
+    // Validate the one tool-version entity before replacing an existing publication.
+    let toolPackage: Awaited<ReturnType<typeof inspectToolPackage>> | undefined;
+    let toolSummary: ToolSummary | undefined;
+    if (crux.kind === 'tool') {
+      if (files.length !== 1 || fileMetas[0]?.path !== TOOL_PACKAGE_PATH)
+        throw new BadRequestException(
+          'Publish a Crux Tool as one package. Update Crux Garden and try again.',
+        );
+      toolPackage = await inspectToolPackage(
+        files[0].buffer,
+        crux.meta?.template,
+      );
+      // ADR 0084: the public trust summary comes from the validated package
+      // header, never from client metadata. A summary failure never blocks a
+      // valid package; the public side then falls back to the stored manifest.
+      try {
+        toolSummary = await summaryFromToolPackage(files[0].buffer, {
+          publisher: await this.publisherUsername(authorId),
+        });
+      } catch (error) {
+        this.logger.warn('Tool summary unavailable', {
+          cruxId: crux.id,
+          error: (error as Error).message,
+        });
+      }
+      files[0].mimetype = 'application/zip';
+      files[0].originalname = 'tool-package.zip';
+      fileMetas = [
+        { path: TOOL_PACKAGE_PATH, type: 'artifact', kind: 'tool-package' },
+      ];
+    } else if (files.some((file) => file.size > MAX_ARTIFACT_SIZE)) {
+      throw new PayloadTooLargeException(
+        'Individual files must be 250MB or smaller.',
+      );
+    }
 
     // 0. Plan limits (grace-first): refuse only past 2× the plan's storage.
     const incoming = files.reduce(
@@ -368,7 +328,7 @@ export class CruxService {
       0,
     );
     const previous = await this.usageService.forCrux(crux.id).catch(() => null);
-    await this.limits.assertStorage(
+    const storage = await this.limits.assertStorage(
       authorId,
       accountId,
       incoming,
@@ -376,123 +336,189 @@ export class CruxService {
       'publish',
     );
 
-    // 1. Replace existing artifact records (working + any old snapshots).
-    //    deleteWorkingArtifactsByResource handles missing S3 files gracefully.
-    await this.artifactService.deleteWorkingArtifactsByResource(
-      ResourceType.CRUX,
-      crux.id,
-    );
-    await this.artifactService.deleteSnapshotArtifacts(
-      ResourceType.CRUX,
-      crux.id,
-    );
-
-    // 2. Create artifact DB records (metadata only — no working S3 copy needed).
-    const artifactRecords: Artifact[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const record = await this.artifactService.createArtifactRecord(
-        ResourceType.CRUX,
+    // A unique location keeps both layouts immutable while a replacement uploads.
+    // The public Crux ID remains stable; only the edge's storage pointer changes.
+    const storageId = randomUUID();
+    const layout = this.publishLayout();
+    await this.domainsService.assertPublicationLayout(crux.id, layout);
+    const artifactRecords = files.map((file, i) =>
+      this.artifactService.describePublishedArtifact(
         crux.id,
         crux.homeId,
         authorId,
-        files[i],
+        file,
         fileMetas[i] || {},
-      );
-      artifactRecords.push(record);
-    }
-
-    // 3. Publish the files.
+        storageId,
+        layout,
+      ),
+    );
     const publishFiles = files.map((file, i) => ({
       buffer: file.buffer,
       mimeType: file.mimetype,
       path: fileMetas[i]?.path || file.originalname,
       artifact: artifactRecords[i],
     }));
-    const pathPrefix = crux.id;
-    let storedBytes: number | null = null;
-    if (this.publishLayout() === 'bucket-per-crux') {
-      // ADR 0011: the crux's own website bucket; HTML has short cache, so no invalidation
-      await this.publishStorage.ensureBucket(crux.id, authorId);
-      const put = await this.publishStorage.putFiles(
-        crux.id,
-        this.artifactService.preparePublishFiles(
-          publishFiles,
-          crux.kind,
-          crux.id,
-        ),
-      );
-      storedBytes = put.bytes; // exact: what actually sits in the bucket, injections included
-      // Custom domains cache through their tenants — drop what they hold (best effort)
-      void this.domainsService.invalidateForCrux(crux.id);
-    } else {
-      await this.artifactService.deleteFromStaticBucket(pathPrefix);
-      await this.artifactService.publishFilesDirectly(
-        publishFiles,
-        pathPrefix,
-        crux.kind,
-        crux.id,
-      );
-      // 4. Invalidate CloudFront cache (best-effort, don't block publish)
-      this.storeService
-        .invalidateCache({ paths: [`/${pathPrefix}/*`] })
-        .catch((err) =>
-          this.logger.error(`CloudFront invalidation failed: ${err.message}`),
-        );
-    }
-
-    // Storage usage is exact at publish time (ADR 0011 §3)
-    const publishedBytes =
-      storedBytes ??
-      files.reduce((sum, f) => sum + (f.size ?? f.buffer?.length ?? 0), 0);
-    await this.usageService.recordStorage(
+    const prepared = this.artifactService.preparePublishFiles(
+      publishFiles,
+      crux.kind,
       crux.id,
-      authorId,
-      publishedBytes,
-      files.length,
     );
-    void this.notifications.afterWrite(authorId, accountId);
-
-    // 5. Update crux meta with publish info and set visibility to public
-    const publishedVersion = (crux.meta?.publishedVersion || 0) + 1;
-    const publishedAt = new Date().toISOString();
-
-    const updated = await this.cruxRepository.update(crux.id, {
-      meta: {
-        ...crux.meta,
-        publishedAt,
-        publishedVersion,
-        // where the files live — the origin router asks (ADR 0011 migration)
-        publishLayout: this.publishLayout(),
-      },
-      visibility: CruxVisibility.PUBLIC,
+    const publishedBytes = prepared.reduce(
+      (sum, file) => sum + file.data.length,
+      0,
+    );
+    const now = new Date();
+    const schedules = files.flatMap((file, index) => {
+      const name = functionName(fileMetas[index]?.path ?? file.originalname);
+      const schedule = name ? scheduleOf(file.buffer.toString('utf8')) : null;
+      const nextRun = schedule ? nextCron(schedule, now) : null;
+      return name && schedule && nextRun ? [{ name, schedule, nextRun }] : [];
     });
-
-    if (updated.error) {
-      throw new InternalServerErrorException(`Publish error: ${updated.error}`);
+    let updated: Awaited<ReturnType<CruxRepository['commitPublication']>>;
+    let admissionStarted = false;
+    try {
+      if (layout === 'bucket-per-crux') {
+        await this.publishStorage.ensureBucket(storageId, authorId, crux.id);
+        await this.publishStorage.putFiles(storageId, prepared);
+      } else {
+        await this.artifactService.uploadPreparedPublication(
+          prepared,
+          storageId,
+        );
+      }
+      admissionStarted = true;
+      updated = await this.cruxRepository.commitPublication(
+        crux.id,
+        authorId,
+        crux.meta?.publishedVersion || 0,
+        artifactRecords,
+        {
+          publishedAt: new Date().toISOString(),
+          publishedVersion: (crux.meta?.publishedVersion || 0) + 1,
+          publishLayout: layout,
+          publishStorageId: storageId,
+          publishedBytes,
+          ...(toolPackage
+            ? {
+                toolPackage: {
+                  ...toolPackage,
+                  artifactId: artifactRecords[0].id,
+                  ...(toolSummary ? { summary: toolSummary } : {}),
+                },
+              }
+            : {}),
+        },
+        schedules,
+      );
+      if (updated.error) throw updated.error;
+    } catch (cause) {
+      // A lost database commit acknowledgement is ambiguous: retain staged bytes once
+      // admission starts. Never clean up a location that might now be live.
+      // Uploaders drain workers before rejecting, so no late write can recreate a cleaned object.
+      if (admissionStarted)
+        this.logger.warn('Unconfirmed publication location retained', {
+          cruxId: crux.id,
+          storageId,
+          layout,
+        });
+      try {
+        if (!admissionStarted) {
+          if (layout === 'bucket-per-crux')
+            await this.publishStorage.deleteBucket(storageId);
+          else await this.artifactService.deleteFromStaticBucket(storageId);
+        }
+      } catch (cleanup) {
+        this.logger.error(
+          'Uncommitted publication cleanup failed',
+          cleanup as Error,
+        );
+      }
+      if (cause instanceof ConflictException) throw cause;
+      throw new InternalServerErrorException(
+        admissionStarted
+          ? 'Could not confirm the publication. Please refresh its status before retrying.'
+          : 'Could not upload the publication. The previous publication is unchanged. Please retry.',
+        { cause },
+      );
     }
+    // Once committed, a notification/cache failure cannot turn success into a false refusal.
+    void this.notifications
+      .afterWrite(authorId, accountId)
+      .catch((error) =>
+        this.logger.error('Publish notification failed', error),
+      );
+    void this.domainsService
+      .activatePublication(crux.id)
+      .catch((error) => this.logger.error('Domain activation pending', error));
+    void this.storeService
+      .invalidateCache({ paths: [`/${crux.id}/*`] })
+      .catch((error) =>
+        this.logger.error('CloudFront invalidation failed', error),
+      );
 
-    return this.asCrux(updated.data);
+    // The soft-limit warning used to be computed and dropped; the Share pane shows it.
+    return Object.assign(this.asCrux(updated.data), {
+      warnings: publishWarnings(storage),
+    });
+  }
+
+  /** The author's current username for a Tool's publisher line; best effort. */
+  private async publisherUsername(
+    authorId: string,
+  ): Promise<string | undefined> {
+    try {
+      const { data } = await this.cruxRepository.findAuthorUsername(authorId);
+      return data ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Retain the owner record until every external cleanup acknowledges success.
+   * Each operation is idempotent so a partial failure can be retried safely.
+   * CDN invalidation acknowledges submission; propagation is asynchronous.
+   */
+  async removePublication(cruxId: string): Promise<void> {
+    try {
+      const removing =
+        await this.cruxRepository.beginPublicationRemoval(cruxId);
+      if (removing.error) throw removing.error;
+      const crux = this.asCrux(removing.data);
+      for (const publication of [
+        ...(crux.meta?.retiredPublications || []),
+        ...(crux.meta?.publishStorageId
+          ? [
+              {
+                storageId: crux.meta.publishStorageId,
+                layout: crux.meta.publishLayout,
+              },
+            ]
+          : []),
+      ]) {
+        if (publication.layout === 'bucket-per-crux')
+          await this.publishStorage.deleteBucket(publication.storageId);
+        else
+          await this.artifactService.deleteFromStaticBucket(
+            publication.storageId,
+          );
+      }
+      await this.artifactService.deleteFromStaticBucket(cruxId);
+      await this.publishStorage.deleteBucket(cruxId);
+      await this.domainsService.removeAllForCrux(cruxId);
+      await this.storeService.invalidateCache({ paths: [`/${cruxId}/*`] });
+      await this.usageService.clearStorage(cruxId);
+    } catch (cause) {
+      throw new InternalServerErrorException(
+        'Could not finish removing the published site. Please retry.',
+        { cause },
+      );
+    }
   }
 
   async unpublishCrux(cruxId: string): Promise<Crux> {
     const crux = await this.findById(cruxId);
 
-    // 1. Delete published files — both layouts, so a crux published under the
-    //    legacy prefix and republished into its own bucket leaves nothing behind.
-    const pathPrefix = crux.id;
-    await this.artifactService.deleteFromStaticBucket(pathPrefix);
-    await this.publishStorage.deleteBucket(crux.id);
-
-    // 2. Invalidate CloudFront cache (best-effort, legacy layout)
-    this.storeService
-      .invalidateCache({ paths: [`/${pathPrefix}/*`] })
-      .catch((err) =>
-        this.logger.error(`CloudFront invalidation failed: ${err.message}`),
-      );
-
-    // Usage and custom domains go with it
-    await this.usageService.clearStorage(crux.id);
-    await this.domainsService.removeAllForCrux(crux.id);
+    await this.removePublication(crux.id);
 
     // 3. Hard delete crux and all related entities (artifacts, dimensions, tags)
     const { error: deleteError } = await this.cruxRepository.delete(
@@ -502,11 +528,112 @@ export class CruxService {
     );
 
     if (deleteError) {
-      throw new InternalServerErrorException(`Unpublish error: ${deleteError}`);
+      throw new InternalServerErrorException('Unpublish error', {
+        cause: deleteError,
+      });
     }
 
     // Return the crux state as it was before deletion (for client-side update)
     return crux;
+  }
+
+  /* takedowns */
+
+  /** Fails closed: an unreadable takedown list must not let a publish through. */
+  private async assertNotTakenDown(cruxId: string): Promise<void> {
+    const { data, error } =
+      await this.cruxRepository.findActiveTakedown(cruxId);
+    if (error)
+      throw new InternalServerErrorException(
+        'Could not check whether this creation may be published',
+        { cause: error },
+      );
+    if (data) throw new ForbiddenException(CRUX_TAKEN_DOWN);
+  }
+
+  /**
+   * Operator takedown. The record is written before the ordinary unpublish
+   * path runs, so a teardown that fails half-way still blocks republishing
+   * and the whole call can simply be retried. The crux may already be gone
+   * (the author unpublished after a report); the id is blocked all the same.
+   */
+  async takeDownCrux(
+    cruxId: string,
+    operatorId: string,
+    reason: string,
+    reportId?: string,
+  ): Promise<Takedown> {
+    const found = await this.cruxRepository.findBy('id', cruxId);
+    if (found.error)
+      throw new InternalServerErrorException('Could not load Crux', {
+        cause: found.error,
+      });
+    const active = await this.cruxRepository.findActiveTakedown(cruxId);
+    if (active.error)
+      throw new InternalServerErrorException('Takedown error', {
+        cause: active.error,
+      });
+
+    let takedown = active.data;
+    if (!takedown) {
+      const created = await this.cruxRepository.createTakedown({
+        id: this.keyMaster.generateId(),
+        cruxId,
+        authorId: found.data?.author_id,
+        reason,
+        reportId,
+        createdBy: operatorId,
+      });
+      if (created.error)
+        throw new InternalServerErrorException('Takedown error', {
+          cause: created.error,
+        });
+      takedown = created.data;
+    }
+    this.logger.warn('Crux taken down', { cruxId, operatorId, reportId });
+
+    if (found.data) await this.unpublishCrux(cruxId);
+
+    return new Takedown(toEntityFields(takedown));
+  }
+
+  async liftTakedown(cruxId: string, operatorId: string): Promise<Takedown> {
+    const { data, error } = await this.cruxRepository.liftTakedown(
+      cruxId,
+      operatorId,
+    );
+    if (error)
+      throw new InternalServerErrorException('Takedown error', {
+        cause: error,
+      });
+    if (!data)
+      throw new NotFoundException('No active takedown for this creation');
+    this.logger.warn('Takedown lifted', { cruxId, operatorId });
+    return new Takedown(toEntityFields(data));
+  }
+
+  findTakedownsQuery(activeOnly = false) {
+    return this.cruxRepository.findTakedownsQuery(activeOnly);
+  }
+
+  /* ~takedowns */
+
+  /** One committed head and inventory, captured before any storage reads. */
+  async publishedRevision(
+    cruxId: string,
+  ): Promise<{ crux: Crux; artifacts: Artifact[] }> {
+    const result = await this.cruxRepository.publishedRevision(cruxId);
+    if (result.error)
+      throw new ServiceUnavailableException(
+        'Published revision is unavailable',
+      );
+    if (!result.data) throw new NotFoundException('This crux is not published');
+    return {
+      crux: this.asCrux(result.data.crux),
+      artifacts: result.data.artifacts.map(
+        (a) => new Artifact(toEntityFields(a)),
+      ),
+    };
   }
 
   async getPublishedArtifacts(cruxId: string): Promise<Artifact[]> {

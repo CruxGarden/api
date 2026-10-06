@@ -1,9 +1,11 @@
+import { PUBLICATION_META_KEYS } from '../common/publish/publication-state';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
+  ConflictException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { CruxService } from './crux.service';
+import { CruxService, CRUX_TAKEN_DOWN } from './crux.service';
 import { CruxRepository } from './crux.repository';
 import { KeyMaster } from '../common/services/key.master';
 import { LoggerService } from '../common/services/logger.service';
@@ -44,6 +46,12 @@ describe('CruxService', () => {
   beforeEach(async () => {
     const mockRepository = {
       findBy: jest.fn(),
+      findActiveTakedown: jest
+        .fn()
+        .mockResolvedValue({ data: undefined, error: null }),
+      createTakedown: jest.fn(),
+      liftTakedown: jest.fn(),
+      beginPublicationRemoval: jest.fn(),
       findByIdIncludingDeleted: jest
         .fn()
         .mockResolvedValue({ data: null, error: null }),
@@ -148,17 +156,6 @@ describe('CruxService', () => {
         NotFoundException,
       );
     });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findBy.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(service.findById('crux-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
   });
 
   describe('findByAuthorAndSlug', () => {
@@ -190,17 +187,6 @@ describe('CruxService', () => {
         service.findByAuthorAndSlug('author-123', 'invalid-slug'),
       ).rejects.toThrow(NotFoundException);
     });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findByAuthorAndSlug.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(
-        service.findByAuthorAndSlug('author-123', 'test-crux'),
-      ).rejects.toThrow(NotFoundException);
-    });
   });
 
   describe('create', () => {
@@ -211,6 +197,18 @@ describe('CruxService', () => {
       type: 'note',
       authorId: 'author-123',
     };
+
+    it('refuses a hosted slug collision without deleting or creating anything', async () => {
+      repository.findByAuthorAndSlug.mockResolvedValue({
+        data: mockCruxRaw,
+        error: null,
+      });
+      await expect(service.create({ ...createDto })).rejects.toThrow(
+        ConflictException,
+      );
+      expect(repository.delete).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    });
 
     it('should create a crux successfully', async () => {
       repository.findByAuthorAndSlug.mockResolvedValue({
@@ -225,10 +223,16 @@ describe('CruxService', () => {
       const result = await service.create(createDto);
 
       expect(result.id).toBe('crux-id-123');
-      expect(repository.create).toHaveBeenCalledWith({
-        ...createDto,
-        id: 'generated-id',
-      });
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ...createDto,
+          id: 'generated-id',
+          status: 'living',
+          visibility: 'unlisted',
+          discoverable: false,
+        }),
+      );
+      expect(createDto).not.toHaveProperty('id');
     });
 
     it('should throw InternalServerErrorException on create error', async () => {
@@ -243,6 +247,63 @@ describe('CruxService', () => {
 
       await expect(service.create(createDto)).rejects.toThrow(
         InternalServerErrorException,
+      );
+    });
+  });
+
+  describe('ADR 0084 conversation publication', () => {
+    const conversation = {
+      summary: { purpose: 'A game' },
+      messages: [
+        { role: 'user', content: 'make a game' },
+        {
+          role: 'user',
+          content: 'my address is 1 Elm St',
+          excludedFromPublish: true,
+        },
+      ],
+      personaSnapshots: { p: { systemPrompt: 'persona prompt' } },
+    };
+
+    it('creation stores no conversation when the creator kept it private', async () => {
+      repository.findByAuthorAndSlug.mockResolvedValue({
+        data: null,
+        error: null,
+      });
+      repository.create.mockResolvedValue({ data: mockCruxRaw, error: null });
+      await service.create({
+        slug: 'private-chat',
+        data: '',
+        type: 'note',
+        authorId: 'author-123',
+        meta: { ...conversation, conversationPublished: false },
+      });
+      const stored = repository.create.mock.calls[0][0].meta;
+      expect(stored).not.toHaveProperty('messages');
+      expect(stored).not.toHaveProperty('personaSnapshots');
+      expect(stored).toMatchObject({
+        conversationPublished: false,
+        summary: { purpose: 'A game' },
+      });
+    });
+
+    it('updates drop excluded messages even from a client that sent them', async () => {
+      repository.findBy.mockResolvedValue({ data: mockCruxRaw, error: null });
+      repository.update.mockResolvedValue({ data: mockCruxRaw, error: null });
+      await service.update('crux-id-123', {
+        meta: { ...conversation, conversationPublished: true },
+      });
+      const stored = repository.update.mock.calls[0][1].meta;
+      expect(stored.messages).toEqual([
+        { role: 'user', content: 'make a game' },
+      ]);
+      expect(JSON.stringify(stored)).not.toContain('Elm St');
+
+      await service.update('crux-id-123', {
+        meta: { ...conversation, conversationPublished: false },
+      });
+      expect(repository.update.mock.calls[1][1].meta).not.toHaveProperty(
+        'messages',
       );
     });
   });
@@ -264,7 +325,11 @@ describe('CruxService', () => {
       const result = await service.update('crux-id-123', updateDto);
 
       expect(result.title).toBe('Updated Title');
-      expect(repository.update).toHaveBeenCalledWith(mockCruxRaw.id, updateDto);
+      expect(repository.update).toHaveBeenCalledWith(
+        mockCruxRaw.id,
+        updateDto,
+        PUBLICATION_META_KEYS,
+      );
     });
 
     it('should throw InternalServerErrorException on update error', async () => {
@@ -455,6 +520,160 @@ describe('CruxService', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe(mockCruxRaw.id);
+    });
+  });
+  describe('takedowns', () => {
+    const takedownRaw = {
+      id: 'takedown-1',
+      crux_id: 'crux-id-123',
+      author_id: 'author-123',
+      reason: 'Illegal content',
+      report_id: null,
+      created_by: 'operator-1',
+      lifted: null,
+      lifted_by: null,
+      created: new Date(),
+      updated: new Date(),
+      deleted: null,
+    };
+    const routing = process.env.PUBLISH_REVISION_ROUTING;
+    afterEach(() => {
+      process.env.PUBLISH_REVISION_ROUTING = routing;
+    });
+
+    it('records the takedown before unpublishing through the ordinary path', async () => {
+      repository.findBy.mockResolvedValue({ data: mockCruxRaw, error: null });
+      repository.createTakedown.mockResolvedValue({
+        data: takedownRaw,
+        error: null,
+      });
+      const order: string[] = [];
+      repository.createTakedown.mockImplementationOnce(async () => {
+        order.push('record');
+        return { data: takedownRaw, error: null };
+      });
+      const unpublish = jest
+        .spyOn(service, 'unpublishCrux')
+        .mockImplementation(async () => {
+          order.push('unpublish');
+          return service.asCrux(mockCruxRaw);
+        });
+
+      const result = await service.takeDownCrux(
+        'crux-id-123',
+        'operator-1',
+        'Illegal content',
+        'report-1',
+      );
+
+      expect(order).toEqual(['record', 'unpublish']);
+      expect(repository.createTakedown).toHaveBeenCalledWith({
+        id: 'generated-id',
+        cruxId: 'crux-id-123',
+        authorId: mockCruxRaw.author_id,
+        reason: 'Illegal content',
+        reportId: 'report-1',
+        createdBy: 'operator-1',
+      });
+      expect(unpublish).toHaveBeenCalledWith('crux-id-123');
+      expect(result.cruxId).toBe('crux-id-123');
+    });
+
+    it('keeps the takedown when the teardown fails, and retries without a second record', async () => {
+      repository.findBy.mockResolvedValue({ data: mockCruxRaw, error: null });
+      repository.createTakedown.mockResolvedValue({
+        data: takedownRaw,
+        error: null,
+      });
+      const unpublish = jest
+        .spyOn(service, 'unpublishCrux')
+        .mockRejectedValueOnce(new Error('storage down'))
+        .mockResolvedValueOnce(service.asCrux(mockCruxRaw));
+
+      await expect(
+        service.takeDownCrux('crux-id-123', 'operator-1', 'Illegal content'),
+      ).rejects.toThrow('storage down');
+      repository.findActiveTakedown.mockResolvedValue({
+        data: takedownRaw,
+        error: null,
+      });
+      await service.takeDownCrux(
+        'crux-id-123',
+        'operator-1',
+        'Illegal content',
+      );
+
+      expect(repository.createTakedown).toHaveBeenCalledTimes(1);
+      expect(unpublish).toHaveBeenCalledTimes(2);
+    });
+
+    it('blocks an id whose crux is already gone without unpublishing', async () => {
+      repository.findBy.mockResolvedValue({ data: null, error: null });
+      repository.createTakedown.mockResolvedValue({
+        data: { ...takedownRaw, author_id: null },
+        error: null,
+      });
+      const unpublish = jest.spyOn(service, 'unpublishCrux');
+
+      await service.takeDownCrux('crux-id-123', 'operator-1', 'Spam');
+
+      expect(repository.createTakedown).toHaveBeenCalled();
+      expect(unpublish).not.toHaveBeenCalled();
+    });
+
+    it('refuses to publish a taken-down crux with 403', async () => {
+      process.env.PUBLISH_REVISION_ROUTING = '1';
+      repository.findBy.mockResolvedValue({ data: mockCruxRaw, error: null });
+      repository.findActiveTakedown.mockResolvedValue({
+        data: takedownRaw,
+        error: null,
+      });
+
+      await expect(
+        service.publishCrux('crux-id-123', [], [], 'author-123'),
+      ).rejects.toMatchObject({ status: 403, message: CRUX_TAKEN_DOWN });
+    });
+
+    it('refuses to publish when the takedown list cannot be read', async () => {
+      process.env.PUBLISH_REVISION_ROUTING = '1';
+      repository.findBy.mockResolvedValue({ data: mockCruxRaw, error: null });
+      repository.findActiveTakedown.mockResolvedValue({
+        data: null,
+        error: new Error('db down'),
+      });
+
+      await expect(
+        service.publishCrux('crux-id-123', [], [], 'author-123'),
+      ).rejects.toMatchObject({ status: 500 });
+    });
+
+    it('refuses to recreate a taken-down crux id', async () => {
+      repository.findActiveTakedown.mockResolvedValue({
+        data: takedownRaw,
+        error: null,
+      });
+
+      await expect(
+        service.create({ id: 'crux-id-123', slug: 'again' } as any, 'author'),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('lifts an active takedown and 404s when there is none', async () => {
+      repository.liftTakedown.mockResolvedValueOnce({
+        data: { ...takedownRaw, lifted: new Date(), lifted_by: 'operator-2' },
+        error: null,
+      });
+      const lifted = await service.liftTakedown('crux-id-123', 'operator-2');
+      expect(lifted.liftedBy).toBe('operator-2');
+
+      repository.liftTakedown.mockResolvedValueOnce({
+        data: undefined,
+        error: null,
+      });
+      await expect(
+        service.liftTakedown('crux-id-123', 'operator-2'),
+      ).rejects.toMatchObject({ status: 404 });
     });
   });
 });

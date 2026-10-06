@@ -1,6 +1,10 @@
 # Contributing to Crux Garden API
 
-Thank you for your interest in contributing to Crux Garden API! This document provides guidelines and instructions for contributing to this project.
+This repository contains the hosted API and the packaged local runtime used by the
+Electron desktop app. Start with the [local-runtime source map and decision
+boundaries](README.md#local-runtime) and the public [app architecture guide](https://github.com/CruxGarden/app/blob/main/docs/architecture.md).
+These references include the necessary vocabulary and ownership rules; no private
+parent workspace is needed.
 
 ## Table of Contents
 
@@ -9,6 +13,7 @@ Thank you for your interest in contributing to Crux Garden API! This document pr
 - [Development Setup](#development-setup)
 - [How to Contribute](#how-to-contribute)
 - [Coding Standards](#coding-standards)
+- [Local Runtime Changes](#local-runtime-changes)
 - [Testing Guidelines](#testing-guidelines)
 - [Commit Guidelines](#commit-guidelines)
 - [Pull Request Process](#pull-request-process)
@@ -32,6 +37,23 @@ This project adheres to a code of conduct that all contributors are expected to 
 
 - Node.js 22 (see `.nvmrc`)
 - Docker (recommended) or PostgreSQL and Redis
+
+### Credential-free verification
+
+For contribution work that does not need a running development server:
+
+```bash
+nvm use
+npm ci                      # includes the API build via prepare
+npm run verify              # Docker must be running for disposable PostgreSQL fixtures
+```
+
+This path requires no `.env`, AWS keys, paid provider or running development database.
+It runs lint, unit/native tests, HTTP integration tests, build and the packaged local
+runtime smoke check. Do not replace the fixture database URL with your own Garden or
+production database. Native modules need a supported compiler toolchain if a prebuilt
+binary is unavailable. Use the server setup below only when you need interactive HTTP
+work; missing AWS configuration uses mocks, not real email or object delivery.
 
 ### Installation
 
@@ -79,13 +101,16 @@ The API will be available at `http://localhost:3000`. Visit `http://localhost:30
 ### Environment Variables
 
 **Required:**
+
 - `JWT_SECRET` - JWT token signing secret (minimum 32 characters)
 
 **Database & Cache** (auto-configured with Docker):
+
 - `DATABASE_URL` - PostgreSQL connection string
 - `REDIS_URL` - Redis connection string
 
 **AWS Services** (optional - runs in mock mode if not configured):
+
 - `AWS_ACCESS_KEY_ID` - AWS access key
 - `AWS_SECRET_ACCESS_KEY` - AWS secret key
 - `AWS_REGION` - AWS region (e.g., `us-east-1`)
@@ -156,14 +181,44 @@ npm run lint
 - Guards: Handle authentication/authorization
 - Swagger: API documentation decorators
 
+## Local Runtime Changes
+
+Use [src/local/index.ts](src/local/index.ts) as the package boundary and
+[graph-runtime.ts](src/local/graph-runtime.ts) as the lifecycle/command entry point.
+Keep validation and transactions inside the runtime; the desktop supplies trusted
+filesystem hosts through the typed contract. Do not implement a competing renderer
+SQL writer or silently fall back to a different store when a command is unavailable.
+
+Preserve owner/revision capture, file integrity, retained Task/history references,
+refusal-before-mutation and restart/recovery behavior. Add focused regressions to
+the native suites under `src/local/` for a changed contract. Use actual SQLite and
+filesystem boundaries for persistence/fault assertions; mocks are appropriate for
+external providers, not substitutes for the database owner under test.
+
+Run `npm run verify`: lint, unit tests, HTTP integration tests, build and the actual
+packaged-runtime smoke check. HTTP/PostgreSQL integration fixtures require Docker;
+they start disposable databases rather than using a developer's existing database.
+`npm run build:local` produces the runtime package directory; `npm run verify:local`
+checks a compiled package. Keep provenance and license materials with the archive.
+
+When the exported contract changes, coordinate the app's typed IPC adapter,
+renderer consumer and actual-desktop journey. Install the same runtime archive in
+both app and Electron manifests/lockfiles and verify both environments; Node and
+Electron native binaries must remain separate. Publishing an HTTP deployment and
+installing a desktop runtime are independent release actions.
+
 ## Testing Guidelines
 
-### Test Coverage
+### Behavior coverage
 
-- All new features must include unit tests
-- Aim for >90% code coverage for new code
-- Test both success and error cases
-- Test edge cases and boundary conditions
+- Preserve existing expected-behavior assertions when changing implementation.
+- Add the smallest meaningful regression for changed behavior, including refusal and retry.
+- Use real PostgreSQL HTTP fixtures for persistence/authorization changes, and the actual
+  native SQLite runtime for local commands; mocks belong at external provider boundaries.
+- For retained state, include restart/readback and rollback checks. Runtime changes also
+  need affected app/Electron acceptance before being considered shipped.
+- Coverage percentages locate untested code; they do not prove complete user-story coverage.
+  Fixture-backed email, billing and AI tests do not certify live delivery, spend or quality.
 
 ### Writing Tests
 
@@ -184,7 +239,7 @@ npm run test:watch
 npm run test:module <module-name>
 
 # Run tests with coverage (excludes .spec, swagger, DTOs, entities)
-npm run test:cov
+npm run test:coverage
 ```
 
 ### Test Structure
@@ -192,7 +247,7 @@ npm run test:cov
 - Use `describe` blocks to group related tests
 - Use clear, descriptive test names
 - Follow the Arrange-Act-Assert pattern
-- Mock external dependencies
+- Mock external services where deterministic responses are needed; keep the database owner real for persistence assertions
 - Test one thing per test case
 
 ### Example Test
@@ -297,7 +352,7 @@ improving coverage from 88% to 93%.
 1. Ensure your code follows the coding standards
 2. Run the linter and formatter: `npm run lint && npm run format`
 3. Write or update tests for your changes
-4. Ensure all tests pass: `npm run test:all`
+4. Run the complete gate: `npm run verify`; include affected desktop acceptance for runtime changes
 5. Update documentation if needed
 6. Rebase your branch on the latest main branch
 
@@ -317,22 +372,27 @@ Include the following in your PR description:
 
 ```markdown
 ## Summary
+
 Brief description of the changes
 
 ## Motivation
+
 Why are these changes needed?
 
 ## Changes
+
 - Change 1
 - Change 2
 - Change 3
 
 ## Testing
+
 - [ ] Unit tests added/updated
 - [ ] All tests passing
 - [ ] Manual testing completed
 
 ## Checklist
+
 - [ ] Code follows project style guidelines
 - [ ] Self-review completed
 - [ ] Comments added for complex code
@@ -367,3 +427,36 @@ If you have questions or need help:
 - Reach out to maintainers
 
 Thank you for contributing to Crux Garden!
+
+## Small contribution candidates
+
+Confirm the current gap in an issue before starting. Keep the first PR bounded.
+
+| Candidate                      | Expected result                                                            | Acceptance boundary                                                                                                        |
+| ------------------------------ | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Public runtime map             | Add a worked create → write → read example using exported types            | Execute it against the built local package in scratch storage; no app checkout required                                    |
+| Refusal contract documentation | Document one controller's actual error responses beside its Swagger schema | Trace existing HTTP integration assertions; add a real HTTP case only if the behavior lacks coverage                       |
+| Setup diagnostics              | Improve one reproducible missing-service or configuration error            | Demonstrate the failing clean setup and actionable error, without logging credentials or altering production configuration |
+
+Large ownership changes should start with a maintainer-reviewed slice and preserved
+native/HTTP tests. Repository method mocks alone do not validate transactions or races.
+
+## Support scope
+
+Use issues for reproducible failures and scoped proposals, including revision, runtime,
+expected/actual behavior and redacted logs. Support is best effort without a response or
+merge deadline; security reports follow `SECURITY.md`. Review requires the full gate,
+relevant cross-repository acceptance and a clear statement of anything untested.
+A merged source change does not itself deploy the hosted API or install a new desktop
+runtime. Maintainers handle those release actions separately.
+
+## Dependency checks
+
+Run `npm audit` as well as the verification gate when changing dependencies. The
+October 3 contributor check cleared twelve development-tooling findings by aligning
+`@types/jest` with the existing Jest 30 runner and updating TypeScript ESLint 8 and
+ts-loader 9. No production/shared package version changed, and the compiled local
+runtime content hash stayed unchanged. The full native/HTTP gate passed afterward.
+This dated zero-finding audit is a package inventory result, not a security guarantee
+or a statement about the app's separate dependencies. Avoid force-downgrading tools
+just to suppress an advisory; inspect the dependency path and validate the replacement.

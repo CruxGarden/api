@@ -1,3 +1,4 @@
+import { MAX_ARTIFACT_SIZE } from '../common/types/constants';
 import {
   Controller,
   Delete,
@@ -53,7 +54,11 @@ export class ArtifactController {
 
   @Put(':id')
   @ArtifactSwagger.Update()
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_ARTIFACT_SIZE, files: 1, fields: 10 },
+    }),
+  )
   async update(
     @Param('id') id: string,
     @Body() updateDto: UpdateArtifactDto,

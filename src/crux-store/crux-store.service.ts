@@ -48,7 +48,9 @@ export class StoreService {
   private async keyModes(cruxId: string, key: string): Promise<StoreMode[]> {
     const { data, error } = await this.repository.findKeyModes(cruxId, key);
     if (error) {
-      throw new InternalServerErrorException(`Store lookup failed: ${error}`);
+      throw new InternalServerErrorException('Store lookup failed', {
+        cause: error,
+      });
     }
     return data ?? [];
   }
@@ -98,15 +100,23 @@ export class StoreService {
     visitorId?: string | null,
   ): Promise<Store | null> {
     if (visitorId) {
-      const { data } = await this.repository.findProtectedEntry(
+      const { data, error } = await this.repository.findProtectedEntry(
         cruxId,
         key,
         visitorId,
       );
+      if (error)
+        throw new InternalServerErrorException('Could not read Store value', {
+          cause: error,
+        });
       if (data) return this.asStore(data);
     }
 
-    const { data } = await this.repository.findSharedEntry(cruxId, key);
+    const { data, error } = await this.repository.findSharedEntry(cruxId, key);
+    if (error)
+      throw new InternalServerErrorException('Could not read Store value', {
+        cause: error,
+      });
     return data ? this.asStore(data) : null;
   }
 
@@ -121,6 +131,25 @@ export class StoreService {
     visitorId?: string | null,
   ): Promise<Store> {
     const writer = this.requireWriter(visitorId);
+    const requested = normalizeStoreMode(mode) as StoreMode;
+    const modes = await this.keyModes(cruxId, key);
+    this.assertModeAllowed(key, modes, requested);
+    return this.write(cruxId, authorId, key, value, requested, writer);
+  }
+
+  /**
+   * A write by a Crux Function (functions/functions.service.ts): the writer
+   * is the visitor the call carried or, with none, the crux's owner — code
+   * the owner published acts for them. The mode rule still holds.
+   */
+  async serverSet(
+    cruxId: string,
+    authorId: string,
+    key: string,
+    value: any,
+    mode: StoreMode,
+    writer: string,
+  ): Promise<Store> {
     const requested = normalizeStoreMode(mode) as StoreMode;
     const modes = await this.keyModes(cruxId, key);
     this.assertModeAllowed(key, modes, requested);
@@ -158,7 +187,9 @@ export class StoreService {
             mode,
           );
     if (error || !data) {
-      throw new InternalServerErrorException(`Store set failed: ${error}`);
+      throw new InternalServerErrorException('Store set failed', {
+        cause: error,
+      });
     }
     return this.asStore(data);
   }
@@ -204,9 +235,9 @@ export class StoreService {
       slot,
     );
     if (error || !data) {
-      throw new InternalServerErrorException(
-        `Store increment failed: ${error}`,
-      );
+      throw new InternalServerErrorException('Store increment failed', {
+        cause: error,
+      });
     }
     return typeof data.value === 'number' ? data.value : Number(data.value);
   }
@@ -228,7 +259,9 @@ export class StoreService {
     const slot = this.resolveMode(modes) === 'protected' ? writer : null;
     const { error } = await this.repository.deleteEntry(cruxId, key, slot);
     if (error) {
-      throw new InternalServerErrorException(`Store delete failed: ${error}`);
+      throw new InternalServerErrorException('Store delete failed', {
+        cause: error,
+      });
     }
   }
 
@@ -236,14 +269,18 @@ export class StoreService {
   async delete(cruxId: string, key: string): Promise<void> {
     const { error } = await this.repository.deleteKey(cruxId, key);
     if (error) {
-      throw new InternalServerErrorException(`Store delete failed: ${error}`);
+      throw new InternalServerErrorException('Store delete failed', {
+        cause: error,
+      });
     }
   }
 
   async list(cruxId: string): Promise<Store[]> {
     const { data, error } = await this.repository.findAllByCrux(cruxId);
     if (error) {
-      throw new InternalServerErrorException(`Store list failed: ${error}`);
+      throw new InternalServerErrorException('Store list failed', {
+        cause: error,
+      });
     }
     return (data || []).map((row) => this.asStore(row));
   }
@@ -273,9 +310,9 @@ export class StoreService {
     ];
     const known = await this.repository.existingAuthorIds(visitorIds);
     if (known.error || !known.data)
-      throw new InternalServerErrorException(
-        `Store import failed: ${known.error}`,
-      );
+      throw new InternalServerErrorException('Store import failed', {
+        cause: known.error,
+      });
     if (replace) await this.clearAll(cruxId);
     let imported = 0,
       skipped = 0;
@@ -301,15 +338,50 @@ export class StoreService {
   async clearAll(cruxId: string): Promise<void> {
     const { error } = await this.repository.clearAllByCrux(cruxId);
     if (error) {
-      throw new InternalServerErrorException(`Store clear failed: ${error}`);
+      throw new InternalServerErrorException('Store clear failed', {
+        cause: error,
+      });
     }
   }
 
   async getStorageBytes(authorId: string): Promise<number> {
     const { data, error } = await this.repository.getStorageByAuthor(authorId);
     if (error) {
-      throw new InternalServerErrorException(`Storage query failed: ${error}`);
+      throw new InternalServerErrorException('Storage query failed', {
+        cause: error,
+      });
     }
     return data || 0;
+  }
+
+  /** The gardens an author belongs to, as their Stores say (GARDEN-MEMBERS-PLAN). */
+  async gardensFor(authorId: string): Promise<
+    {
+      cruxId: string;
+      title: string;
+      slug: string;
+      authorId: string;
+      authorUsername: string;
+      published: boolean;
+      membership: unknown;
+      updatedAt: string;
+    }[]
+  > {
+    const r = await this.repository.gardensFor(authorId);
+    if (r.error)
+      throw new InternalServerErrorException(
+        'Could not list Garden memberships',
+        { cause: r.error },
+      );
+    return (r.data ?? []).map((row) => ({
+      cruxId: row.crux_id,
+      title: row.title ?? '',
+      slug: row.slug,
+      authorId: row.author_id,
+      authorUsername: row.author_username,
+      published: !!row.meta?.publishedAt,
+      membership: row.value,
+      updatedAt: new Date(row.updated_at).toISOString(),
+    }));
   }
 }

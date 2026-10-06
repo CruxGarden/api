@@ -598,6 +598,125 @@
         ]
       }
     },
+    "/account/closure": {
+      "get": {
+        "operationId": "AccountController_closure",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Account Management"
+        ]
+      }
+    },
+    "/admin/accounts": {
+      "get": {
+        "operationId": "AccountAdminController_search",
+        "parameters": [
+          {
+            "name": "query",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Find accounts by email or username",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/accounts/{id}/suspend": {
+      "post": {
+        "operationId": "AccountAdminController_suspend",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendAccountDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Suspend an account: sign-in and reads still work; hosted writes are refused",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/accounts/{id}/unsuspend": {
+      "post": {
+        "operationId": "AccountAdminController_unsuspend",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Lift an account suspension",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/authors/search": {
+      "get": {
+        "operationId": "AuthorController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authors"
+        ]
+      }
+    },
     "/authors/check-username": {
       "get": {
         "description": "Checks if a username is available for use. Returns true if available or if it belongs to the current user.",
@@ -1496,6 +1615,9 @@
           },
           "403": {
             "description": "Insufficient permissions"
+          },
+          "409": {
+            "description": "This identity or author slug already exists. Existing work is preserved; use update or publish to change it."
           }
         },
         "security": [
@@ -2743,6 +2865,9 @@
           },
           "401": {
             "description": "Authentication required"
+          },
+          "403": {
+            "description": "Admin or keeper privileges required for host-level Homes"
           }
         },
         "security": [
@@ -2909,6 +3034,9 @@
           "401": {
             "description": "Authentication required"
           },
+          "403": {
+            "description": "Admin or keeper privileges required for host-level Homes"
+          },
           "404": {
             "description": "Home not found"
           }
@@ -3060,7 +3188,7 @@
     },
     "/tags": {
       "get": {
-        "description": "Retrieves all tags with optional filtering by resource type, search term, and sorting. Results are paginated - use Link and Pagination response headers for navigation.",
+        "description": "Requires admin or keeper privileges. Retrieves all live tag records (one per resource association) with optional filtering by resource type, search term, and sorting. Results are paginated - use Link and Pagination response headers for navigation.",
         "operationId": "TagController_findAll",
         "parameters": [
           {
@@ -3123,7 +3251,7 @@
             "name": "perPage",
             "required": false,
             "in": "query",
-            "description": "Number of results per page (default: 25)",
+            "description": "Number of results per page (default: 25, maximum: 100)",
             "schema": {
               "example": 25
             }
@@ -3201,7 +3329,7 @@
     },
     "/tags/{id}": {
       "get": {
-        "description": "Retrieves a single tag by its UUID.",
+        "description": "Requires admin or keeper privileges. Retrieves a single tag by its UUID.",
         "operationId": "TagController_getById",
         "parameters": [
           {
@@ -3858,6 +3986,156 @@
         ]
       }
     },
+    "/billing/checkout/resume": {
+      "post": {
+        "operationId": "BillingController_resumeCheckout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resume the existing checkout without creating another",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/checkout/cancel": {
+      "post": {
+        "operationId": "BillingController_cancelCheckout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Expire pending checkout; an already completed payment is synchronized",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/checkout/recover": {
+      "post": {
+        "operationId": "BillingController_recoverCheckout",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoverCheckoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin: recover an ambiguous checkout using verified provider metadata",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/checkout/resolve-absent": {
+      "post": {
+        "operationId": "BillingController_resolveAbsentCheckout",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveAbsentCheckoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin: audit provider-confirmed absence before releasing an old ambiguous checkout",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/operations": {
+      "get": {
+        "operationId": "BillingController_operationsHealth",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin: billing configuration, queue health and recovery identifiers",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/operations/reconcile": {
+      "post": {
+        "operationId": "BillingController_reconcile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin: retry provider reconciliation for one account",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
     "/billing/portal": {
       "post": {
         "operationId": "BillingController_portal",
@@ -3878,6 +4156,26 @@
         ]
       }
     },
+    "/billing/invoices": {
+      "get": {
+        "operationId": "BillingController_invoices",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "This account’s most recent invoices (at most 24), newest first",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
     "/billing/sync": {
       "post": {
         "operationId": "BillingController_sync",
@@ -3893,6 +4191,36 @@
           }
         ],
         "summary": "Re-pull the subscription from the provider (after checkout)",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/simulation": {
+      "post": {
+        "operationId": "BillingController_simulate",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Operator: simulate billing for your own account (simulation provider only)",
         "tags": [
           "billing"
         ]
@@ -4044,7 +4372,7 @@
     },
     "/paths": {
       "get": {
-        "description": "Retrieves a paginated list of all paths with their metadata.",
+        "description": "Retrieves a paginated list of the signed-in author’s Paths.",
         "operationId": "PathController_findAll",
         "parameters": [],
         "responses": {
@@ -4087,7 +4415,8 @@
                       },
                       "entry": {
                         "type": "string",
-                        "format": "uuid"
+                        "format": "uuid",
+                        "nullable": true
                       },
                       "authorId": {
                         "type": "string",
@@ -4122,7 +4451,7 @@
         ]
       },
       "post": {
-        "description": "Creates a new path with the provided data. Requires authentication.",
+        "description": "Creates an empty owned Path with a generated ID and no entry marker. Add markers before selecting an entry.",
         "operationId": "PathController_create",
         "parameters": [],
         "requestBody": {
@@ -4173,7 +4502,8 @@
                     },
                     "entry": {
                       "type": "string",
-                      "format": "uuid"
+                      "format": "uuid",
+                      "nullable": true
                     },
                     "authorId": {
                       "type": "string",
@@ -4216,7 +4546,7 @@
     },
     "/paths/{identifier}": {
       "get": {
-        "description": "Retrieves a specific path by its UUID or slug.",
+        "description": "Retrieves an owned Path by UUID or an author-scoped slug.",
         "operationId": "PathController_getByIdentifier",
         "parameters": [
           {
@@ -4268,7 +4598,8 @@
                     },
                     "entry": {
                       "type": "string",
-                      "format": "uuid"
+                      "format": "uuid",
+                      "nullable": true
                     },
                     "authorId": {
                       "type": "string",
@@ -4365,7 +4696,8 @@
                     },
                     "entry": {
                       "type": "string",
-                      "format": "uuid"
+                      "format": "uuid",
+                      "nullable": true
                     },
                     "authorId": {
                       "type": "string",
@@ -4498,10 +4830,6 @@
                         "type": "string",
                         "format": "uuid"
                       },
-                      "homeId": {
-                        "type": "string",
-                        "format": "uuid"
-                      },
                       "created": {
                         "type": "string",
                         "format": "date-time"
@@ -4581,10 +4909,6 @@
                         "example": "Start here"
                       },
                       "authorId": {
-                        "type": "string",
-                        "format": "uuid"
-                      },
-                      "homeId": {
                         "type": "string",
                         "format": "uuid"
                       },
@@ -5086,6 +5410,37 @@
         ]
       }
     },
+    "/explore/cruxes/{id}": {
+      "get": {
+        "operationId": "ExploreController_publishedPackage",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Published crux id (UUID)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Tool or Mood"
+          },
+          "400": {
+            "description": "The id is not a UUID"
+          },
+          "404": {
+            "description": "Not a published, live Tool or Mood (creations are reached by their address, not by id)"
+          }
+        },
+        "summary": "A published Crux Tool or Mood by id, Discoverable or link-only, in the shape of one Explore result (install links, ADR 0085)",
+        "tags": [
+          "explore"
+        ]
+      }
+    },
     "/explore/tags": {
       "get": {
         "operationId": "ExploreController_tags",
@@ -5117,6 +5472,267 @@
         "summary": "Popular tags across discoverable cruxes",
         "tags": [
           "explore"
+        ]
+      }
+    },
+    "/explore/preview-html": {
+      "get": {
+        "operationId": "ExploreController_previewHtml",
+        "parameters": [
+          {
+            "name": "path",
+            "required": true,
+            "in": "query",
+            "description": "The website path, e.g. /alice/my-site",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Link-preview HTML (title, description, Open Graph, Twitter card) for a public website path; the edge sends chat/social crawlers here (ADR 0084)",
+        "tags": [
+          "explore"
+        ]
+      }
+    },
+    "/explore/sitemap.xml": {
+      "get": {
+        "operationId": "ExploreController_sitemap",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "XML sitemap of discoverable cruxes and their authors",
+        "tags": [
+          "explore"
+        ]
+      }
+    },
+    "/explore/reports": {
+      "post": {
+        "operationId": "ReportController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Report a published creation",
+        "tags": [
+          "explore"
+        ]
+      }
+    },
+    "/admin/reports": {
+      "get": {
+        "operationId": "ReportAdminController_reports",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "open",
+                "resolved",
+                "dismissed"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List reports, newest first",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/reports/summary": {
+      "get": {
+        "operationId": "ReportAdminController_reportSummary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Counts for the operator screen: open reports, reports closed in the last 30 days, takedowns in force",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/reports/{id}": {
+      "patch": {
+        "operationId": "ReportAdminController_updateReport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Resolve, dismiss or reopen a report",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/takedowns": {
+      "get": {
+        "operationId": "ReportAdminController_takedowns",
+        "parameters": [
+          {
+            "name": "active",
+            "required": false,
+            "in": "query",
+            "description": "true = only takedowns still in force",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List takedowns, newest first",
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "operationId": "ReportAdminController_takeDown",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTakedownDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Take a crux down: unpublish it and refuse to publish that id again",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/takedowns/{cruxId}": {
+      "delete": {
+        "operationId": "ReportAdminController_liftTakedown",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Lift a takedown; the author may publish the crux again",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/store/gardens/mine": {
+      "get": {
+        "operationId": "StoreController_gardensMine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Store"
         ]
       }
     },
@@ -5528,10 +6144,887 @@
         ]
       }
     },
+    "/published-auth/{cruxId}/code": {
+      "post": {
+        "operationId": "PublishedAuthController_code",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "origin",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthCodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublishedAuth"
+        ]
+      }
+    },
+    "/published-auth/{cruxId}/login": {
+      "post": {
+        "operationId": "PublishedAuthController_login",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "origin",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublishedAuth"
+        ]
+      }
+    },
+    "/published-auth/{cruxId}/token": {
+      "post": {
+        "operationId": "PublishedAuthController_token",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "origin",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublishedAuth"
+        ]
+      }
+    },
+    "/published-auth/{cruxId}/session": {
+      "post": {
+        "operationId": "PublishedAuthController_inherit",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InheritDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublishedAuth"
+        ]
+      }
+    },
+    "/published-auth/{cruxId}/profile": {
+      "get": {
+        "operationId": "PublishedAuthController_profile",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublishedAuth"
+        ]
+      }
+    },
+    "/published-auth/{cruxId}/logout": {
+      "delete": {
+        "operationId": "PublishedAuthController_logout",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "PublishedAuth"
+        ]
+      }
+    },
+    "/fn/{cruxId}/secrets": {
+      "get": {
+        "operationId": "FunctionsController_listSecrets",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/fn/{cruxId}/secrets/{name}": {
+      "put": {
+        "operationId": "FunctionsController_putSecret",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "delete": {
+        "operationId": "FunctionsController_deleteSecret",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/fn/{cruxId}": {
+      "get": {
+        "operationId": "FunctionsController_list",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/fn/{cruxId}/{name}": {
+      "get": {
+        "operationId": "FunctionsController_call_get",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "post": {
+        "operationId": "FunctionsController_call_post",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "put": {
+        "operationId": "FunctionsController_call_put",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "delete": {
+        "operationId": "FunctionsController_call_delete",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "patch": {
+        "operationId": "FunctionsController_call_patch",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "options": {
+        "operationId": "FunctionsController_call_options",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "head": {
+        "operationId": "FunctionsController_call_head",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "search": {
+        "operationId": "FunctionsController_call_search",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/fn/{cruxId}/{name}/{rest}": {
+      "get": {
+        "operationId": "FunctionsController_callRest_get",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "post": {
+        "operationId": "FunctionsController_callRest_post",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "put": {
+        "operationId": "FunctionsController_callRest_put",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "delete": {
+        "operationId": "FunctionsController_callRest_delete",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "patch": {
+        "operationId": "FunctionsController_callRest_patch",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "options": {
+        "operationId": "FunctionsController_callRest_options",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "head": {
+        "operationId": "FunctionsController_callRest_head",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      },
+      "search": {
+        "operationId": "FunctionsController_callRest_search",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/events/{cruxId}/{name}": {
+      "post": {
+        "operationId": "FunctionsController_emit",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
+    "/events/{cruxId}": {
+      "get": {
+        "operationId": "FunctionsController_stream",
+        "parameters": [
+          {
+            "name": "cruxId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Functions"
+        ]
+      }
+    },
     "/inference/usage": {
       "get": {
         "operationId": "InferenceController_usage",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "contextTokens",
+            "required": false,
+            "in": "query",
+            "description": "Prompt size of the next request, for nextRequest; defaults to recent requests.",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inference"
+        ]
+      }
+    },
+    "/inference/images": {
+      "post": {
+        "operationId": "InferenceController_image",
+        "parameters": [
+          {
+            "name": "x-request-id",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-crux-id",
+            "required": false,
+            "in": "header",
+            "description": "The Crux this request serves, for the usage view only; ignored unless a UUID.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -5558,6 +7051,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "x-crux-id",
+            "required": false,
+            "in": "header",
+            "description": "The Crux this request serves, for the usage view only; ignored unless a UUID.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5572,6 +7074,45 @@
         ],
         "tags": [
           "inference"
+        ]
+      }
+    },
+    "/admin/inference/requests/{id}/adjust": {
+      "post": {
+        "operationId": "InferenceAdminController_adjust",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustInferenceRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Lower the charge of a settled included request, with a reason",
+        "tags": [
+          "admin"
         ]
       }
     }
@@ -5650,6 +7191,19 @@
         "type": "object",
         "properties": {}
       },
+      "SuspendAccountDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Why, for the record",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
       "CreateAuthorDto": {
         "type": "object",
         "properties": {
@@ -5705,11 +7259,6 @@
             "description": "Display name for the author",
             "example": "John Doe"
           },
-          "email": {
-            "type": "string",
-            "description": "Email address of the author",
-            "example": "john@example.com"
-          },
           "bio": {
             "type": "string",
             "description": "Bio or description of the author",
@@ -5720,16 +7269,6 @@
             "description": "Root Crux ID for the author",
             "example": "550e8400-e29b-41d4-a716-446655440000",
             "format": "uuid"
-          },
-          "website": {
-            "type": "string",
-            "description": "Website URL of the author",
-            "example": "https://johndoe.com"
-          },
-          "avatarUrl": {
-            "type": "string",
-            "description": "Avatar URL for the author",
-            "example": "https://example.com/avatar.jpg"
           },
           "meta": {
             "type": "object",
@@ -5777,7 +7316,9 @@
               "document",
               "image",
               "notes",
-              "mood"
+              "mood",
+              "tool",
+              "garden"
             ],
             "example": "webapp"
           },
@@ -5807,17 +7348,6 @@
             "description": "Whether this crux is discoverable in search",
             "example": false,
             "default": false
-          },
-          "tags": {
-            "description": "Array of tag names to associate with the crux",
-            "example": [
-              "technology",
-              "programming"
-            ],
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           },
           "meta": {
             "type": "object",
@@ -5888,7 +7418,9 @@
               "document",
               "image",
               "notes",
-              "mood"
+              "mood",
+              "tool",
+              "garden"
             ],
             "example": "webapp",
             "nullable": true
@@ -5916,17 +7448,6 @@
             "type": "boolean",
             "description": "Whether this crux is discoverable in search",
             "example": false
-          },
-          "tags": {
-            "description": "Updated array of tag names to associate with the crux",
-            "example": [
-              "updated-tag",
-              "new-category"
-            ],
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           },
           "meta": {
             "type": "object",
@@ -5963,6 +7484,16 @@
               "graft"
             ],
             "example": "gate"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Relationship role within its dimension type",
+            "example": "membership"
+          },
+          "meta": {
+            "type": "object",
+            "description": "Relationship metadata; updates shallow-merge top-level keys",
+            "additionalProperties": true
           },
           "weight": {
             "type": "number",
@@ -6001,12 +7532,6 @@
       "CreateHomeDto": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "Unique identifier for the home",
-            "example": "550e8400-e29b-41d4-a716-446655440000",
-            "format": "uuid"
-          },
           "name": {
             "type": "string",
             "description": "Name of the home",
@@ -6052,22 +7577,16 @@
       "UpdateHomeDto": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "Unique identifier for the home",
-            "example": "550e8400-e29b-41d4-a716-446655440000",
-            "format": "uuid"
-          },
           "name": {
             "type": "string",
             "description": "Name of the home",
-            "example": "Updated Garden Name",
+            "example": "My Garden",
             "minLength": 1
           },
           "description": {
             "type": "string",
             "description": "Optional description of the home",
-            "example": "An updated description"
+            "example": "A personal knowledge garden for collecting ideas"
           },
           "primary": {
             "type": "boolean",
@@ -6089,8 +7608,8 @@
             "type": "object",
             "description": "Optional metadata for the home",
             "example": {
-              "color": "green",
-              "icon": "flower"
+              "color": "blue",
+              "icon": "tree"
             }
           }
         }
@@ -6112,6 +7631,16 @@
               "graft"
             ],
             "example": "gate"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Relationship role within its dimension type",
+            "example": "membership"
+          },
+          "meta": {
+            "type": "object",
+            "description": "Relationship metadata; updates shallow-merge top-level keys",
+            "additionalProperties": true
           },
           "weight": {
             "type": "number",
@@ -6147,6 +7676,94 @@
         "required": [
           "planId",
           "interval"
+        ]
+      },
+      "RecoverCheckoutDto": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Session identified in the payment provider dashboard"
+          }
+        },
+        "required": [
+          "accountId",
+          "sessionId"
+        ]
+      },
+      "ResolveAbsentCheckoutDto": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "attemptId": {
+            "type": "string"
+          },
+          "reviewReference": {
+            "type": "string",
+            "description": "Provider request-log or support-case reference; never include credentials"
+          },
+          "confirmation": {
+            "type": "string",
+            "enum": [
+              "provider-reviewed-no-checkout-or-subscription"
+            ]
+          }
+        },
+        "required": [
+          "accountId",
+          "attemptId",
+          "reviewReference",
+          "confirmation"
+        ]
+      },
+      "ReconcileDto": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      },
+      "SimulationDto": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "activate",
+              "payment_failed",
+              "unpaid",
+              "cancel",
+              "cancel_at_period_end",
+              "renew",
+              "change_plan"
+            ]
+          },
+          "planId": {
+            "type": "string",
+            "enum": [
+              "gardener",
+              "gardener_plus"
+            ]
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "month",
+              "year"
+            ]
+          }
+        },
+        "required": [
+          "action"
         ]
       },
       "AddDomainDto": {
@@ -6210,41 +7827,11 @@
               "wander"
             ],
             "example": "wander"
-          },
-          "entry": {
-            "type": "string",
-            "description": "Entry marker ID for the path",
-            "example": "550e8400-e29b-41d4-a716-446655440000"
-          },
-          "id": {
-            "type": "string",
-            "description": "Unique identifier for the path (auto-generated)",
-            "example": "550e8400-e29b-41d4-a716-446655440000",
-            "format": "uuid"
-          },
-          "authorId": {
-            "type": "string",
-            "description": "Author ID (set internally from account)",
-            "example": "550e8400-e29b-41d4-a716-446655440000",
-            "format": "uuid"
-          },
-          "homeId": {
-            "type": "string",
-            "description": "Home ID (set internally from primary home)",
-            "example": "550e8400-e29b-41d4-a716-446655440000",
-            "format": "uuid"
-          },
-          "accountId": {
-            "type": "string",
-            "description": "Account ID (set internally from auth)",
-            "example": "550e8400-e29b-41d4-a716-446655440000",
-            "format": "uuid"
           }
         },
         "required": [
           "slug",
-          "kind",
-          "entry"
+          "kind"
         ]
       },
       "UpdatePathDto": {
@@ -6362,12 +7949,89 @@
           "model": {
             "type": "string",
             "description": "Model to use",
-            "default": "claude-sonnet-4-20250514"
+            "default": "claude-sonnet-5-5"
           }
         },
         "required": [
           "cruxId",
           "messages"
+        ]
+      },
+      "CreateReportDto": {
+        "type": "object",
+        "properties": {
+          "cruxId": {
+            "type": "string",
+            "description": "The published crux",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "illegal",
+              "harmful",
+              "spam",
+              "copyright",
+              "other"
+            ]
+          },
+          "details": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "email": {
+            "type": "string",
+            "description": "Where the operator may reach the reporter",
+            "format": "email"
+          }
+        },
+        "required": [
+          "cruxId",
+          "reason"
+        ]
+      },
+      "UpdateReportDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ]
+          },
+          "resolutionNote": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "CreateTakedownDto": {
+        "type": "object",
+        "properties": {
+          "cruxId": {
+            "type": "string",
+            "description": "The crux to take down",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why, for the record",
+            "maxLength": 2000
+          },
+          "reportId": {
+            "type": "string",
+            "description": "The report that prompted it",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "cruxId",
+          "reason"
         ]
       },
       "SetStoreEntryDto": {
@@ -6408,6 +8072,29 @@
             ]
           }
         }
+      },
+      "InheritDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "AdjustInferenceRequestDto": {
+        "type": "object",
+        "properties": {
+          "chargedMicrodollars": {
+            "type": "number",
+            "description": "The new charge, below the current one",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why, for the record",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "chargedMicrodollars",
+          "reason"
+        ]
       }
     }
   }

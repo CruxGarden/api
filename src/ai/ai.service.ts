@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { LoggerService } from '../common/services/logger.service';
 import { ArtifactService } from '../artifact/artifact.service';
@@ -46,8 +46,7 @@ export class AiService {
     userApiKey: string,
   ): Promise<void> {
     // Load crux and its author for context
-    const crux = await this.cruxService.findById(cruxId);
-    if (!crux) throw new NotFoundException('Crux not found');
+    const crux = await this.cruxService.findOwnedById(cruxId, authorId);
     const cruxAuthor = await this.authorService.findById(crux.authorId);
 
     const anthropicClient = new Anthropic({
@@ -120,7 +119,6 @@ export class AiService {
         model,
         ctx,
         anthropicClient,
-        crux,
       );
     } catch (error: any) {
       if (clientDisconnected) return;
@@ -144,10 +142,8 @@ export class AiService {
     model: string,
     ctx: StreamContext,
     anthropicClient: Anthropic,
-    crux: any,
   ): Promise<void> {
     const MAX_TOOL_ROUNDS = 10;
-    let currentSystemPrompt = systemPrompt;
     const recentlyReadFiles = new Set<string>();
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -160,7 +156,7 @@ export class AiService {
 
       try {
         response = await this.streamResponse(
-          currentSystemPrompt,
+          systemPrompt,
           messages,
           model,
           ctx,
@@ -218,11 +214,13 @@ export class AiService {
         content: toolResults,
       });
 
-      // Refresh system prompt with updated file list after mutations
+      // Keep the prefix signed by Claude's thinking blocks unchanged.
+      // Fresh file state follows the tool results instead of rewriting history.
       if (hadFileMutation) {
-        currentSystemPrompt = await buildSystemPrompt(crux, () =>
-          this.toolListFiles(ctx),
-        );
+        messages.push({
+          role: 'user',
+          content: `Updated workspace files:\n${await this.toolListFiles(ctx)}`,
+        });
       }
     }
   }

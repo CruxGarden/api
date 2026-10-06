@@ -14,7 +14,6 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthRequest } from '../common/types/interfaces';
@@ -33,7 +32,6 @@ import PathRaw from './entities/path-raw.entity';
 import Author from '../author/entities/author.entity';
 import Tag from '../tag/entities/tag.entity';
 import Marker from './entities/marker.entity';
-import { HomeService } from '../home/home.service';
 
 @Controller('paths')
 @UseGuards(AuthGuard)
@@ -46,23 +44,12 @@ export class PathController {
     private readonly authorService: AuthorService,
     private readonly pathService: PathService,
     private readonly dbService: DbService,
-    private readonly homeService: HomeService,
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('PathController');
   }
 
-  async canManagePath(id: string, author: Author): Promise<boolean> {
-    const path = await this.pathService.findById(id);
-    if (path.authorId !== author.id) {
-      throw new ForbiddenException(
-        'You do not have permission to manage this path',
-      );
-    }
-    return true;
-  }
-
-  async getAuthor(req: AuthRequest): Promise<Author> {
+  private async getAuthor(req: AuthRequest): Promise<Author> {
     const author = await this.authorService.findByAccountId(req.account.id);
     if (!author) {
       throw new NotFoundException('Author not found for this account');
@@ -76,7 +63,8 @@ export class PathController {
     @Req() req: AuthRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<Path[]> {
-    const query = this.pathService.findAllQuery();
+    const author = await this.getAuthor(req);
+    const query = this.pathService.findAllQuery(author.id);
     return this.dbService.paginate<PathRaw, Path>({
       model: Path,
       query,
@@ -89,8 +77,10 @@ export class PathController {
   @PathSwagger.GetByKey()
   async getByIdentifier(
     @Param('identifier') identifier: string,
+    @Req() req: AuthRequest,
   ): Promise<Path> {
-    return this.pathService.findByIdentifier(identifier);
+    const author = await this.getAuthor(req);
+    return this.pathService.findOwnedByIdentifier(identifier, author.id);
   }
 
   @Post()
@@ -100,10 +90,7 @@ export class PathController {
     @Req() req: AuthRequest,
   ): Promise<Path> {
     const author = await this.getAuthor(req);
-    const home = await this.homeService.primary();
-    createPathDto.authorId = author.id;
-    createPathDto.homeId = home.id;
-    return this.pathService.create(createPathDto);
+    return this.pathService.create(createPathDto, author.id);
   }
 
   @Patch(':id')
@@ -114,8 +101,7 @@ export class PathController {
     @Req() req: AuthRequest,
   ): Promise<Path> {
     const author = await this.getAuthor(req);
-    await this.canManagePath(id, author);
-    return this.pathService.update(id, updatePathDto);
+    return this.pathService.update(id, updatePathDto, author.id);
   }
 
   @Delete(':id')
@@ -126,16 +112,19 @@ export class PathController {
     @Req() req: AuthRequest,
   ): Promise<null> {
     const author = await this.getAuthor(req);
-    await this.canManagePath(id, author);
-    return this.pathService.delete(id);
+    return this.pathService.delete(id, author.id);
   }
 
   /* path markers */
 
   @Get(':id/markers')
   @PathSwagger.GetMarkers()
-  async getMarkers(@Param('id') id: string): Promise<Marker[]> {
-    return this.pathService.getMarkers(id);
+  async getMarkers(
+    @Param('id') id: string,
+    @Req() req: AuthRequest,
+  ): Promise<Marker[]> {
+    const author = await this.getAuthor(req);
+    return this.pathService.getMarkers(id, author.id);
   }
 
   @Put(':id/markers')
@@ -146,7 +135,6 @@ export class PathController {
     @Req() req: AuthRequest,
   ): Promise<Marker[]> {
     const author = await this.getAuthor(req);
-    await this.canManagePath(id, author);
     return this.pathService.syncMarkers(id, syncMarkersDto.markers, author.id);
   }
 
@@ -158,9 +146,11 @@ export class PathController {
   @PathSwagger.GetTags()
   async getTags(
     @Param('id') id: string,
+    @Req() req: AuthRequest,
     @Query('filter') filter?: string,
   ): Promise<Tag[]> {
-    return this.pathService.getTags(id, filter);
+    const author = await this.getAuthor(req);
+    return this.pathService.getTags(id, author.id, filter);
   }
 
   @Put(':id/tags')
@@ -171,7 +161,6 @@ export class PathController {
     @Req() req: AuthRequest,
   ): Promise<Tag[]> {
     const author = await this.getAuthor(req);
-    await this.canManagePath(id, author);
     return this.pathService.syncTags(id, syncTagsDto.labels, author.id);
   }
 

@@ -27,7 +27,9 @@ export interface EdgeProvider {
   createTenant(
     hostname: string,
     cruxId: string,
+    storageId?: string,
   ): Promise<{ tenantId: string; status: TenantStatus }>;
+  setPublication(tenantId: string, storageId: string): Promise<void>;
   tenantStatus(tenantId: string): Promise<TenantStatus>;
   /**
    * Stop serving and remove the tenant. CloudFront only deletes a DISABLED
@@ -56,27 +58,45 @@ export interface EdgeTenant {
 export class MockEdgeProvider implements EdgeProvider {
   tenants = new Map<
     string,
-    { hostname: string; cruxId: string; checks: number; enabled: boolean }
+    {
+      hostname: string;
+      cruxId: string;
+      storageId: string;
+      checks: number;
+      enabled: boolean;
+    }
   >();
   /** how many status checks before a tenant reports active */
   activeAfterChecks = 1;
   /** Mimic CloudFront: the first delete only disables, the next one deletes. */
   deleteNeedsTwoSteps = false;
   private n = 0;
-  async createTenant(hostname: string, cruxId: string) {
+  async createTenant(hostname: string, cruxId: string, storageId = cruxId) {
     // Like the real provider: a tenant that already exists for this hostname
     // is reused (re-enabled, re-pointed) rather than fought over.
     for (const [id, t] of this.tenants) {
       if (t.hostname === hostname) {
         t.cruxId = cruxId;
+        t.storageId = storageId;
         t.enabled = true;
         t.checks = 0;
         return { tenantId: id, status: 'issuing' as const };
       }
     }
     const tenantId = `tenant-${++this.n}`;
-    this.tenants.set(tenantId, { hostname, cruxId, checks: 0, enabled: true });
+    this.tenants.set(tenantId, {
+      hostname,
+      cruxId,
+      storageId,
+      checks: 0,
+      enabled: true,
+    });
     return { tenantId, status: 'issuing' as const };
+  }
+  async setPublication(tenantId: string, storageId: string): Promise<void> {
+    const tenant = this.tenants.get(tenantId);
+    if (!tenant?.enabled) throw new Error('Domain tenant is not enabled');
+    tenant.storageId = storageId;
   }
   async tenantStatus(tenantId: string): Promise<TenantStatus> {
     const t = this.tenants.get(tenantId);
@@ -132,8 +152,8 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
     private readonly cfg: CloudFrontEdgeConfig,
   ) {}
 
-  async createTenant(hostname: string, cruxId: string) {
-    const bucket = `${this.cfg.bucketPrefix ?? 'crux-'}${cruxId.toLowerCase()}`;
+  async createTenant(hostname: string, cruxId: string, storageId = cruxId) {
+    const bucket = `${this.cfg.bucketPrefix ?? 'crux-'}${storageId.toLowerCase()}`;
     // A tenant may already exist for this hostname: disconnected but not yet
     // deleted, or the same domain reconnected to another crux. Reuse it —
     // re-enable, re-point — instead of colliding on CNAMEAlreadyExists.
@@ -196,6 +216,37 @@ export class CloudFrontEdgeProvider implements EdgeProvider {
     const tenantId = res.DistributionTenant?.Id;
     if (!tenantId) throw new Error('CloudFront did not return a tenant id');
     return { tenantId, status: tenantState(res.DistributionTenant) };
+  }
+
+  /** Update only the origin parameter; ETag refuses concurrent disable or certificate changes. */
+  async setPublication(tenantId: string, storageId: string): Promise<void> {
+    const result = await this.cf.send(
+      new GetDistributionTenantCommand({ Identifier: tenantId }),
+    );
+    const tenant = result.DistributionTenant;
+    if (!tenant?.Enabled) throw new Error('Domain tenant is not enabled');
+    const bucket = `${this.cfg.bucketPrefix ?? 'crux-'}${storageId.toLowerCase()}`;
+    if (
+      tenant.Parameters?.find((p) => p.Name === TENANT_BUCKET_PARAMETER)
+        ?.Value === bucket
+    )
+      return;
+    await this.cf.send(
+      new UpdateDistributionTenantCommand({
+        Id: tenantId,
+        IfMatch: result.ETag,
+        Domains: tenant.Domains?.map((d) => ({ Domain: d.Domain })),
+        Parameters: [
+          ...(tenant.Parameters || []).filter(
+            (p) => p.Name !== TENANT_BUCKET_PARAMETER,
+          ),
+          { Name: TENANT_BUCKET_PARAMETER, Value: bucket },
+        ],
+        ConnectionGroupId: tenant.ConnectionGroupId,
+        Customizations: tenant.Customizations,
+        Enabled: tenant.Enabled,
+      }),
+    );
   }
 
   async tenantStatus(tenantId: string): Promise<TenantStatus> {

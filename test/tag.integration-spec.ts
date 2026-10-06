@@ -1,5 +1,6 @@
+import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
@@ -15,6 +16,7 @@ import { ResourceType } from '../src/common/types/enums';
 
 describe('Tag Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockTagRepository: jest.Mocked<TagRepository>;
 
   const testAccountId = 'account-123';
@@ -40,6 +42,10 @@ describe('Tag Integration Tests', () => {
     accountId: string,
     role: string = 'author',
   ): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role },
       process.env.JWT_SECRET || 'test-secret',
@@ -70,7 +76,7 @@ describe('Tag Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(TagRepository)
@@ -80,15 +86,10 @@ describe('Tag Integration Tests', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
+    app.useGlobalPipes(createRequestValidationPipe());
 
-    await app.init();
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
 
     // Set environment
     process.env.JWT_SECRET = 'test-secret';
@@ -104,7 +105,7 @@ describe('Tag Integration Tests', () => {
 
   describe('GET /tags', () => {
     it('should return 200 and list of tags (happy path)', async () => {
-      const token = generateToken(testAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
 
       mockTagRepository.findAllQuery.mockReturnValue({
         select: jest.fn().mockReturnThis(),
@@ -128,7 +129,7 @@ describe('Tag Integration Tests', () => {
     });
 
     it('should return 200 with query parameters', async () => {
-      const token = generateToken(testAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
 
       mockTagRepository.findAllQuery.mockReturnValue({
         select: jest.fn().mockReturnThis(),
@@ -169,7 +170,7 @@ describe('Tag Integration Tests', () => {
 
   describe('GET /tags/:tagId', () => {
     it('should return 200 and tag data (happy path)', async () => {
-      const token = generateToken(testAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
       mockTagRepository.findBy.mockResolvedValue(success(testTagRaw));
 
       const response = await request(app.getHttpServer())
@@ -185,7 +186,7 @@ describe('Tag Integration Tests', () => {
     });
 
     it('should return 404 when tag not found', async () => {
-      const token = generateToken(testAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
       mockTagRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())

@@ -1,5 +1,6 @@
+import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
@@ -13,6 +14,7 @@ import HomeRaw from '../src/home/entities/home-raw.entity';
 
 describe('Home Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockHomeRepository: jest.Mocked<HomeRepository>;
 
   const testAdminAccountId = 'admin-account-123';
@@ -36,6 +38,10 @@ describe('Home Integration Tests', () => {
     accountId: string,
     role: string = 'author',
   ): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role },
       process.env.JWT_SECRET || 'test-secret',
@@ -59,7 +65,7 @@ describe('Home Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(HomeRepository)
@@ -67,15 +73,10 @@ describe('Home Integration Tests', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
+    app.useGlobalPipes(createRequestValidationPipe());
 
-    await app.init();
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
 
     // Set environment
     process.env.JWT_SECRET = 'test-secret';
@@ -91,7 +92,7 @@ describe('Home Integration Tests', () => {
 
   describe('GET /homes', () => {
     it('should return 200 and list of homes (happy path)', async () => {
-      const token = generateToken(testAuthorAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
 
       mockHomeRepository.findAllQuery.mockReturnValue({
         select: jest.fn().mockReturnThis(),
@@ -124,7 +125,7 @@ describe('Home Integration Tests', () => {
 
   describe('GET /homes/:homeId', () => {
     it('should return 200 and home data (happy path)', async () => {
-      const token = generateToken(testAuthorAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
       mockHomeRepository.findBy.mockResolvedValue(success(testHomeRaw));
 
       const response = await request(app.getHttpServer())
@@ -141,7 +142,7 @@ describe('Home Integration Tests', () => {
     });
 
     it('should return 404 when home not found', async () => {
-      const token = generateToken(testAuthorAccountId);
+      const token = generateToken(testAdminAccountId, 'admin');
       mockHomeRepository.findBy.mockResolvedValue(success(null));
 
       await request(app.getHttpServer())

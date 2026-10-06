@@ -1,5 +1,9 @@
+import { BillingService } from '../src/billing/billing.service';
+import { CruxService } from '../src/crux/crux.service';
+import { SyncAccountCleanup } from '../src/sync/sync-account-cleanup';
+import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
@@ -16,6 +20,7 @@ import AccountRaw from '../src/account/entities/account-raw.entity';
 
 describe('Account Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockAccountRepository: jest.Mocked<AccountRepository>;
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
   let mockCruxRepository: jest.Mocked<CruxRepository>;
@@ -34,6 +39,10 @@ describe('Account Integration Tests', () => {
   };
 
   const generateToken = (accountId: string, email: string): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email, role: 'author' },
       process.env.JWT_SECRET || 'test-secret',
@@ -73,8 +82,14 @@ describe('Account Integration Tests', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
+      .overrideProvider(BillingService)
+      .useValue({ closeAccount: jest.fn() })
+      .overrideProvider(CruxService)
+      .useValue({ removePublication: jest.fn() })
+      .overrideProvider(SyncAccountCleanup)
+      .useValue({ closeAccount: jest.fn() })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(AccountRepository)
@@ -88,15 +103,10 @@ describe('Account Integration Tests', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
+    app.useGlobalPipes(createRequestValidationPipe());
 
-    await app.init();
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
 
     // Set environment
     process.env.JWT_SECRET = 'test-secret';

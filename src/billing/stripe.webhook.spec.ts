@@ -27,7 +27,42 @@ const ok = <T>(data: T) => Promise.resolve({ data, error: null });
 function fakeRepo() {
   const rows = new Map<string, SubscriptionRow>();
   const events = new Set<string>();
+  const attempts = new Map<
+    string,
+    import('./billing.repository').CheckoutAttempt
+  >();
+  const closing = new Set<string>();
   return {
+    isClosing: jest.fn((id: string) => ok(closing.has(id))),
+    markClosing: jest.fn((id: string) => {
+      closing.add(id);
+      return ok(undefined);
+    }),
+    checkoutAttempt: jest.fn((id: string) => ok(attempts.get(id) ?? null)),
+    saveCheckoutAttempt: jest.fn(
+      (attempt: import('./billing.repository').CheckoutAttempt) => {
+        attempts.set(attempt.account_id, attempt);
+        return ok(undefined);
+      },
+    ),
+    forAccount: jest.fn(
+      async (_accountId: string, work: () => Promise<unknown>) => {
+        const beforeRows = new Map(rows);
+        const beforeEvents = new Set(events);
+        const beforeAttempts = new Map(attempts);
+        try {
+          return await work();
+        } catch (error) {
+          rows.clear();
+          for (const [id, row] of beforeRows) rows.set(id, row);
+          attempts.clear();
+          for (const [id, attempt] of beforeAttempts) attempts.set(id, attempt);
+          events.clear();
+          for (const id of beforeEvents) events.add(id);
+          throw error;
+        }
+      },
+    ),
     rows,
     byAccount: jest.fn((a: string) => ok(rows.get(a) ?? null)),
     byCustomer: jest.fn((c: string) =>
@@ -41,18 +76,13 @@ function fakeRepo() {
       rows.set(row.account_id, saved);
       return ok(saved);
     }),
-    setCustomer: jest.fn(() => ok(undefined)),
     setPendingSession: jest.fn(() => ok(undefined)),
     accountEmail: jest.fn(() => ok('d@example.com')),
-    eventSeen: jest.fn((id: string) => ok(events.has(id))),
+    eventCompleted: jest.fn((id: string) => ok(events.has(id))),
     claimEvent: jest.fn((id: string) => {
       if (events.has(id)) return ok(false);
       events.add(id);
       return ok(true);
-    }),
-    releaseEvent: jest.fn((id: string) => {
-      events.delete(id);
-      return ok(undefined);
     }),
     recordEvent: jest.fn(() => ok(undefined)),
     list: jest.fn(() => ok([...rows.values()])),
@@ -114,11 +144,23 @@ describe('Stripe webhooks, signed end to end', () => {
   beforeEach(() => {
     // The provider only needs the Stripe SDK for signature checks here; no network.
     provider = new StripeBillingProvider(stripe, SECRET, false);
-    // `subscription.changed` re-fetches live state; return "the same" so the
-    // payload is what counts.
+    // These signed transport fixtures model the provider still being at the
+    // delivered state. Separate lifecycle tests cover delayed/stale deliveries.
     jest
       .spyOn(provider, 'fetchSubscription')
       .mockImplementation(async () => null);
+    jest.spyOn(provider, 'fetchCustomerSubscription').mockResolvedValue(null);
+    const parse = provider.parseWebhook.bind(provider);
+    jest
+      .spyOn(provider, 'parseWebhook')
+      .mockImplementation(async (body, signature) => {
+        const event = await parse(body, signature);
+        if (event.type === 'subscription.changed')
+          jest
+            .mocked(provider.fetchSubscription)
+            .mockResolvedValue(event.subscription);
+        return event;
+      });
     repo = fakeRepo();
     svc = new BillingService(repo as never, logger, email as never);
     svc.useProvider(provider, PRICES);
@@ -183,6 +225,16 @@ describe('Stripe webhooks, signed end to end', () => {
         subscription_details: { subscription: 'sub_1' },
       },
     };
+    const state = signed(
+      'customer.subscription.updated',
+      subscription({ status: 'past_due' }),
+    );
+    const normalized = await provider.parseWebhook(state.body, state.signature);
+    if (normalized.type !== 'subscription.changed')
+      throw new Error('Invalid test fixture');
+    jest
+      .mocked(provider.fetchSubscription)
+      .mockResolvedValue(normalized.subscription);
     const failed = signed('invoice.payment_failed', invoice);
     expect(await svc.handleWebhook(failed.body, failed.signature)).toEqual({
       handled: 'payment.failed',
@@ -206,6 +258,7 @@ describe('Stripe webhooks, signed end to end', () => {
     expect(repo.rows.get('acct-1')!.past_due_since).toEqual(row.past_due_since);
     expect(email.send.mock.calls.length).toBe(mails);
 
+    jest.mocked(provider.fetchSubscription).mockResolvedValue(null);
     // payment recovered: Stripe sends the subscription active again
     const active = signed(
       'customer.subscription.updated',
@@ -243,5 +296,71 @@ describe('Stripe webhooks, signed end to end', () => {
       handled: 'ignored',
     });
     expect(repo.rows.size).toBe(0);
+  });
+
+  it('a scheduled cancel_at date is the end date, and the plan says it will not renew (ADR 0083)', async () => {
+    const scheduled = signed(
+      'customer.subscription.updated',
+      subscription({ cancel_at: 1_789_948_800 }), // 2026-09-21T00:00:00Z
+    );
+    await svc.handleWebhook(scheduled.body, scheduled.signature);
+    const me = await svc.me('acct-1', new Date('2026-09-10T00:00:00Z'));
+    expect(me.endsAt).toBe('2026-09-21T00:00:00.000Z');
+    expect(me.cancelAtPeriodEnd).toBe(true);
+    expect(me.renewsAt).toBe('2026-10-01T00:00:00.000Z');
+    expect(repo.rows.get('acct-1')!.cancel_at).toEqual(
+      new Date('2026-09-21T00:00:00Z'),
+    );
+  });
+
+  it('keeps incomplete_expired distinct from incomplete', async () => {
+    const owed = signed(
+      'customer.subscription.updated',
+      subscription({ status: 'incomplete' }),
+    );
+    await svc.handleWebhook(owed.body, owed.signature);
+    expect((await svc.me('acct-1')).status).toBe('incomplete');
+    expect((await svc.me('acct-1')).attention).toMatchObject({
+      kind: 'payment_incomplete',
+      action: 'portal',
+    });
+    const expired = signed(
+      'customer.subscription.updated',
+      subscription({ status: 'incomplete_expired' }),
+    );
+    await svc.handleWebhook(expired.body, expired.signature);
+    const me = await svc.me('acct-1');
+    expect(me.status).toBe('incomplete_expired');
+    expect(me.plan.id).toBe('free');
+    expect(me.attention).toMatchObject({ action: 'checkout' });
+    // never started: the trial is still available
+    expect(repo.rows.get('acct-1')!.subscription_started_at).toBeNull();
+  });
+});
+
+describe('Stripe subscription lookup failures', () => {
+  it('distinguishes a missing subscription from a provider outage', async () => {
+    const retrieve = jest.fn();
+    const provider = new StripeBillingProvider(
+      { subscriptions: { retrieve } } as never,
+      SECRET,
+      false,
+    );
+    retrieve.mockRejectedValueOnce({
+      code: 'resource_missing',
+      statusCode: 404,
+    });
+    await expect(provider.fetchSubscription('sub_missing')).resolves.toBeNull();
+    for (const error of [
+      new Error('network unavailable'),
+      { statusCode: 429 },
+      { statusCode: 401 },
+      { statusCode: 500 },
+    ]) {
+      retrieve.mockRejectedValueOnce(error);
+      await expect(
+        provider.fetchSubscription('sub_unavailable'),
+      ).rejects.toEqual(error);
+    }
   });
 });

@@ -7,7 +7,7 @@ import { RepositoryResponse } from '../common/types/interfaces';
 import { success, failure } from '../common/helpers/repository-helpers';
 import ArtifactRaw from './entities/artifact-raw.entity';
 import { CreateArtifactDto } from './dto/create-artifact.dto';
-import { UpdateArtifactDto } from './dto/update-artifact.dto';
+import { ArtifactUpdate } from './dto/update-artifact.dto';
 
 @Injectable()
 export class ArtifactRepository {
@@ -127,10 +127,18 @@ export class ArtifactRepository {
 
   async update(
     artifactId: string,
-    updateData: UpdateArtifactDto,
+    updateData: ArtifactUpdate,
   ): Promise<RepositoryResponse<ArtifactRaw>> {
     try {
-      const tableFields = toTableFields(updateData);
+      const tableFields = toTableFields({
+        type: updateData.type,
+        kind: updateData.kind,
+        meta: updateData.meta,
+        encoding: updateData.encoding,
+        mimeType: updateData.mimeType,
+        filename: updateData.filename,
+        size: updateData.size,
+      });
 
       await this.dbService
         .query()

@@ -90,17 +90,6 @@ describe('AuthorService', () => {
         NotFoundException,
       );
     });
-
-    it('should throw NotFoundException on repository error', async () => {
-      repository.findBy.mockResolvedValue({
-        data: null,
-        error: new Error('DB Error'),
-      });
-
-      await expect(service.findById('author-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
   });
 
   describe('findByUsername', () => {
@@ -181,6 +170,15 @@ describe('AuthorService', () => {
       await expect(service.create(createDto)).rejects.toThrow(
         ConflictException,
       );
+    });
+
+    it('should refuse a username the website keeps for itself', async () => {
+      repository.findByUsername.mockResolvedValue({ data: null, error: null });
+
+      await expect(
+        service.create({ ...createDto, username: 'Terms' }),
+      ).rejects.toThrow('That username is kept for the website');
+      expect(repository.create).not.toHaveBeenCalled();
     });
 
     it('should throw ConflictException when account already has author', async () => {

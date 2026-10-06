@@ -1,10 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsEmail,
   IsObject,
   IsOptional,
   IsString,
-  IsUrl,
   Matches,
   MinLength,
 } from 'class-validator';
@@ -33,14 +31,6 @@ export class UpdateAuthorDto {
   displayName?: string;
 
   @ApiPropertyOptional({
-    description: 'Email address of the author',
-    example: 'john@example.com',
-  })
-  @IsOptional()
-  @IsEmail()
-  email?: string;
-
-  @ApiPropertyOptional({
     description: 'Bio or description of the author',
     example: 'Software developer and writer',
   })
@@ -56,22 +46,6 @@ export class UpdateAuthorDto {
   @IsOptional()
   @IsString()
   rootId?: string;
-
-  @ApiPropertyOptional({
-    description: 'Website URL of the author',
-    example: 'https://johndoe.com',
-  })
-  @IsOptional()
-  @IsUrl()
-  website?: string;
-
-  @ApiPropertyOptional({
-    description: 'Avatar URL for the author',
-    example: 'https://example.com/avatar.jpg',
-  })
-  @IsOptional()
-  @IsUrl()
-  avatarUrl?: string;
 
   @ApiPropertyOptional({
     description: 'Metadata JSON object',

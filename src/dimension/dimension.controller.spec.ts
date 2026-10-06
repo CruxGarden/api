@@ -79,7 +79,8 @@ describe('DimensionController', () => {
     it('should return a dimension by id', async () => {
       service.findById.mockResolvedValue(mockDimension);
 
-      const result = await controller.getById('dimension-id');
+      authorService.findByAccountId.mockResolvedValue(mockAuthor as any);
+      const result = await controller.getById('dimension-id', mockRequest);
 
       expect(result).toEqual(mockDimension);
       expect(service.findById).toHaveBeenCalledWith('dimension-id');

@@ -15,7 +15,6 @@ interface ErrorResponse {
   method: string;
   message: string | string[];
   error?: string;
-  stack?: string;
 }
 
 @Catch()
@@ -31,8 +30,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const status =
-      exception instanceof HttpException
+    const conflict = isUniqueViolation(exception);
+    const status = conflict
+      ? HttpStatus.CONFLICT
+      : exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
@@ -41,17 +42,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: request.url,
       method: request.method,
-      message: this.getErrorMessage(exception),
+      message: conflict
+        ? 'A record with these values already exists'
+        : status >= 500
+          ? 'Internal server error'
+          : this.getErrorMessage(exception),
     };
 
-    // Add error name for non-500 errors
-    if (status !== HttpStatus.INTERNAL_SERVER_ERROR) {
-      errorResponse.error = this.getErrorName(exception);
-    }
-
-    // Add stack trace in development
-    if (process.env.NODE_ENV !== 'production' && exception instanceof Error) {
-      errorResponse.stack = exception.stack;
+    if (status < 500) {
+      errorResponse.error = conflict
+        ? 'Conflict'
+        : this.getErrorName(exception);
     }
 
     // Log the error
@@ -108,4 +109,24 @@ export class HttpExceptionFilter implements ExceptionFilter {
       this.logger.warn(`Client Error: ${message}`, context);
     }
   }
+}
+
+/** Drivers expose stable codes; never infer a conflict from database text. */
+function isUniqueViolation(exception: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current = exception;
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current);
+    if (
+      'code' in current &&
+      [
+        '23505',
+        'SQLITE_CONSTRAINT_UNIQUE',
+        'SQLITE_CONSTRAINT_PRIMARYKEY',
+      ].includes(String(current.code))
+    )
+      return true;
+    current = 'cause' in current ? current.cause : undefined;
+  }
+  return false;
 }

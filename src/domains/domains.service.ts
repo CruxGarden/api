@@ -97,13 +97,23 @@ export class DomainsService {
    * answered by the gatepost, which redirects to www.
    */
   private async liveRow(hostname: string): Promise<CustomDomainRow | null> {
-    const direct = (await this.repo.findByHostname(hostname)).data;
+    const result = await this.repo.findByHostname(hostname);
+    if (result.error)
+      throw new InternalServerErrorException('Could not resolve domain', {
+        cause: result.error,
+      });
+    const direct = result.data;
     if (direct && (direct.status === 'active' || direct.status === 'issuing'))
       return direct;
     if (hostname.startsWith('www.')) {
       const apex = hostname.slice(4);
       if (isApexDomain(apex)) {
-        const row = (await this.repo.findByHostname(apex)).data;
+        const result = await this.repo.findByHostname(apex);
+        if (result.error)
+          throw new InternalServerErrorException('Could not resolve domain', {
+            cause: result.error,
+          });
+        const row = result.data;
         if (row && (row.status === 'active' || row.status === 'issuing'))
           return row;
       }
@@ -136,14 +146,22 @@ export class DomainsService {
    */
   async resolveHost(
     host: string,
-  ): Promise<{ cruxId: string; legacy: boolean } | null> {
+  ): Promise<{ cruxId: string; legacy: boolean; storageId?: string } | null> {
     const hostname = normalizeHostname(host) ?? host.trim().toLowerCase();
     const cruxId =
       cruxIdFromPublishHost(hostname) ?? (await this.resolve(hostname));
     if (!cruxId) return null;
-    const state = (await this.repo.publishState(cruxId)).data;
+    const { data: state, error } = await this.repo.publishState(cruxId);
+    if (error)
+      throw new InternalServerErrorException('Could not resolve publication', {
+        cause: error,
+      });
     if (!state?.published) return null;
-    return { cruxId, legacy: state.layout !== 'bucket-per-crux' };
+    return {
+      cruxId,
+      legacy: state.layout !== 'bucket-per-crux',
+      ...(state.storageId ? { storageId: state.storageId } : {}),
+    };
   }
 
   /** tests */
@@ -224,6 +242,8 @@ export class DomainsService {
     // is where "custom domains are a Gardener feature" is enforced. With no
     // billing wired (self-hosted) there are no plans to buy, so no gate.
     if (this.billing) {
+      // A suspended account connects no new hosted domains (ADR 0083).
+      await this.billing.assertNotSuspended(accountId);
       const planId = await this.billing.planIdFor(accountId);
       const plan = planById(planId);
       const open = (await this.repo.countOpenByAuthor(authorId)).data ?? 0;
@@ -323,9 +343,19 @@ export class DomainsService {
       try {
         // createTenant reuses a tenant CloudFront already holds for the
         // hostname (a retry, a revived domain), so nothing to tear down first.
+        const publication = await this.repo.publishState(row.crux_id);
+        if (publication.error) throw publication.error;
+        if (
+          publication.data?.storageId &&
+          publication.data.layout !== 'bucket-per-crux'
+        )
+          throw new Error(
+            'Custom domains require bucket-per-crux publishing. Republish after configuring that layout.',
+          );
         const tenant = await this.edge.createTenant(
           DomainsService.servedHost(row.hostname),
           row.crux_id,
+          publication.data?.storageId,
         );
         const updated = await this.repo.update(id, {
           status: tenant.status === 'active' ? 'active' : 'issuing',
@@ -352,9 +382,39 @@ export class DomainsService {
     }
 
     if (row.status === 'issuing' && row.tenant_id) {
+      let storageId: string | undefined;
+      try {
+        const publication = await this.repo.publishState(row.crux_id);
+        if (publication.error) throw publication.error;
+        if (publication.data?.removing) return this.view(row);
+        if (publication.data?.storageId) {
+          storageId = publication.data.storageId;
+          if (publication.data.layout !== 'bucket-per-crux')
+            throw new Error(
+              'Custom domains require bucket-per-crux publishing',
+            );
+          await this.edge.setPublication(
+            row.tenant_id,
+            publication.data.storageId,
+          );
+          await this.edge.invalidateTenant(row.tenant_id, ['/*']);
+        }
+      } catch (error) {
+        const pending = await this.repo.update(id, {
+          error: `Publication update pending: ${(error as Error).message}`,
+        });
+        return this.view(pending.data ?? row);
+      }
+      const saveCheck = (change: {
+        status?: 'failed' | 'active';
+        error: string | null;
+      }) =>
+        storageId
+          ? this.repo.finishPublicationCheck(id, row.crux_id, storageId, change)
+          : this.repo.update(id, change);
       const status = await this.edge.tenantStatus(row.tenant_id);
       if (status === 'failed') {
-        const updated = await this.repo.update(id, {
+        const updated = await saveCheck({
           status: 'failed',
           error: 'The certificate could not be issued',
         });
@@ -363,13 +423,13 @@ export class DomainsService {
         // CloudFront says the domain is active; "live" means the site answers.
         const served = DomainsService.servedHost(row.hostname);
         if (await this.probe(served)) {
-          const updated = await this.repo.update(id, {
+          const updated = await saveCheck({
             status: 'active',
             error: null,
           });
           row = updated.data ?? row;
         } else {
-          const updated = await this.repo.update(id, {
+          const updated = await saveCheck({
             error: `Certificate ready — waiting for https://${served}/ to answer`,
           });
           row = updated.data ?? row;
@@ -398,13 +458,16 @@ export class DomainsService {
     if (row.tenant_id) {
       try {
         const outcome = await this.edge.deleteTenant(row.tenant_id);
-        if (outcome === 'deleted')
-          await this.repo.update(id, { tenant_id: null });
-        // 'disabling': the domain is dark; the sweep deletes the tenant later
-      } catch (err) {
-        // Keep tenant_id so the sweep can try again
-        this.logger.error(
-          `tenant delete failed for ${row.hostname}: ${(err as Error).message}`,
+        if (outcome === 'deleted') {
+          const updated = await this.repo.update(id, { tenant_id: null });
+          if (updated.error) throw updated.error;
+        }
+        // 'disabling' is acknowledged; the sweep finishes deletion after propagation.
+      } catch (cause) {
+        // Keep the live row and tenant id so explicit removal can be retried.
+        throw new InternalServerErrorException(
+          'Could not remove the domain at the edge. Please retry.',
+          { cause },
         );
       }
     }
@@ -476,12 +539,27 @@ export class DomainsService {
     return removed;
   }
 
-  /** Unpublish/delete of a crux: drop its domains at the edge too. */
-  /**
-   * After a republish: the crux's own bucket has new files, but each custom
-   * domain caches through its tenant. Best effort — a failed invalidation
-   * only means stale HTML until its short cache expires.
-   */
+  /** Direct-bucket tenants cannot serve the shared-prefix layout. Refuse before uploading. */
+  async assertPublicationLayout(cruxId: string, layout: string): Promise<void> {
+    if (layout === 'bucket-per-crux') return;
+    const rows = await this.repo.findByCrux(cruxId);
+    if (rows.error)
+      throw new InternalServerErrorException('Could not check custom domains');
+    if (rows.data?.some((row) => row.tenant_id))
+      throw new BadRequestException(
+        'Custom domains require bucket-per-crux publishing. Configure that layout before publishing.',
+      );
+  }
+
+  /** The transaction records issuing state; the existing poller retries after crashes or CDN refusal. */
+  async activatePublication(cruxId: string): Promise<void> {
+    const rows = await this.repo.findByCrux(cruxId);
+    if (rows.error) throw rows.error;
+    for (const row of rows.data || [])
+      if (row.status === 'issuing' && row.tenant_id) await this.verify(row.id);
+  }
+
+  /** Best-effort manual invalidation of active domain tenants. */
   async invalidateForCrux(
     cruxId: string,
     paths: string[] = ['/*'],
@@ -499,9 +577,14 @@ export class DomainsService {
     }
   }
 
+  /** Unpublish/delete must retain its owner record when any domain refuses cleanup. */
   async removeAllForCrux(cruxId: string): Promise<void> {
     const r = await this.repo.findByCrux(cruxId);
-    for (const row of r.data ?? []) await this.remove(row.id).catch(() => {});
+    if (r.error)
+      throw new InternalServerErrorException(
+        'Could not read the domains to remove',
+      );
+    for (const row of r.data ?? []) await this.remove(row.id);
   }
 
   /** Advance issuing tenants without a client asking. */

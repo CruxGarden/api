@@ -133,4 +133,87 @@ export class AccountRepository {
       return failure(error);
     }
   }
+
+  /** Operator hold (ADR 0083). Returns the updated row, or null for no live account. */
+  async setSuspension(
+    accountId: string,
+    hold: { reason: string; operatorId: string } | null,
+  ): Promise<RepositoryResponse<AccountRaw | null>> {
+    try {
+      const changed = await this.dbService
+        .query()
+        .from<AccountRaw>(AccountRepository.TABLE_NAME)
+        .where('id', accountId)
+        .whereNull('deleted')
+        .update(
+          hold
+            ? {
+                suspended: new Date(),
+                suspended_reason: hold.reason,
+                suspended_by: hold.operatorId,
+                updated: new Date(),
+              }
+            : {
+                suspended: null,
+                suspended_reason: null,
+                suspended_by: null,
+                updated: new Date(),
+              },
+        );
+      if (!changed) return success(null);
+      return this.findById(accountId);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
+  /** Admin lookup by email or username; minimal fields, newest first. */
+  async search(
+    query: string,
+    limit = 50,
+  ): Promise<RepositoryResponse<AccountSearchRow[]>> {
+    try {
+      const db = this.dbService.query();
+      const q = db
+        .from('accounts as a')
+        .leftJoin('authors as au', function () {
+          this.on('au.account_id', '=', 'a.id').andOnNull('au.deleted');
+        })
+        .whereNull('a.deleted')
+        .select(
+          'a.id',
+          'a.email',
+          'a.role',
+          'a.created',
+          'a.suspended',
+          'a.suspended_reason',
+          'au.username',
+        )
+        .orderBy('a.created', 'desc')
+        .limit(limit);
+      const term = query.trim().toLowerCase().replace(/^@/, '');
+      if (term) {
+        const like = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+        q.where(function () {
+          this.whereRaw("lower(a.email) like ? escape '\\'", [like]).orWhereRaw(
+            "lower(au.username) like ? escape '\\'",
+            [like],
+          );
+        });
+      }
+      return success((await q) as AccountSearchRow[]);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+}
+
+export interface AccountSearchRow {
+  id: string;
+  email: string;
+  role: string;
+  created: Date;
+  suspended: Date | null;
+  suspended_reason: string | null;
+  username: string | null;
 }

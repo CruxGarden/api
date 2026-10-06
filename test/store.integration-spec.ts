@@ -1,5 +1,6 @@
+import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
@@ -9,6 +10,7 @@ import { StoreRepository } from '../src/crux-store/crux-store.repository';
 import { UsageService } from '../src/usage/usage.service';
 import { HomeService } from '../src/home/home.service';
 import { DbService } from '../src/common/services/db.service';
+import { LimitsService } from '../src/usage/limits.service';
 import { RedisService } from '../src/common/services/redis.service';
 import { MockDbService } from './mocks/db.mock';
 import { MockRedisService } from './mocks/redis.mock';
@@ -153,6 +155,7 @@ class FakeStoreRepository {
 
 describe('Crux Store Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let store: FakeStoreRepository;
   let usage: Record<string, jest.Mock>;
 
@@ -170,9 +173,15 @@ describe('Crux Store Integration Tests', () => {
       process.env.JWT_SECRET || 'test-secret',
       { expiresIn: '1h' },
     );
-  const auth = (accountId: string) => ({
-    Authorization: `Bearer ${token(accountId)}`,
-  });
+  const auth = (accountId: string) => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
+    return {
+      Authorization: `Bearer ${token(accountId)}`,
+    };
+  };
   const url = (key: string) => `/store/${CRUX}/${key}`;
 
   beforeAll(async () => {
@@ -231,7 +240,7 @@ describe('Crux Store Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(CruxRepository)
@@ -242,19 +251,20 @@ describe('Crux Store Integration Tests', () => {
       .useValue(store)
       .overrideProvider(UsageService)
       .useValue(usage)
+      // The fake DbService has no joins; suspension refusal is covered in the controller spec.
+      .overrideProvider(LimitsService)
+      .useValue({
+        assertAuthorNotSuspended: jest.fn().mockResolvedValue(undefined),
+        assertNotSuspended: jest.fn().mockResolvedValue(undefined),
+      })
       .overrideProvider(HomeService)
       .useValue({ primary: jest.fn().mockResolvedValue({ id: 'home-1' }) })
       .compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
-    await app.init();
+    app.useGlobalPipes(createRequestValidationPipe());
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
   });
 
   afterAll(async () => {

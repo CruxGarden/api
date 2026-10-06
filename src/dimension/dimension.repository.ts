@@ -8,7 +8,7 @@ import { toTableFields } from '../common/helpers/case-helpers';
 import DimensionRaw from './entities/dimension-raw.entity';
 import { CreateDimensionDto } from './dto/create-dimension.dto';
 import { UpdateDimensionDto } from './dto/update-dimension.dto';
-import { DimensionType } from 'src/common';
+import { DimensionType } from '../common/types/enums';
 
 @Injectable()
 export class DimensionRepository {

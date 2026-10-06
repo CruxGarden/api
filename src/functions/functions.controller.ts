@@ -1,0 +1,220 @@
+import {
+  All,
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Post,
+  Put,
+  Req,
+  Res,
+  Sse,
+  UseGuards,
+  MessageEvent,
+} from '@nestjs/common';
+import type { Response } from 'express';
+import { Observable, filter, map } from 'rxjs';
+import { VisitorAuthGuard } from '../published-auth/visitor-auth.guard';
+import { AuthGuard } from '../common/guards/auth.guard';
+import { CruxService } from '../crux/crux.service';
+import { AuthRequest } from '../common/types/interfaces';
+import { AuthorService } from '../author/author.service';
+import { FunctionsService } from './functions.service';
+import { sendFunctionResponse } from './http-response';
+
+/**
+ * A published crux's functions and events (CRUX-FUNCTIONS-PLAN F0 + F6):
+ *
+ *   GET  /fn/:cruxId              what the crux's functions/ folder holds (with schedules)
+ *   ANY  /fn/:cruxId/:name[/rest] run an HTTP handler — the crux's own API: the method,
+ *                                 the rest of the path, the query and the headers reach
+ *                                 req; ctx.json / text / html / redirect shape the answer
+ *   POST /events/:cruxId/:name    emit an event (crux.emit): handlers run, listeners hear it
+ *   GET  /events/:cruxId          the crux's event stream (crux.on), server-sent
+ *
+ * The visitor is whoever the Store SDK's token names, as for the Store.
+ */
+@Controller()
+export class FunctionsController {
+  constructor(
+    private readonly functions: FunctionsService,
+    private readonly authorService: AuthorService,
+    private readonly cruxService: CruxService,
+  ) {}
+
+  private async assertOwner(cruxId: string, req: AuthRequest): Promise<void> {
+    const crux = await this.cruxService.findById(cruxId);
+    if (!crux) throw new NotFoundException('Crux not found');
+    const author = await this.authorService.findByAccountId(req.account.id);
+    if (!author || author.id !== crux.authorId)
+      throw new ForbiddenException('You do not own this crux');
+  }
+
+  // ── Secrets (F1): the author's, encrypted, read by handlers only ──────
+  @Get('fn/:cruxId/secrets')
+  @UseGuards(AuthGuard)
+  async listSecrets(@Param('cruxId') cruxId: string, @Req() req: AuthRequest) {
+    await this.assertOwner(cruxId, req);
+    return this.functions.listSecretNames(cruxId);
+  }
+
+  @Put('fn/:cruxId/secrets/:name')
+  @UseGuards(AuthGuard)
+  async putSecret(
+    @Param('cruxId') cruxId: string,
+    @Param('name') name: string,
+    @Body() body: { value?: unknown },
+    @Req() req: AuthRequest,
+  ) {
+    await this.assertOwner(cruxId, req);
+    await this.functions.setSecret(cruxId, name, String(body?.value ?? ''));
+    return { name, set: true };
+  }
+
+  @Delete('fn/:cruxId/secrets/:name')
+  @UseGuards(AuthGuard)
+  async deleteSecret(
+    @Param('cruxId') cruxId: string,
+    @Param('name') name: string,
+    @Req() req: AuthRequest,
+  ) {
+    await this.assertOwner(cruxId, req);
+    await this.functions.deleteSecret(cruxId, name);
+    return { name, set: false };
+  }
+
+  private async visitorId(req: AuthRequest): Promise<string | null> {
+    if (req.publishedVisitor) return req.publishedVisitor.id;
+    if (!req.account) return null;
+    try {
+      const author = await this.authorService.findByAccountId(req.account.id);
+      return author?.id ?? null;
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) throw error;
+      return null;
+    }
+  }
+
+  @Get('fn/:cruxId')
+  @UseGuards(VisitorAuthGuard)
+  async list(@Param('cruxId') cruxId: string) {
+    return this.functions.listWithSchedules(cruxId);
+  }
+
+  @All('fn/:cruxId/:name')
+  @UseGuards(VisitorAuthGuard)
+  async call(
+    @Param('cruxId') cruxId: string,
+    @Param('name') name: string,
+    @Body() body: unknown,
+    @Req() req: AuthRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.run(cruxId, name, '', body, req, res);
+  }
+
+  @All('fn/:cruxId/:name/*rest')
+  @UseGuards(VisitorAuthGuard)
+  async callRest(
+    @Param('cruxId') cruxId: string,
+    @Param('name') name: string,
+    @Param('rest') rest: string | string[],
+    @Body() body: unknown,
+    @Req() req: AuthRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.run(
+      cruxId,
+      name,
+      Array.isArray(rest) ? rest.join('/') : String(rest ?? ''),
+      body,
+      req,
+      res,
+    );
+  }
+
+  private async run(
+    cruxId: string,
+    name: string,
+    rest: string,
+    body: unknown,
+    req: AuthRequest,
+    res: Response,
+  ) {
+    const r = req as unknown as {
+      method: string;
+      query: Record<string, string | string[]>;
+      headers: Record<string, string | string[] | undefined>;
+    };
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(r.headers ?? {})) {
+      if (k === 'authorization' || k === 'cookie') continue;
+      if (typeof v === 'string') headers[k] = v;
+    }
+    const visitorId = await this.visitorId(req);
+    const result = await this.functions.call(cruxId, name, {
+      body: body ?? null,
+      visitorId,
+      visitorOnly: !!req.publishedVisitor,
+      method: r.method,
+      rest,
+      query: r.query ?? {},
+      headers,
+    });
+    sendFunctionResponse(
+      res,
+      result,
+      !req.publishedVisitor && (await this.isOwner(cruxId, visitorId)),
+    );
+  }
+
+  private async isOwner(
+    cruxId: string,
+    visitorId: string | null,
+  ): Promise<boolean> {
+    if (!visitorId) return false;
+    const crux = await this.cruxService.findById(cruxId);
+    return crux?.authorId === visitorId;
+  }
+
+  @Post('events/:cruxId/:name')
+  @HttpCode(202)
+  @UseGuards(VisitorAuthGuard)
+  async emit(
+    @Param('cruxId') cruxId: string,
+    @Param('name') name: string,
+    @Body() body: unknown,
+    @Req() req: AuthRequest,
+  ) {
+    const visitorId = await this.visitorId(req);
+    const { handlers, results } = await this.functions.emit(
+      cruxId,
+      name,
+      body ?? null,
+      visitorId,
+      0,
+      !!req.publishedVisitor,
+    );
+    const isOwner =
+      !req.publishedVisitor && (await this.isOwner(cruxId, visitorId));
+    const visibleResults = Object.fromEntries(
+      Object.entries(results).map(([handler, result]) => [
+        handler,
+        { ...result, logs: isOwner ? result.logs : [] },
+      ]),
+    );
+    return { event: name, handlers, results: visibleResults };
+  }
+
+  @Sse('events/:cruxId')
+  stream(@Param('cruxId') cruxId: string): Observable<MessageEvent> {
+    return this.functions.events.pipe(
+      filter((e) => e.cruxId === cruxId),
+      map((e) => ({ type: e.event.name, data: e.event }) as MessageEvent),
+    );
+  }
+}

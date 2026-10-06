@@ -185,15 +185,57 @@ export class DomainsRepository {
     }
   }
 
+  /** A delayed CDN acknowledgement must not clear a newer publication's pending work. */
+  async finishPublicationCheck(
+    id: string,
+    cruxId: string,
+    storageId: string,
+    change: { status?: DomainStatus; error?: string | null },
+  ): Promise<RepositoryResponse<CustomDomainRow | undefined>> {
+    try {
+      const data = await this.dbService.query().transaction(async (trx) => {
+        const crux = await trx('cruxes')
+          .where({ id: cruxId })
+          .whereNull('deleted')
+          .forUpdate()
+          .first();
+        const current =
+          crux?.meta?.publishStorageId === storageId &&
+          !crux?.meta?.publicationRemoving;
+        const [row] = await trx('custom_domains')
+          .where({ id, crux_id: cruxId })
+          .whereNull('deleted')
+          .update({
+            ...(current
+              ? change
+              : {
+                  status: 'issuing',
+                  error: 'Publication changed; origin update pending',
+                }),
+            updated: new Date(),
+          })
+          .returning('*');
+        return row;
+      });
+      return success(data);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+
   /**
    * Is the crux live, and under which publish layout? Read from cruxes.meta so
    * the edge can be told where the files are without a module cycle.
    */
-  async publishState(
-    cruxId: string,
-  ): Promise<
+  async publishState(cruxId: string): Promise<
     RepositoryResponse<
-      { published: boolean; layout: string | null } | undefined
+      | {
+          published: boolean;
+          layout: string | null;
+          storageId?: string;
+          removing?: boolean;
+        }
+      | undefined
     >
   > {
     try {
@@ -212,6 +254,10 @@ export class DomainsRepository {
       const layout = meta.publishLayout ?? meta.publish_layout;
       return success({
         published: !!publishedAt,
+        ...(meta.publicationRemoving ? { removing: true } : {}),
+        ...(typeof meta.publishStorageId === 'string'
+          ? { storageId: meta.publishStorageId }
+          : {}),
         layout: typeof layout === 'string' ? layout : null,
       });
     } catch (error) {

@@ -1,5 +1,6 @@
+import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import * as jwt from 'jsonwebtoken';
 import { AppModule } from '../src/app.module';
@@ -16,6 +17,7 @@ import AuthorRaw from '../src/author/entities/author-raw.entity';
 
 describe('Dimension Integration Tests', () => {
   let app: INestApplication;
+  const tokenDb = new MockDbService();
   let mockDimensionRepository: jest.Mocked<DimensionRepository>;
   let mockAuthorRepository: jest.Mocked<AuthorRepository>;
 
@@ -51,6 +53,10 @@ describe('Dimension Integration Tests', () => {
   };
 
   const generateToken = (accountId: string): string => {
+    tokenDb.setTable('accounts', [
+      ...tokenDb.getTable('accounts').filter((row) => row.id !== accountId),
+      { id: accountId, deleted: null },
+    ]);
     return jwt.sign(
       { id: accountId, email: 'test@example.com', role: 'author' },
       process.env.JWT_SECRET || 'test-secret',
@@ -84,7 +90,7 @@ describe('Dimension Integration Tests', () => {
       imports: [AppModule],
     })
       .overrideProvider(DbService)
-      .useValue(new MockDbService())
+      .useValue(tokenDb)
       .overrideProvider(RedisService)
       .useValue(new MockRedisService())
       .overrideProvider(DimensionRepository)
@@ -96,15 +102,10 @@ describe('Dimension Integration Tests', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
+    app.useGlobalPipes(createRequestValidationPipe());
 
-    await app.init();
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
 
     // Set environment
     process.env.JWT_SECRET = 'test-secret';
@@ -116,6 +117,7 @@ describe('Dimension Integration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
   });
 
   describe('GET /dimensions/:dimensionId', () => {
@@ -166,6 +168,40 @@ describe('Dimension Integration Tests', () => {
   });
 
   describe('PATCH /dimensions/:dimensionId', () => {
+    it('patches relationship metadata without discarding unrelated keys', async () => {
+      const existing = {
+        ...testDimensionRaw,
+        kind: 'membership',
+        meta: { displayOrder: 1, origin: { cruxId: testSourceCruxId } },
+      };
+      mockAuthorRepository.findBy.mockResolvedValue(success(testAuthorRaw));
+      mockDimensionRepository.findBy.mockResolvedValue(success(existing));
+      mockDimensionRepository.update.mockImplementation(async (_id, dto) =>
+        success({ ...existing, ...dto } as DimensionRaw),
+      );
+      const response = await request(app.getHttpServer())
+        .patch(`/dimensions/${testDimensionId}`)
+        .set(authHeader(generateToken(testAccountId)))
+        .send({ kind: 'association', meta: { displayOrder: 2 } })
+        .expect(200);
+      expect(response.body).toMatchObject({
+        kind: 'association',
+        meta: { displayOrder: 2, origin: { cruxId: testSourceCruxId } },
+      });
+    });
+
+    it.each([[], 'invalid', 4, null])(
+      'rejects non-object relationship metadata: %j',
+      async (meta) => {
+        await request(app.getHttpServer())
+          .patch(`/dimensions/${testDimensionId}`)
+          .set(authHeader(generateToken(testAccountId)))
+          .send({ meta })
+          .expect(400);
+        expect(mockDimensionRepository.update).not.toHaveBeenCalled();
+      },
+    );
+
     const updateDimensionDto = {
       type: 'garden',
       weight: 5,

@@ -1,198 +1,205 @@
 import { Injectable } from '@nestjs/common';
-import { Knex } from 'knex';
 import { toTableFields } from '../common/helpers/case-helpers';
 import { DbService } from '../common/services/db.service';
-import { LoggerService } from '../common/services/logger.service';
 import { RepositoryResponse } from '../common/types/interfaces';
 import { success, failure } from '../common/helpers/repository-helpers';
 import PathRaw from './entities/path-raw.entity';
 import MarkerRaw from './entities/marker-raw.entity';
 import { CreatePathDto } from './dto/create-path.dto';
 import { UpdatePathDto } from './dto/update-path.dto';
-import { CreateMarkerDto } from './dto/create-marker.dto';
+import { MarkerInput } from './dto/sync-markers.dto';
+
+type NewPath = CreatePathDto & { id: string; authorId: string; homeId: string };
+type NewMarker = MarkerInput & { id: string };
 
 @Injectable()
 export class PathRepository {
-  // @ts-expect-error - logger
-  private readonly logger: LoggerService;
+  constructor(private readonly db: DbService) {}
 
-  constructor(
-    private readonly dbService: DbService,
-    private readonly loggerService: LoggerService,
-  ) {
-    this.logger = this.loggerService.createChildLogger('PathRepository');
-  }
-
-  private static readonly TABLE_NAME = 'paths';
-  private static readonly MARKER_TABLE_NAME = 'markers';
-  private static readonly BASE_SELECT = '*';
-
-  findAllQuery(): Knex.QueryBuilder<PathRaw, PathRaw[]> {
-    return this.dbService
+  findAllQuery(authorId: string) {
+    return this.db
       .query()
-      .from<PathRaw>(PathRepository.TABLE_NAME)
-      .select<PathRaw[]>(PathRepository.BASE_SELECT)
+      .from<PathRaw>('paths')
+      .select('*')
+      .where('author_id', authorId)
       .whereNull('deleted')
-      .orderBy('created', 'desc') as Knex.QueryBuilder<PathRaw, PathRaw[]>;
+      .orderBy('created', 'desc')
+      .orderBy('id');
   }
 
   async findBy(
-    fieldName: string,
-    fieldValue: string,
+    field: 'id' | 'slug',
+    value: string,
+    authorId?: string,
   ): Promise<RepositoryResponse<PathRaw>> {
     try {
-      const data = await this.dbService
+      const query = this.db
         .query()
-        .from<PathRaw>(PathRepository.TABLE_NAME)
-        .select(PathRepository.BASE_SELECT)
-        .where(fieldName, fieldValue)
-        .whereNull('deleted')
-        .first();
-
-      return success(data);
+        .from<PathRaw>('paths')
+        .where(field, value)
+        .whereNull('deleted');
+      if (authorId !== undefined) query.where('author_id', authorId);
+      return success(await query.first());
     } catch (error) {
       return failure(error);
     }
   }
 
-  async create(pathData: CreatePathDto): Promise<RepositoryResponse<PathRaw>> {
+  async create(data: NewPath): Promise<RepositoryResponse<PathRaw>> {
     try {
-      const tableFields = toTableFields(pathData);
-
-      await this.dbService
+      const [row] = await this.db
         .query()
-        .from<PathRaw>(PathRepository.TABLE_NAME)
+        .from<PathRaw>('paths')
         .insert({
-          ...tableFields,
+          ...toTableFields({
+            id: data.id,
+            slug: data.slug,
+            title: data.title,
+            description: data.description,
+            type: data.type,
+            kind: data.kind,
+            visibility: data.visibility,
+            authorId: data.authorId,
+            homeId: data.homeId,
+          }),
+          entry: null,
           created: new Date(),
           updated: new Date(),
-        });
-
-      const data = await this.dbService
-        .query()
-        .from<PathRaw>(PathRepository.TABLE_NAME)
-        .select(PathRepository.BASE_SELECT)
-        .where('id', pathData.id)
-        .first();
-
-      return success(data);
+        })
+        .returning('*');
+      return success(row);
     } catch (error) {
       return failure(error);
     }
   }
 
   async update(
-    pathId: string,
-    updateData: UpdatePathDto,
+    id: string,
+    authorId: string,
+    data: UpdatePathDto,
   ): Promise<RepositoryResponse<PathRaw>> {
     try {
-      const tableFields = toTableFields(updateData);
-
-      await this.dbService
+      const [row] = await this.db
         .query()
-        .from<PathRaw>(PathRepository.TABLE_NAME)
-        .where('id', pathId)
+        .from<PathRaw>('paths')
+        .where({ id, author_id: authorId })
+        .whereNull('deleted')
         .update({
-          ...tableFields,
+          ...toTableFields({
+            title: data.title,
+            description: data.description,
+            type: data.type,
+            kind: data.kind,
+            visibility: data.visibility,
+            entry: data.entry,
+          }),
           updated: new Date(),
-        });
-
-      const data = await this.dbService
-        .query()
-        .from<PathRaw>(PathRepository.TABLE_NAME)
-        .select(PathRepository.BASE_SELECT)
-        .where('id', pathId)
-        .first();
-
-      return success(data);
+        })
+        .returning('*');
+      return success(row);
     } catch (error) {
       return failure(error);
     }
   }
 
-  async delete(pathId: string): Promise<RepositoryResponse<void>> {
+  async delete(
+    id: string,
+    authorId: string,
+  ): Promise<RepositoryResponse<void>> {
     try {
-      await this.dbService
+      await this.db
         .query()
-        .from<PathRaw>(PathRepository.TABLE_NAME)
-        .where('id', pathId)
-        .update({
-          deleted: new Date(),
-          updated: new Date(),
-        });
-
+        .from('paths')
+        .where({ id, author_id: authorId })
+        .whereNull('deleted')
+        .update({ deleted: new Date(), updated: new Date() });
       return success(undefined);
     } catch (error) {
       return failure(error);
     }
   }
-
-  /* markers */
 
   async findMarkersByPathId(
     pathId: string,
+    authorId: string,
   ): Promise<RepositoryResponse<MarkerRaw[]>> {
     try {
-      const data = await this.dbService
+      const rows = await this.db
         .query()
-        .from<MarkerRaw>(PathRepository.MARKER_TABLE_NAME)
-        .select(PathRepository.BASE_SELECT)
-        .where('path_id', pathId)
-        .whereNull('deleted')
-        .orderBy('order', 'asc');
-
-      return success(data);
+        .from<MarkerRaw>('markers as m')
+        .select('m.*')
+        .join('cruxes as c', 'c.id', 'm.crux_id')
+        .where({
+          'm.path_id': pathId,
+          'm.author_id': authorId,
+          'c.author_id': authorId,
+        })
+        .whereNull('m.deleted')
+        .whereNull('c.deleted')
+        .orderBy('m.order');
+      return success(rows);
     } catch (error) {
       return failure(error);
     }
   }
 
-  async createMarker(
-    markerData: CreateMarkerDto,
-  ): Promise<RepositoryResponse<MarkerRaw>> {
-    try {
-      const tableFields = toTableFields(markerData);
-
-      await this.dbService
-        .query()
-        .from<MarkerRaw>(PathRepository.MARKER_TABLE_NAME)
-        .insert({
-          ...tableFields,
-          created: new Date(),
-          updated: new Date(),
-        });
-
-      const data = await this.dbService
-        .query()
-        .from<MarkerRaw>(PathRepository.MARKER_TABLE_NAME)
-        .select(PathRepository.BASE_SELECT)
-        .where('id', markerData.id)
-        .first();
-
-      return success(data);
-    } catch (error) {
-      return failure(error);
-    }
-  }
-
-  async deleteMarkersByPathId(
+  /** Replace the live sequence and entry together, retaining all removed marker records. */
+  async replaceMarkers(
     pathId: string,
-  ): Promise<RepositoryResponse<void>> {
+    authorId: string,
+    markers: NewMarker[],
+  ): Promise<RepositoryResponse<MarkerRaw[]>> {
     try {
-      await this.dbService
-        .query()
-        .from<MarkerRaw>(PathRepository.MARKER_TABLE_NAME)
-        .where('path_id', pathId)
-        .update({
-          deleted: new Date(),
-          updated: new Date(),
-        });
-
-      return success(undefined);
+      const rows = await this.db.transaction(async () => {
+        const query = this.db.query();
+        const path = await query<PathRaw>('paths')
+          .where({ id: pathId, author_id: authorId })
+          .whereNull('deleted')
+          .forUpdate()
+          .first();
+        if (!path) throw new Error('Path changed before marker replacement');
+        const previousEntry = path.entry
+          ? await query<MarkerRaw>('markers')
+              .where({ id: path.entry, path_id: pathId })
+              .whereNull('deleted')
+              .first()
+          : null;
+        const now = new Date();
+        await query('markers')
+          .where('path_id', pathId)
+          .whereNull('deleted')
+          .update({ deleted: now, updated: now });
+        const result = markers.length
+          ? await query<MarkerRaw>('markers')
+              .insert(
+                markers.map((marker) => ({
+                  id: marker.id,
+                  path_id: pathId,
+                  crux_id: marker.cruxId,
+                  order: marker.order,
+                  note: marker.note ?? null,
+                  author_id: authorId,
+                  created: now,
+                  updated: now,
+                })),
+              )
+              .returning('*')
+          : [];
+        result.sort((a, b) => a.order - b.order);
+        // Keep the selected Crux as the entry when it remains in the sequence.
+        const entry =
+          result.find((marker) => marker.crux_id === previousEntry?.crux_id)
+            ?.id ??
+          result[0]?.id ??
+          null;
+        await query('paths')
+          .where({ id: pathId, author_id: authorId })
+          .update({ entry, updated: now });
+        return result;
+      });
+      return success(rows);
     } catch (error) {
       return failure(error);
     }
   }
-
-  /* ~markers */
 }

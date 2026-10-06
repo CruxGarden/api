@@ -15,6 +15,45 @@ export interface ExploreCruxFilters {
   sort?: ExploreSort;
 }
 
+/** Kinds an install link may name: a Crux Tool or a Mood (ADR 0085). */
+export const PUBLISHED_PACKAGE_KINDS = ['tool', 'mood'] as const;
+
+/** One Explore result row, as `GET /explore` and `GET /explore/cruxes/:id` read it. */
+export interface ExploreCruxRow {
+  id: string;
+  slug: string;
+  title?: string | null;
+  description?: string | null;
+  kind?: string | null;
+  meta?: Record<string, unknown> | null;
+  created?: Date | string | null;
+  updated?: Date | string | null;
+  author_username: string;
+  author_display_name?: string | null;
+  author_meta?: Record<string, unknown> | null;
+  tags?: string[];
+}
+
+export interface PreviewAuthorRow {
+  id: string;
+  username: string;
+  display_name?: string | null;
+  bio?: string | null;
+  meta?: Record<string, unknown> | null;
+  updated?: Date | string | null;
+}
+
+export interface PreviewCruxRow {
+  id: string;
+  slug: string;
+  title?: string | null;
+  description?: string | null;
+  kind?: string | null;
+  visibility: string;
+  discoverable?: boolean | null;
+  meta?: Record<string, unknown> | null;
+}
+
 export interface ExploreAuthorFilters {
   q?: string;
   sort?: ExploreSort;
@@ -33,12 +72,12 @@ export class ExploreRepository {
   }
 
   /**
-   * Query discoverable, public, non-deleted cruxes.
-   * Joins author for username/displayName.
-   * Optionally filters by text search and/or tags.
+   * One Explore result card per row: public, live cruxes of live authors with
+   * the author's names and the crux's tags. Callers add Discoverable (listings)
+   * or an id (install links); the shape is the same either way.
    */
-  findCruxesQuery(filters: ExploreCruxFilters): Knex.QueryBuilder {
-    const query = this.dbService
+  private publicCruxCardsQuery(): Knex.QueryBuilder {
+    return this.dbService
       .query()
       .from('cruxes as c')
       .select(
@@ -62,9 +101,33 @@ export class ExploreRepository {
       )
       .join('authors as a', 'a.id', 'c.author_id')
       .where('c.visibility', 'public')
-      .where('c.discoverable', true)
       .whereNull('c.deleted')
       .whereNull('a.deleted');
+  }
+
+  /**
+   * A published Crux Tool or Mood by id, Discoverable or link-only (ADR 0084,
+   * 0085 install links), in the shape of one Explore result. Creations are
+   * reached by their /user/slug address and are never resolved by id here.
+   */
+  publishedPackageQuery(cruxId: string): Knex.QueryBuilder {
+    return this.publicCruxCardsQuery()
+      .where('c.id', cruxId)
+      .whereIn('c.kind', [...PUBLISHED_PACKAGE_KINDS]);
+  }
+
+  async findPublishedPackage(cruxId: string): Promise<ExploreCruxRow | null> {
+    const row = await this.publishedPackageQuery(cruxId).first();
+    return row ?? null;
+  }
+
+  /**
+   * Query discoverable, public, non-deleted cruxes.
+   * Joins author for username/displayName.
+   * Optionally filters by text search and/or tags.
+   */
+  findCruxesQuery(filters: ExploreCruxFilters): Knex.QueryBuilder {
+    const query = this.publicCruxCardsQuery().where('c.discoverable', true);
 
     // "@name" searches authors only; "#tag" is a tag filter typed into the box.
     let q = (filters.q ?? '').trim();
@@ -197,6 +260,95 @@ export class ExploreRepository {
     }
 
     return query;
+  }
+
+  /**
+   * What the sitemap lists: the same discoverable cruxes Explore shows, most
+   * recently updated first, with the author's username for the public URL.
+   */
+  findSitemapQuery(limit: number): Knex.QueryBuilder {
+    return this.dbService
+      .query()
+      .from('cruxes as c')
+      .select('a.username', 'c.slug', 'c.updated')
+      .join('authors as a', 'a.id', 'c.author_id')
+      .where('c.visibility', 'public')
+      .where('c.discoverable', true)
+      .whereNull('c.deleted')
+      .whereNull('a.deleted')
+      .orderBy('c.updated', 'desc')
+      .limit(limit);
+  }
+
+  /* Link previews (ADR 0084): one row each, the same visibility the public pages use. */
+
+  /** A live author by username, case-insensitively. */
+  async findPreviewAuthor(username: string): Promise<PreviewAuthorRow | null> {
+    const row = await this.dbService
+      .query()
+      .from('authors')
+      .select('id', 'username', 'display_name', 'bio', 'meta', 'updated')
+      .whereRaw('lower(username) = ?', [username.toLowerCase()])
+      .whereNull('deleted')
+      .first();
+    return row ?? null;
+  }
+
+  /** A public or unlisted, live crux of that author, by slug or id. */
+  async findPreviewCrux(
+    authorId: string,
+    slugOrId: string,
+  ): Promise<PreviewCruxRow | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        slugOrId,
+      );
+    const row = await this.dbService
+      .query()
+      .from('cruxes')
+      .select(
+        'id',
+        'slug',
+        'title',
+        'description',
+        'kind',
+        'visibility',
+        'discoverable',
+        'meta',
+      )
+      .where('author_id', authorId)
+      .where(isUuid ? 'id' : 'slug', slugOrId)
+      .whereIn('visibility', ['public', 'unlisted'])
+      .whereNull('deleted')
+      .first();
+    return row ?? null;
+  }
+
+  /** Takedowns hard-delete the crux; this guards a row that outlived one. */
+  async hasActiveTakedown(cruxId: string): Promise<boolean> {
+    const row = await this.dbService
+      .query()
+      .from('takedowns')
+      .select('id')
+      .where('crux_id', cruxId)
+      .whereNull('lifted')
+      .whereNull('deleted')
+      .first();
+    return !!row;
+  }
+
+  /** Whether the live publication shipped a cover (`_crux/cover.jpg`). */
+  async hasPublishedCover(cruxId: string, path: string): Promise<boolean> {
+    const row = await this.dbService
+      .query()
+      .from('artifacts')
+      .select('id')
+      .where('resource_type', 'crux')
+      .where('resource_id', cruxId)
+      .whereRaw("meta->>'path' = ?", [path])
+      .whereNull('deleted')
+      .first();
+    return !!row;
   }
 
   /**

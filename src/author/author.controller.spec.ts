@@ -14,6 +14,25 @@ describe('AuthorController', () => {
   let dbService: jest.Mocked<DbService>;
   let cruxService: jest.Mocked<CruxService>;
 
+  it.each(['tool', 'mood', 'creations'] as const)(
+    'filters the public Garden by %s before pagination',
+    async (kind) => {
+      service.findByUsername.mockResolvedValue(mockAuthor as any);
+      cruxService.findPublicByAuthorQuery.mockReturnValue({} as any);
+      dbService.paginate.mockResolvedValue([] as any);
+      await controller.getPublicCruxes(
+        'testuser',
+        { query: { kind } } as any,
+        mockResponse,
+      );
+      expect(cruxService.findPublicByAuthorQuery).toHaveBeenCalledWith(
+        mockAuthor.id,
+        kind,
+      );
+      expect(dbService.paginate).toHaveBeenCalled();
+    },
+  );
+
   const mockAuthor = {
     id: 'author-id',
     accountId: 'account-123',
@@ -56,6 +75,7 @@ describe('AuthorController', () => {
     const mockCruxService = {
       findById: jest.fn(),
       findByAuthorAndSlug: jest.fn(),
+      findPublicByAuthorQuery: jest.fn(),
     };
 
     const mockLoggerService = {
@@ -247,6 +267,7 @@ describe('AuthorController', () => {
       slug: 'test-crux',
       title: 'Test Crux',
       data: 'Test content',
+      visibility: 'public',
       authorId: 'author-id',
       homeId: 'home-id',
       accountId: 'account-123',

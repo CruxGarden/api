@@ -1,3 +1,6 @@
+import * as fs from 'fs/promises';
+import { randomUUID } from 'node:crypto';
+import * as path from 'path';
 import {
   S3Client,
   CopyObjectCommand,
@@ -24,6 +27,18 @@ export interface StoreOptions {
   data?: Buffer;
   namespace?: string;
   contentType?: string;
+  maxBytes?: number;
+  timeoutMs?: number;
+}
+
+/** Only a missing object is absence; missing buckets and permission errors are outages. */
+export function isStoreObjectMissing(error: unknown): boolean {
+  return !!(
+    error &&
+    typeof error === 'object' &&
+    (('code' in error && error.code === 'ENOENT') ||
+      ('name' in error && error.name === 'NoSuchKey'))
+  );
 }
 
 export interface DownloadResult {
@@ -46,7 +61,7 @@ export class StoreService {
     this.mockMode = !this.hasAwsCredentials();
     if (this.mockMode) {
       this.logger.warn(
-        'AWS credentials not found - StoreService running in mock mode (logging only)',
+        `AWS credentials not found - StoreService keeps files on this machine under ${this.localRoot()}`,
       );
     } else {
       const credentials = {
@@ -64,6 +79,46 @@ export class StoreService {
     }
   }
 
+  /**
+   * Without AWS the store is a folder on this machine (LOCAL_STORE_DIR,
+   * default `.local-storage/` in the API's working directory): a garden
+   * running locally keeps its artifacts for real, so what one garden publishes
+   * another can install (ADR 0049).
+   */
+  private localRoot(): string {
+    return path.resolve(process.env.LOCAL_STORE_DIR || '.local-storage');
+  }
+  private localPath(bucket: string, key: string): string {
+    const safe = key
+      .split('/')
+      .filter((s) => s && s !== '..')
+      .join('/');
+    return path.join(this.localRoot(), bucket, safe);
+  }
+  private async localKeys(bucket: string, prefix: string): Promise<string[]> {
+    const root = path.join(this.localRoot(), bucket);
+    const out: string[] = [];
+    const walk = async (dir: string) => {
+      let entries: import('fs').Dirent[];
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw error;
+      }
+      for (const e of entries) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) await walk(full);
+        else {
+          const key = path.relative(root, full).split(path.sep).join('/');
+          if (key.startsWith(prefix)) out.push(key);
+        }
+      }
+    };
+    await walk(root);
+    return out;
+  }
+
   private hasAwsCredentials(): boolean {
     return !!(
       process.env.AWS_ACCESS_KEY_ID &&
@@ -75,14 +130,20 @@ export class StoreService {
 
   async download(opts: StoreOptions): Promise<DownloadResult> {
     if (this.mockMode) {
-      this.logger.info('File downloaded', {
-        bucket: opts.namespace || this.defaultNamespace,
-        path: opts.path,
-      });
-      return {
-        data: Buffer.from('mock-file-data'),
-        metadata: { ETag: 'mock-etag' },
-      };
+      const file = this.localPath(
+        opts.namespace || this.defaultNamespace,
+        opts.path,
+      );
+      if (
+        opts.maxBytes !== undefined &&
+        (await fs.stat(file)).size > opts.maxBytes
+      )
+        throw new Error('Storage object exceeds the read limit');
+      const data = await fs.readFile(file);
+      if (opts.maxBytes !== undefined && data.length > opts.maxBytes)
+        throw new Error('Storage object exceeds the read limit');
+      this.logger.info('File downloaded (local)', { path: opts.path });
+      return { data, metadata: { ETag: 'local' } };
     }
 
     const s3Opts: S3Options = {
@@ -90,18 +151,41 @@ export class StoreService {
       key: opts.path,
     };
 
+    const signal = AbortSignal.timeout(opts.timeoutMs ?? 300_000);
     const res = await this.s3Client.send(
       new GetObjectCommand({
         Bucket: s3Opts.bucket,
         Key: s3Opts.key,
       }),
+      { abortSignal: signal },
     );
 
+    if (
+      opts.maxBytes !== undefined &&
+      res.ContentLength !== undefined &&
+      res.ContentLength > opts.maxBytes
+    ) {
+      (res.Body as any)?.destroy();
+      throw new Error('Storage object exceeds the read limit');
+    }
     // Convert stream to buffer
     const stream = res.Body as any;
     const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(chunk);
+    const abort = () => stream.destroy(new Error('Storage download timed out'));
+    signal.addEventListener('abort', abort, { once: true });
+    try {
+      signal.throwIfAborted();
+      let bytes = 0;
+      for await (const chunk of stream) {
+        bytes += chunk.length;
+        if (opts.maxBytes !== undefined && bytes > opts.maxBytes) {
+          stream.destroy();
+          throw new Error('Storage object exceeds the read limit');
+        }
+        chunks.push(chunk);
+      }
+    } finally {
+      signal.removeEventListener('abort', abort);
     }
     const buffer = Buffer.concat(chunks);
 
@@ -117,8 +201,23 @@ export class StoreService {
     }
 
     if (this.mockMode) {
-      this.logger.info('File uploaded', {
-        bucket: opts.namespace || this.defaultNamespace,
+      const file = this.localPath(
+        opts.namespace || this.defaultNamespace,
+        opts.path,
+      );
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      const temporary = `${file}.${randomUUID()}.upload`;
+      const handle = await fs.open(temporary, 'wx');
+      try {
+        await handle.writeFile(opts.data);
+        await handle.sync();
+        await handle.close();
+        await fs.rename(temporary, file);
+      } finally {
+        await handle.close();
+        await fs.rm(temporary, { force: true });
+      }
+      this.logger.info('File uploaded (local)', {
         path: opts.path,
         size: `${opts.data.length} bytes`,
       });
@@ -138,6 +237,7 @@ export class StoreService {
         Body: s3Opts.data,
         ...(opts.contentType ? { ContentType: opts.contentType } : {}),
       }),
+      { abortSignal: AbortSignal.timeout(300_000) },
     );
   }
 
@@ -149,8 +249,10 @@ export class StoreService {
     const bucket = opts.namespace || this.defaultNamespace;
 
     if (this.mockMode) {
-      this.logger.info('File copied', {
-        bucket,
+      const dest = this.localPath(bucket, opts.destPath);
+      await fs.mkdir(path.dirname(dest), { recursive: true });
+      await fs.copyFile(this.localPath(bucket, opts.sourcePath), dest);
+      this.logger.info('File copied (local)', {
         source: opts.sourcePath,
         dest: opts.destPath,
       });
@@ -168,10 +270,11 @@ export class StoreService {
 
   async delete(opts: StoreOptions): Promise<void> {
     if (this.mockMode) {
-      this.logger.info('File deleted', {
-        bucket: opts.namespace || this.defaultNamespace,
-        path: opts.path,
-      });
+      await fs.rm(
+        this.localPath(opts.namespace || this.defaultNamespace, opts.path),
+        { force: true },
+      );
+      this.logger.info('File deleted (local)', { path: opts.path });
       return;
     }
 
@@ -195,11 +298,14 @@ export class StoreService {
     const bucket = opts.namespace || this.defaultNamespace;
 
     if (this.mockMode) {
-      this.logger.info('Files deleted by prefix', {
-        bucket,
+      const keys = await this.localKeys(bucket, opts.prefix);
+      for (const key of keys)
+        await fs.rm(this.localPath(bucket, key), { force: true });
+      this.logger.info('Files deleted by prefix (local)', {
         prefix: opts.prefix,
+        count: keys.length,
       });
-      return 0;
+      return keys.length;
     }
 
     let deleted = 0;
@@ -217,7 +323,7 @@ export class StoreService {
       const objects = list.Contents;
       if (!objects || objects.length === 0) break;
 
-      await this.s3Client.send(
+      const result = await this.s3Client.send(
         new DeleteObjectsCommand({
           Bucket: bucket,
           Delete: {
@@ -227,6 +333,8 @@ export class StoreService {
         }),
       );
 
+      if (result.Errors?.length)
+        throw new Error('Could not delete all published objects');
       deleted += objects.length;
       continuationToken = list.IsTruncated
         ? list.NextContinuationToken
@@ -244,12 +352,21 @@ export class StoreService {
     const bucket = opts.namespace || this.defaultNamespace;
 
     if (this.mockMode) {
-      this.logger.info('Files moved by prefix', {
-        bucket,
+      const keys = await this.localKeys(bucket, opts.oldPrefix);
+      for (const key of keys) {
+        const dest = this.localPath(
+          bucket,
+          opts.newPrefix + key.slice(opts.oldPrefix.length),
+        );
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        await fs.rename(this.localPath(bucket, key), dest);
+      }
+      this.logger.info('Files moved by prefix (local)', {
         oldPrefix: opts.oldPrefix,
         newPrefix: opts.newPrefix,
+        count: keys.length,
       });
-      return 0;
+      return keys.length;
     }
 
     let moved = 0;

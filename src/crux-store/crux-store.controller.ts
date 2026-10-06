@@ -11,12 +11,15 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  HttpException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '../common/guards/auth.guard';
-import { OptionalAuthGuard } from '../common/guards/optional-auth.guard';
+import { FunctionsService } from '../functions/functions.service';
+import { forwardRef, Inject } from '@nestjs/common';
+import { VisitorAuthGuard } from '../published-auth/visitor-auth.guard';
 import { AuthRequest } from '../common/types/interfaces';
 import { CruxService } from '../crux/crux.service';
 import { AuthorService } from '../author/author.service';
@@ -25,6 +28,7 @@ import { StoreSwagger } from './crux-store.swagger';
 import { StoreWriteRateLimitGuard } from './store-write-rate-limit.guard';
 import { normalizeStoreMode, StoreMode } from './entities/crux-store.entity';
 import { UsageService } from '../usage/usage.service';
+import { LimitsService } from '../usage/limits.service';
 import {
   SetStoreEntryDto,
   IncrementStoreEntryDto,
@@ -38,7 +42,56 @@ export class StoreController {
     private readonly cruxService: CruxService,
     private readonly authorService: AuthorService,
     private readonly usage: UsageService,
+    private readonly limits: LimitsService,
+    @Inject(forwardRef(() => FunctionsService))
+    private readonly functions: FunctionsService,
   ) {}
+
+  /** Run the crux's `store:write` handlers before a write; a refusal throws. */
+  private async storeWriteHook(
+    cruxId: string,
+    key: string,
+    value: unknown,
+    mode: StoreMode,
+    visitorId: string | null,
+    visitorOnly = false,
+  ): Promise<void> {
+    let results: Record<string, { status: number; body: unknown }>;
+    try {
+      const before = await this.storeService.get(cruxId, key, visitorId);
+      ({ results } = await this.functions.emit(
+        cruxId,
+        'store:write',
+        { key, value, mode, before: before?.value ?? null },
+        visitorId,
+        0,
+        visitorOnly,
+        // Validation still runs for protected writes, but neither their proposed
+        // value nor a protected previous value may enter the public event stream.
+        mode === 'public' && before?.mode !== 'protected',
+      ));
+    } catch {
+      return; // the runner itself failing is not the crux refusing
+    }
+    for (const [handler, r] of Object.entries(results)) {
+      if (r.status < 400 || r.status >= 500) continue;
+      const message =
+        (r.body as { error?: string } | null)?.error ??
+        `${handler} refused the write`;
+      throw new HttpException(message, r.status);
+    }
+  }
+
+  /**
+   * GET /store/gardens/mine — the gardens I belong to (GARDEN-MEMBERS-PLAN):
+   * garden cruxes whose Store names me under members/<me>.
+   */
+  @Get('gardens/mine')
+  @UseGuards(AuthGuard)
+  async gardensMine(@Req() req: AuthRequest) {
+    const author = await this.authorService.findByAccountId(req.account.id);
+    return this.storeService.gardensFor(author.id);
+  }
 
   /**
    * Resolve the crux author ID from a crux ID.
@@ -50,15 +103,24 @@ export class StoreController {
     return crux.authorId;
   }
 
+  /** The author for a write: a suspended owner's Store takes no new writes (ADR 0083). Deletes stay allowed. */
+  private async getWritableCruxAuthorId(cruxId: string): Promise<string> {
+    const authorId = await this.getCruxAuthorId(cruxId);
+    await this.limits.assertAuthorNotSuspended(authorId);
+    return authorId;
+  }
+
   /**
    * Resolve visitor's author ID from the account JWT (if present).
    */
   private async getVisitorId(req: AuthRequest): Promise<string | null> {
+    if (req.publishedVisitor) return req.publishedVisitor.id;
     if (!req.account) return null;
     try {
       const author = await this.authorService.findByAccountId(req.account.id);
       return author?.id ?? null;
-    } catch {
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) throw error;
       return null;
     }
   }
@@ -71,7 +133,7 @@ export class StoreController {
    * Protected keys: the caller's own slot (token), else `{ value: null }`.
    */
   @Get(':cruxId/:key')
-  @UseGuards(OptionalAuthGuard)
+  @UseGuards(VisitorAuthGuard)
   @StoreSwagger.Get()
   async get(
     @Param('cruxId') cruxId: string,
@@ -93,7 +155,7 @@ export class StoreController {
    * accepted as an alias of `public`.
    */
   @Put(':cruxId/:key')
-  @UseGuards(OptionalAuthGuard, StoreWriteRateLimitGuard)
+  @UseGuards(VisitorAuthGuard, StoreWriteRateLimitGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   @StoreSwagger.Set()
   async set(
@@ -102,10 +164,22 @@ export class StoreController {
     @Body() dto: SetStoreEntryDto,
     @Req() req: AuthRequest,
   ) {
-    const authorId = await this.getCruxAuthorId(cruxId);
+    const authorId = await this.getWritableCruxAuthorId(cruxId);
     const visitorId = await this.getVisitorId(req);
     const mode = normalizeStoreMode(dto.mode ?? 'protected') as StoreMode;
 
+    // A Store write is an event the crux's functions answer first
+    // (functions/on-store.js with `export const match = 'store:*'`,
+    // CRUX-FUNCTIONS-PLAN F2): a handler that calls ctx.reject refuses the
+    // write and its message is the answer. A broken handler never blocks one.
+    await this.storeWriteHook(
+      cruxId,
+      key,
+      dto.value,
+      mode,
+      visitorId,
+      !!req.publishedVisitor,
+    );
     const entry = await this.storeService.set(
       cruxId,
       authorId,
@@ -124,7 +198,7 @@ export class StoreController {
    * Protected keys: the caller's own slot.
    */
   @Post(':cruxId/:key/inc')
-  @UseGuards(OptionalAuthGuard, StoreWriteRateLimitGuard)
+  @UseGuards(VisitorAuthGuard, StoreWriteRateLimitGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   @StoreSwagger.Increment()
   async increment(
@@ -133,7 +207,7 @@ export class StoreController {
     @Body() dto: IncrementStoreEntryDto,
     @Req() req: AuthRequest,
   ) {
-    const authorId = await this.getCruxAuthorId(cruxId);
+    const authorId = await this.getWritableCruxAuthorId(cruxId);
     const visitorId = await this.getVisitorId(req);
     const value = await this.storeService.increment(
       cruxId,
@@ -154,7 +228,7 @@ export class StoreController {
    * on a protected key.
    */
   @Delete(':cruxId/:key')
-  @UseGuards(OptionalAuthGuard, StoreWriteRateLimitGuard)
+  @UseGuards(VisitorAuthGuard, StoreWriteRateLimitGuard)
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   @HttpCode(HttpStatus.NO_CONTENT)
   @StoreSwagger.Delete()
@@ -165,7 +239,7 @@ export class StoreController {
   ) {
     const authorId = await this.getCruxAuthorId(cruxId);
     const visitorId = await this.getVisitorId(req);
-    if (visitorId && visitorId === authorId) {
+    if (!req.publishedVisitor && visitorId && visitorId === authorId) {
       await this.storeService.delete(cruxId, key);
     } else {
       await this.storeService.deleteSlot(cruxId, key, visitorId);
@@ -222,7 +296,7 @@ export class StoreController {
     @Req() req: AuthRequest,
   ) {
     await this.assertCruxOwner(cruxId, req);
-    const authorId = await this.getCruxAuthorId(cruxId);
+    const authorId = await this.getWritableCruxAuthorId(cruxId);
     return this.storeService.importAll(
       cruxId,
       authorId,

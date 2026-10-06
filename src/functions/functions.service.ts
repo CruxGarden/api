@@ -1,0 +1,683 @@
+import {
+  BadRequestException,
+  forwardRef,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { Subject } from 'rxjs';
+import { runIsolatedFunction, IsolatedFunctionError } from './isolated-runner';
+import { LoggerService } from '../common/services/logger.service';
+import { StoreService as FileStore } from '../common/services/store.service';
+import { PublishStorageService } from '../common/services/publish-storage.service';
+import { CruxService } from '../crux/crux.service';
+import { StoreService } from '../crux-store/crux-store.service';
+import { ResourceType } from '../common/types/enums';
+import { UsageService } from '../usage/usage.service';
+import { LimitsService } from '../usage/limits.service';
+import {
+  FunctionsRepository,
+  FunctionScheduleRow,
+} from './functions.repository';
+import { nextCron } from './cron';
+import { functionName, scheduleOf } from './declarations';
+import { decryptSecret, encryptSecret } from './secrets';
+import { fetchEgress } from './egress';
+
+/**
+ * Crux Functions (CRUX-FUNCTIONS-PLAN, ADR 0023 — F0 and F6): small handlers
+ * a person or their agent writes into a crux's `functions/` folder, published
+ * with the crux, run here by the API against the crux's own Store.
+ *
+ *   functions/hello.js        HTTP     any method at /fn/<cruxId>/hello[/rest]
+ *   functions/on-score.js     event    runs when the crux emits "score"
+ *                                      (a page's crux.emit, a Store write as
+ *                                      "store:write", another handler's ctx.emit)
+ *   functions/digest.js       schedule `export const schedule = '0 9 * * *'`
+ *                                      (or 'every 10m'): runs on the API's clock
+ *                                      with ctx.event = { name: 'schedule' } (F3)
+ *
+ * A handler is `export default async function (req, ctx) {}`; an event
+ * handler may also `export const match = 'score*'`. `ctx` is the whole world
+ * it sees: `ctx.store` (get/set/list/del on this crux's Store, writes as the
+ * visitor or, with none, as the crux's owner), `ctx.visitor`, `ctx.event`,
+ * `ctx.emit`, `ctx.now()`, `ctx.log()`, `ctx.json()`, `ctx.reject()`; `ctx.owner`
+ * and `ctx.visitor.isOwner` tell a handler whether the caller is the crux's author.
+ *
+ * Handlers run in a separate V8 isolate with copied inputs, explicit capability
+ * callbacks, a memory ceiling and an enforceable execution budget (ADR 0051).
+ */
+export interface FunctionSource {
+  name: string;
+  path: string;
+  kind: 'http' | 'event';
+  event?: string;
+  /** A cron expression (or `every <n>m|h|d`) the handler also runs on. */
+  schedule?: string;
+  /** When the scheduler will run it next, once the crux is published. */
+  nextRun?: string | null;
+  lastRun?: string | null;
+  lastStatus?: string | null;
+}
+
+export interface CruxEvent {
+  name: string;
+  data: unknown;
+  visitorId: string | null;
+  at: string;
+}
+
+export interface RunResult {
+  status: number;
+  body: unknown;
+  logs: string[];
+  ms: number;
+  /** For an HTTP answer that is not JSON: the body's media type (text/plain, text/html…). */
+  contentType?: string;
+  headers?: Record<string, string>;
+}
+
+class FunctionReject extends Error {
+  constructor(
+    message: string,
+    readonly status = 400,
+  ) {
+    super(message);
+  }
+}
+
+const WALL_MS = 5000;
+const MAX_CONCURRENT = 4;
+const MAX_LOG_LINES = 50;
+
+interface Loaded {
+  version: string;
+  owner: Readonly<{ id: string; authorId: string }>;
+  sources: FunctionSource[];
+  code: Map<string, string>;
+  /** Hosts `ctx.fetch` may reach: `functions/egress.json` → `{ "hosts": [...] }`. */
+  egress: string[];
+}
+
+@Injectable()
+export class FunctionsService {
+  private readonly logger: LoggerService;
+  private readonly cache = new Map<string, Loaded>();
+  private readonly running = new Map<string, number>();
+  private runningTotal = 0;
+  private readonly bus = new Subject<{ cruxId: string; event: CruxEvent }>();
+
+  constructor(
+    loggerService: LoggerService,
+    private readonly files: FileStore,
+    private readonly publishStorage: PublishStorageService,
+    @Inject(forwardRef(() => CruxService))
+    private readonly cruxService: CruxService,
+    @Inject(forwardRef(() => StoreService))
+    private readonly store: StoreService,
+    @Inject(forwardRef(() => UsageService))
+    private readonly usage: UsageService,
+    @Inject(forwardRef(() => LimitsService))
+    private readonly limits: LimitsService,
+    private readonly schedules: FunctionsRepository,
+  ) {
+    this.logger = loggerService.createChildLogger('FunctionsService');
+  }
+
+  // ── Schedules (F3) ────────────────────────────────────────────────────
+  private ticker: ReturnType<typeof setInterval> | null = null;
+  tickMs = 30_000;
+
+  startScheduler(): void {
+    if (this.ticker) return;
+    this.ticker = setInterval(() => void this.runDue(), this.tickMs);
+  }
+  stopScheduler(): void {
+    if (this.ticker) clearInterval(this.ticker);
+    this.ticker = null;
+  }
+
+  /** Run every scheduled handler that is due; each firing is one metered run. */
+  async runDue(now = new Date()): Promise<number> {
+    const claimed = await this.schedules.claimDue(now, (row) =>
+      nextCron(row.schedule, now),
+    );
+    if (claimed.error || !claimed.data) return 0;
+    let ran = 0;
+    for (const row of claimed.data) {
+      const status = await this.fire(row, now);
+      await this.schedules.setStatus(row.crux_id, row.name, status);
+      ran += 1;
+    }
+    return ran;
+  }
+
+  private async fire(row: FunctionScheduleRow, now: Date): Promise<string> {
+    let loaded: Loaded;
+    try {
+      loaded = await this.load(row.crux_id);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        await this.schedules.deleteSchedules(row.crux_id);
+        return 'unpublished';
+      }
+      // An unavailable database/storage is not evidence of Unshare. Keep the
+      // clock so the next interval can try again; this firing is not replayed.
+      return `error: ${(error as Error).message}`.slice(0, 200);
+    }
+    const code = loaded.code.get(row.name);
+    if (!code) return 'missing';
+    const event: CruxEvent = {
+      name: 'schedule',
+      data: { schedule: row.schedule, at: now.toISOString(), name: row.name },
+      visitorId: null,
+      at: now.toISOString(),
+    };
+    try {
+      const r = await this.execute(row.crux_id, row.name, code, loaded, {
+        req: { method: 'SCHEDULE', body: null, json: async () => null },
+        visitorId: null,
+        event,
+      });
+      this.bus.next({ cruxId: row.crux_id, event });
+      return `${r.status}`;
+    } catch (error) {
+      return `error: ${(error as Error).message}`.slice(0, 200);
+    }
+  }
+
+  // ── Secrets (F1) ──────────────────────────────────────────────────────
+  async setSecret(cruxId: string, name: string, value: string): Promise<void> {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name))
+      throw new BadRequestException(
+        'A secret name is letters, digits and underscores (≤64)',
+      );
+    if (typeof value !== 'string' || !value || value.length > 8192)
+      throw new BadRequestException('A secret is a string of up to 8 KB');
+    const r = await this.schedules.putSecret(
+      cruxId,
+      name,
+      encryptSecret(value),
+    );
+    if (r.error)
+      throw new ServiceUnavailableException('Could not save the secret');
+  }
+  async deleteSecret(cruxId: string, name: string): Promise<void> {
+    const result = await this.schedules.deleteSecret(cruxId, name);
+    if (result.error)
+      throw new ServiceUnavailableException('Could not delete the secret');
+  }
+  async listSecretNames(
+    cruxId: string,
+  ): Promise<{ name: string; updated: string }[]> {
+    const rows = await this.secretRows(cruxId);
+    return rows
+      .map((r) => ({
+        name: r.name,
+        updated: new Date(r.updated).toISOString(),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  private async secretRows(cruxId: string) {
+    const result = await this.schedules.secretsFor(cruxId);
+    if (result.error)
+      throw new ServiceUnavailableException('Function secrets are unavailable');
+    return result.data ?? [];
+  }
+
+  private async secretsMap(cruxId: string): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (const r of await this.secretRows(cruxId)) {
+      try {
+        out.set(r.name, decryptSecret(r));
+      } catch {
+        this.logger.warn(`secret ${r.name} does not decrypt (key rotated?)`, {
+          cruxId,
+        });
+      }
+    }
+    return out;
+  }
+
+  /** What a published crux's handlers run on, with when-next, for the Share pane. */
+  async listWithSchedules(cruxId: string): Promise<FunctionSource[]> {
+    const loaded = await this.load(cruxId);
+    const result = await this.schedules.listSchedules(cruxId);
+    if (result.error)
+      throw new ServiceUnavailableException(
+        'Function schedules are unavailable',
+      );
+    const rows = result.data ?? [];
+    return loaded.sources.map((s) => {
+      const row = rows.find((r) => r.name === s.name);
+      return row
+        ? {
+            ...s,
+            nextRun: new Date(row.next_run).toISOString(),
+            lastRun: row.last_run ? new Date(row.last_run).toISOString() : null,
+            lastStatus: row.last_status,
+          }
+        : s;
+    });
+  }
+
+  /** The stream of a crux's events, for the SSE endpoint. */
+  get events() {
+    return this.bus.asObservable();
+  }
+
+  /** What a published crux's `functions/` folder holds. */
+  async list(cruxId: string): Promise<FunctionSource[]> {
+    return (await this.load(cruxId)).sources.map((source) => ({ ...source }));
+  }
+
+  private async load(cruxId: string): Promise<Loaded> {
+    const { crux, artifacts } =
+      await this.cruxService.publishedRevision(cruxId);
+    const version = JSON.stringify([
+      crux.meta.publishedVersion,
+      crux.meta.publishedAt,
+      crux.meta.publishStorageId,
+      crux.meta.publishLayout,
+    ]);
+    const cached = this.cache.get(cruxId);
+    if (cached && cached.version === version) return cached;
+    const sources: FunctionSource[] = [];
+    const code = new Map<string, string>();
+    let egress: string[] = [];
+    for (const a of artifacts) {
+      const path = (a.meta as { path?: string } | null)?.path ?? a.filename;
+      if (path === 'functions/egress.json') {
+        const bytes = await this.readPublished(crux.id, crux.meta, path);
+        try {
+          const parsed = JSON.parse(bytes?.toString('utf8') ?? '{}');
+          if (Array.isArray(parsed?.hosts))
+            egress = parsed.hosts.filter((h: unknown) => typeof h === 'string');
+        } catch {
+          this.logger.warn('functions/egress.json is not JSON', { cruxId });
+        }
+        continue;
+      }
+      const name = functionName(path ?? '');
+      if (!name) continue;
+      const bytes = await this.readPublished(crux.id, crux.meta, path);
+      if (!bytes) continue;
+      const event = name.startsWith('on-') ? name.slice(3) : undefined;
+      const text = bytes.toString('utf8');
+      const schedule = scheduleOf(text);
+      sources.push({
+        name,
+        path,
+        kind: event ? 'event' : 'http',
+        ...(event ? { event } : {}),
+        ...(schedule ? { schedule } : {}),
+      });
+      code.set(name, text);
+    }
+    const loaded = {
+      version,
+      sources,
+      code,
+      egress,
+      owner: Object.freeze({ id: crux.id, authorId: crux.authorId }),
+    };
+    this.cache.set(cruxId, loaded);
+    return loaded;
+  }
+
+  private async readPublished(
+    cruxId: string,
+    meta: Record<string, any>,
+    path: string,
+  ): Promise<Buffer | null> {
+    try {
+      if (meta.publishLayout === 'bucket-per-crux') {
+        const r = await this.files.download({
+          namespace: this.publishStorage.bucketName(
+            meta.publishStorageId || cruxId,
+          ),
+          path,
+        });
+        return r.data;
+      }
+      const r = await this.files.download({
+        namespace:
+          process.env.AWS_S3_PUBLISHED_BUCKET || 'crux-garden-published',
+        path: `${meta.publishStorageId || cruxId}/${path}`,
+      });
+      return r.data;
+    } catch (error) {
+      this.logger.warn(`Could not read ${path}: ${(error as Error).message}`, {
+        cruxId,
+      });
+      throw new ServiceUnavailableException(
+        'Published Function files are unavailable',
+      );
+    }
+  }
+
+  /** Run an HTTP handler: POST /fn/:cruxId/:name. */
+  async call(
+    cruxId: string,
+    name: string,
+    input: {
+      body: unknown;
+      visitorId: string | null;
+      visitorOnly?: boolean;
+      method?: string;
+      /** The path after the handler's name: `/fn/<id>/orders/42/items` → `42/items`. */
+      rest?: string;
+      query?: Record<string, string | string[]>;
+      headers?: Record<string, string>;
+    },
+  ): Promise<RunResult> {
+    const loaded = await this.load(cruxId);
+    const source = loaded.sources.find((s) => s.name === name);
+    if (!source || source.kind !== 'http')
+      throw new NotFoundException(`No function "${name}" in this crux`);
+    const body = input.body;
+    return this.execute(cruxId, name, loaded.code.get(name)!, loaded, {
+      req: {
+        method: input.method ?? 'POST',
+        body,
+        json: async () => body,
+        text: async () =>
+          body == null
+            ? ''
+            : typeof body === 'string'
+              ? body
+              : JSON.stringify(body),
+        path: input.rest ?? '',
+        params: (input.rest ?? '').split('/').filter(Boolean),
+        query: input.query ?? {},
+        headers: input.headers ?? {},
+      },
+      visitorId: input.visitorId,
+      visitorOnly: input.visitorOnly,
+    });
+  }
+
+  /**
+   * Emit an event on a crux: every `on-<event>.js` whose name (or exported
+   * `match` pattern) fits runs with `ctx.event`, then the event reaches the
+   * pages listening on the stream.
+   */
+  async emit(
+    cruxId: string,
+    name: string,
+    data: unknown,
+    visitorId: string | null,
+    depth = 0,
+    visitorOnly = false,
+    broadcast = true,
+  ): Promise<{ handlers: number; results: Record<string, RunResult> }> {
+    const event: CruxEvent = {
+      name,
+      data,
+      visitorId,
+      at: new Date().toISOString(),
+    };
+    const results: Record<string, RunResult> = {};
+    let handlers = 0;
+    if (depth < 3) {
+      const loaded = await this.load(cruxId).catch(() => null);
+      for (const source of loaded?.sources ?? []) {
+        if (source.kind !== 'event') continue;
+        const code = loaded!.code.get(source.name)!;
+        const pattern = this.matchOf(code) ?? source.event!;
+        if (!matches(pattern, name)) continue;
+        handlers++;
+        results[source.name] = await this.execute(
+          cruxId,
+          source.name,
+          code,
+          loaded!,
+          {
+            req: { method: 'EVENT', body: data, json: async () => data },
+            visitorId,
+            visitorOnly,
+            event,
+            depth: depth + 1,
+          },
+        ).catch((error) => ({
+          status: error instanceof FunctionReject ? error.status : 500,
+          body: { error: (error as Error).message },
+          logs: [],
+          ms: 0,
+        }));
+      }
+    }
+    if (broadcast) this.bus.next({ cruxId, event });
+    return { handlers, results };
+  }
+
+  private matchOf(code: string): string | null {
+    const m = /export\s+const\s+match\s*=\s*(['"`])([^'"`]+)\1/.exec(code);
+    return m ? m[2] : null;
+  }
+
+  private async execute(
+    cruxId: string,
+    name: string,
+    code: string,
+    publication: Loaded,
+    input: {
+      req: {
+        method: string;
+        body: unknown;
+        json: () => Promise<unknown>;
+        text?: () => Promise<string>;
+        path?: string;
+        params?: string[];
+        query?: Record<string, string | string[]>;
+        headers?: Record<string, string>;
+      };
+      visitorId: string | null;
+      visitorOnly?: boolean;
+      event?: CruxEvent;
+      depth?: number;
+    },
+  ): Promise<RunResult> {
+    // A suspended owner's Functions stop running (ADR 0083); takedown is the content tool.
+    await this.limits.assertAuthorNotSuspended(publication.owner.authorId);
+    const inFlight = this.running.get(cruxId) ?? 0;
+    if (inFlight >= MAX_CONCURRENT || this.runningTotal >= 4)
+      throw new ServiceUnavailableException(
+        'This crux is running as many functions as it may at once',
+      );
+    this.running.set(cruxId, inFlight + 1);
+    this.runningTotal++;
+    const started = Date.now();
+    const logs: string[] = [];
+    try {
+      const { owner: crux, egress } = publication;
+      const secrets = /ctx\.secrets/.test(code)
+        ? await this.secretsMap(cruxId)
+        : new Map<string, string>();
+      const ctx = this.context(crux, input, logs, { egress, secrets });
+      const outcome = await runIsolatedFunction(
+        name,
+        code,
+        input.req,
+        ctx,
+        WALL_MS,
+      );
+      return { ...answerOf(outcome), logs, ms: Date.now() - started };
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      if (
+        error instanceof FunctionReject ||
+        error instanceof IsolatedFunctionError
+      )
+        return {
+          status: error.status,
+          body: { error: error.message },
+          logs,
+          ms: Date.now() - started,
+        };
+      this.logger.warn(`Function ${name} failed: ${(error as Error).message}`, {
+        cruxId,
+      });
+      throw new BadRequestException(
+        `Function "${name}" failed: ${(error as Error).message}`,
+      );
+    } finally {
+      this.running.set(cruxId, (this.running.get(cruxId) ?? 1) - 1);
+      this.runningTotal--;
+      // A run consumes usage whatever it answered (CRUX-FUNCTIONS-PLAN metering).
+      this.usage.noteFunctionRun(cruxId, Date.now() - started);
+    }
+  }
+
+  private context(
+    crux: { id: string; authorId: string },
+    input: {
+      visitorId: string | null;
+      visitorOnly?: boolean;
+      event?: CruxEvent;
+      depth?: number;
+    },
+    logs: string[],
+    world: { egress: string[]; secrets: Map<string, string> } = {
+      egress: [],
+      secrets: new Map(),
+    },
+  ) {
+    const cruxId = crux.id;
+    const fetchOut = async (url: string, init?: Record<string, unknown>) =>
+      fetchEgress(world.egress, String(url), init);
+    const visitorId = input.visitorId;
+    const writer = visitorId ?? crux.authorId;
+    const isOwner = !input.visitorOnly && visitorId === crux.authorId;
+    return Object.freeze({
+      crux: { id: cruxId },
+      visitor: visitorId ? { id: visitorId, isOwner } : null,
+      owner: { id: crux.authorId },
+      secrets: Object.freeze({
+        get: (name: string) => world.secrets.get(String(name)) ?? null,
+        has: (name: string) => world.secrets.has(String(name)),
+      }),
+      fetch: fetchOut,
+      event: input.event ?? null,
+      now: () => new Date().toISOString(),
+      log: (...parts: unknown[]) => {
+        if (logs.length < MAX_LOG_LINES)
+          logs.push(
+            parts
+              .map((p) => (typeof p === 'string' ? p : JSON.stringify(p)))
+              .join(' '),
+          );
+      },
+      json: (value: unknown, status = 200) => ({
+        __json: value,
+        __status: status,
+      }),
+      text: (
+        body: unknown,
+        status = 200,
+        type = 'text/plain; charset=utf-8',
+      ) => ({
+        __text: String(body ?? ''),
+        __status: status,
+        __type: type,
+      }),
+      html: (body: unknown, status = 200) => ({
+        __text: String(body ?? ''),
+        __status: status,
+        __type: 'text/html; charset=utf-8',
+      }),
+      redirect: (url: string, status = 302) => ({
+        __text: '',
+        __status: status,
+        __headers: { Location: String(url) },
+      }),
+      reject: (message: string, status = 400) => {
+        throw new FunctionReject(String(message), status);
+      },
+      emit: (name: string, data: unknown) =>
+        this.emit(
+          cruxId,
+          String(name),
+          data,
+          visitorId,
+          (input.depth ?? 0) + 1,
+          input.visitorOnly,
+        ),
+      store: Object.freeze({
+        get: async (key: string) =>
+          (await this.store.get(cruxId, String(key), visitorId))?.value ?? null,
+        set: async (
+          key: string,
+          value: unknown,
+          mode: 'public' | 'protected' = 'public',
+        ) =>
+          (
+            await this.store.serverSet(
+              cruxId,
+              crux.authorId,
+              String(key),
+              value,
+              mode,
+              writer,
+            )
+          ).value,
+        increment: async (
+          key: string,
+          by = 1,
+          mode: 'public' | 'protected' = 'public',
+        ) =>
+          this.store.increment(
+            cruxId,
+            crux.authorId,
+            String(key),
+            Number(by) || 1,
+            writer,
+            mode,
+          ),
+        list: async (prefix = '') =>
+          (await this.store.list(cruxId))
+            .filter((e) => e.key.startsWith(String(prefix)))
+            .map((e) => ({
+              key: e.key,
+              value: e.value,
+              mode: e.mode,
+              visitorId: e.visitorId,
+            })),
+        del: async (key: string) => this.store.delete(cruxId, String(key)),
+      }),
+    });
+  }
+}
+
+/** What a handler returned, as an HTTP answer: ctx.json / ctx.text / ctx.html / ctx.redirect, or a plain value as JSON. */
+function answerOf(outcome: unknown): {
+  status: number;
+  body: unknown;
+  contentType?: string;
+  headers?: Record<string, string>;
+} {
+  if (outcome && typeof outcome === 'object') {
+    const o = outcome as Record<string, unknown>;
+    if ('__text' in o)
+      return {
+        status: Number(o.__status) || 200,
+        body: o.__text,
+        contentType:
+          typeof o.__type === 'string' ? o.__type : 'text/plain; charset=utf-8',
+        headers: (o.__headers as Record<string, string>) ?? {},
+      };
+    if ('__json' in o)
+      return { status: Number(o.__status) || 200, body: o.__json };
+  }
+  return { status: 200, body: outcome ?? null };
+}
+
+/** `score*` matches `score` and `score:saved`; `*` matches everything. */
+export function matches(pattern: string, name: string): boolean {
+  if (pattern === '*' || pattern === name) return true;
+  if (pattern.endsWith('*')) return name.startsWith(pattern.slice(0, -1));
+  return false;
+}
+
+export { ResourceType as _ResourceType };

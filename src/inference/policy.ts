@@ -1,14 +1,14 @@
 import { BadRequestException } from '@nestjs/common';
 /**
- * Both tiers run Claude Sonnet 5. They differ by allowance and by effort, not
+ * Both tiers run Claude Sonnet 5.5. They differ by allowance and by effort, not
  * by model: Sonnet is twice Haiku's price but has a 1M context instead of
  * 200K, supports effort (Haiku 4.5 does not), and its retirement commitment
- * runs to 2027-06-30 where Haiku 4.5's window opens 2026-10-15. One model also
+ * runs to 2027-09-28 where Haiku 4.5's window opens 2026-10-15. One model also
  * means one prompt-cache namespace — the old Sonnet→Haiku fallback threw the
  * cache away exactly when an account was running low, which is the worst
  * moment to start paying full input price.
  */
-export const SONNET = 'claude-sonnet-5';
+export const SONNET = 'claude-sonnet-5-5';
 export const HOUR = 3_600_000;
 /**
  * Effort is the per-tier cost lever that a second, weaker model used to be.
@@ -36,8 +36,8 @@ export interface Tokens {
 /**
  * Microdollars for one request. `input` is the model's dollars per million
  * input tokens; output is 5x input, a cache read a tenth, a cache write 1.25x
- * — the same ratios across the current Claude lineup. Verified 2026-09-18:
- * Sonnet 5 is $2 in / $10 out per MTok.
+ * for Sonnet. Verified 2026-09-30:
+ * Sonnet 5.5 is $2 in / $10 out per MTok.
  */
 const INPUT_PRICE: Record<string, number> = { [SONNET]: 2 };
 export function cost(model: string, t: Tokens): number {
@@ -58,6 +58,50 @@ export function reservation(
     cacheRead: 0,
     cacheWrite: Math.ceil(input * 1.2) + 1024,
   });
+}
+/** Output budget limits for one included request (ADR 0082). */
+export const MAX_OUTPUT = 8192;
+/** Below this a reply is not worth starting; a smaller client budget lowers it. */
+export const MIN_USEFUL_OUTPUT = 1024;
+export const MAX_INPUT = 100_000;
+/**
+ * Clamp instead of refuse (ADR 0082): the largest output budget, between the
+ * minimum useful reply and the requested budget, whose reservation fits in
+ * `remaining`; null when even the minimum does not fit. Searched rather than
+ * solved so it stays exact under `cost`'s rounding.
+ */
+export function admitOutput(
+  model: string,
+  input: number,
+  requested: number,
+  remaining: number,
+): number | null {
+  const cap = Math.max(1, Math.min(requested, MAX_OUTPUT));
+  let low = Math.min(MIN_USEFUL_OUTPUT, cap);
+  if (reservation(model, input, low) > remaining) return null;
+  let high = cap;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (reservation(model, input, mid) <= remaining) low = mid;
+    else high = mid - 1;
+  }
+  return low;
+}
+/**
+ * Output tokens for streamed text when the provider's own count never arrived.
+ * Three characters per token over-counts ordinary prose and code, so an
+ * interrupted reply is charged at or above what was actually produced.
+ */
+export function outputEstimate(characters: number): number {
+  return Math.ceil(Math.max(0, characters) / 3);
+}
+export function validTokens(t: Tokens | null | undefined): t is Tokens {
+  return (
+    !!t &&
+    [t.input, t.output, t.cacheRead, t.cacheWrite].every(
+      (n) => Number.isSafeInteger(n) && n >= 0,
+    )
+  );
 }
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
@@ -97,6 +141,18 @@ export function validateRequest(value: unknown): Record<string, unknown> {
   )
     fail('Use an output budget between 1 and 8,192 tokens.');
   if (body.stream !== true) fail('Included collaboration requires streaming.');
+  if (
+    (body.temperature !== undefined && body.temperature !== 1) ||
+    (body.top_p !== undefined && body.top_p !== 1)
+  )
+    fail('The included collaborator uses default sampling settings.');
+  if (
+    body.tool_choice !== undefined &&
+    (!object(body.tool_choice) ||
+      !['auto', 'none'].includes(String(body.tool_choice.type)))
+  )
+    fail('The included collaborator supports automatic tool choice only.');
+
   if (
     body.tools !== undefined &&
     (!Array.isArray(body.tools) ||

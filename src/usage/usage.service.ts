@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   S3Client,
   ListObjectsV2Command,
@@ -41,6 +46,9 @@ export interface CruxUsage {
   storeKeys: number;
   storeReads: number;
   storeWrites: number;
+  /** Crux Functions this period: handler runs and their milliseconds */
+  fnCalls: number;
+  fnMs: number;
 }
 
 export interface StoreUsage {
@@ -48,6 +56,9 @@ export interface StoreUsage {
   keys: number;
   reads: number;
   writes: number;
+  /** function runs count as Store requests toward the plan's budget */
+  fnCalls: number;
+  fnMs: number;
   requests: number;
 }
 
@@ -214,6 +225,8 @@ const emptyCrux = (cruxId: string): CruxUsage => ({
   storeKeys: 0,
   storeReads: 0,
   storeWrites: 0,
+  fnCalls: 0,
+  fnMs: 0,
 });
 
 const emptySync = (): SyncUsage => ({
@@ -274,7 +287,14 @@ export class UsageService {
    */
   private storeBuffer = new Map<
     string,
-    { cruxId: string; day: string; reads: number; writes: number }
+    {
+      cruxId: string;
+      day: string;
+      reads: number;
+      writes: number;
+      fnCalls: number;
+      fnMs: number;
+    }
   >();
   private storeFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private storeAuthorCache = new Map<string, string>();
@@ -285,12 +305,35 @@ export class UsageService {
     kind: 'read' | 'write',
     now = new Date(),
   ): void {
-    const day = now.toISOString().slice(0, 10);
-    const key = `${cruxId}|${day}`;
-    const b = this.storeBuffer.get(key) ?? { cruxId, day, reads: 0, writes: 0 };
+    const b = this.bucket(cruxId, now.toISOString().slice(0, 10));
     if (kind === 'read') b.reads += 1;
     else b.writes += 1;
+    this.scheduleStoreFlush();
+  }
+
+  /** A Crux Function ran (HTTP call, event handler or Store hook): one run, its milliseconds. */
+  noteFunctionRun(cruxId: string, ms: number, now = new Date()): void {
+    const b = this.bucket(cruxId, now.toISOString().slice(0, 10));
+    b.fnCalls += 1;
+    b.fnMs += Math.max(0, Math.round(ms));
+    this.scheduleStoreFlush();
+  }
+
+  private bucket(cruxId: string, day: string) {
+    const key = `${cruxId}|${day}`;
+    const b = this.storeBuffer.get(key) ?? {
+      cruxId,
+      day,
+      reads: 0,
+      writes: 0,
+      fnCalls: 0,
+      fnMs: 0,
+    };
     this.storeBuffer.set(key, b);
+    return b;
+  }
+
+  private scheduleStoreFlush() {
     if (!this.storeFlushTimer)
       this.storeFlushTimer = setTimeout(
         () => void this.flushStoreCounts(),
@@ -322,6 +365,8 @@ export class UsageService {
         b.day,
         b.reads,
         b.writes,
+        b.fnCalls,
+        b.fnMs,
       );
       if (!r.error) flushed += 1;
     }
@@ -344,9 +389,7 @@ export class UsageService {
       title,
     );
     if (r.error)
-      this.logger.error(
-        `recordSyncObject failed for ${accountId}/${kind}/${objectId}: ${String(r.error)}`,
-      );
+      throw new ServiceUnavailableException('Sync usage could not be recorded');
   }
 
   async clearSyncObject(
@@ -356,9 +399,7 @@ export class UsageService {
   ): Promise<void> {
     const r = await this.repo.deleteSyncObject(accountId, kind, objectId);
     if (r.error)
-      this.logger.error(
-        `clearSyncObject failed for ${accountId}/${kind}/${objectId}: ${String(r.error)}`,
-      );
+      throw new ServiceUnavailableException('Sync usage could not be cleared');
   }
 
   /** Bytes moved through the sync endpoints, counted on the UTC day they happen. */
@@ -372,8 +413,8 @@ export class UsageService {
     const day = now.toISOString().slice(0, 10);
     const r = await this.repo.addSyncDaily(accountId, day, bytesUp, bytesDown);
     if (r.error)
-      this.logger.error(
-        `recordTransfer failed for ${accountId}: ${String(r.error)}`,
+      throw new ServiceUnavailableException(
+        'Sync transfer could not be recorded',
       );
   }
 
@@ -385,6 +426,8 @@ export class UsageService {
       this.repo.syncObjectsByAccount(accountId),
       this.repo.syncDailyByAccount(accountId, period.start, period.end),
     ]);
+    if (objects.error || daily.error)
+      throw new ServiceUnavailableException('Sync usage is unavailable');
     const list: SyncObjectUsage[] = (objects.data ?? []).map((o) => ({
       kind: o.kind,
       id: o.object_id,
@@ -462,6 +505,8 @@ export class UsageService {
       const c = entry(row.crux_id);
       c.storeReads += n(row.reads);
       c.storeWrites += n(row.writes);
+      c.fnCalls += n(row.fn_calls);
+      c.fnMs += n(row.fn_ms);
     }
     const titles = await this.repo.titlesFor([...byCrux.keys()]);
     for (const c of byCrux.values())
@@ -481,9 +526,11 @@ export class UsageService {
       keys: cruxes.reduce((s, c) => s + c.storeKeys, 0),
       reads: cruxes.reduce((s, c) => s + c.storeReads, 0),
       writes: cruxes.reduce((s, c) => s + c.storeWrites, 0),
+      fnCalls: cruxes.reduce((s, c) => s + c.fnCalls, 0),
+      fnMs: cruxes.reduce((s, c) => s + c.fnMs, 0),
       requests: 0,
     };
-    store.requests = store.reads + store.writes;
+    store.requests = store.reads + store.writes + store.fnCalls;
     const plan = planFor(authorMeta);
     const storageBytes =
       publish.storageBytes + sync.storageBytes + store.storageBytes;
@@ -531,6 +578,8 @@ export class UsageService {
       storeKeys: store.data?.keys ?? 0,
       storeReads: (storeDaily.data ?? []).reduce((s, r) => s + n(r.reads), 0),
       storeWrites: (storeDaily.data ?? []).reduce((s, r) => s + n(r.writes), 0),
+      fnCalls: (storeDaily.data ?? []).reduce((s, r) => s + n(r.fn_calls), 0),
+      fnMs: (storeDaily.data ?? []).reduce((s, r) => s + n(r.fn_ms), 0),
     };
   }
 

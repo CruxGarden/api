@@ -53,10 +53,18 @@ export class HomeRepository {
   }
 
   async create(
-    createData: CreateHomeDto,
+    createData: CreateHomeDto & { id: string },
   ): Promise<RepositoryResponse<HomeRaw>> {
     try {
-      const tableFields = toTableFields(createData);
+      const tableFields = toTableFields({
+        id: createData.id,
+        name: createData.name,
+        description: createData.description,
+        primary: createData.primary,
+        type: createData.type,
+        kind: createData.kind,
+        meta: createData.meta,
+      });
 
       await this.dbService
         .query()
@@ -85,12 +93,20 @@ export class HomeRepository {
     updateData: UpdateHomeDto,
   ): Promise<RepositoryResponse<HomeRaw>> {
     try {
-      const tableFields = toTableFields(updateData);
+      const tableFields = toTableFields({
+        name: updateData.name,
+        description: updateData.description,
+        primary: updateData.primary,
+        type: updateData.type,
+        kind: updateData.kind,
+        meta: updateData.meta,
+      });
 
       await this.dbService
         .query()
         .from<HomeRaw>(HomeRepository.TABLE_NAME)
         .where('id', homeId)
+        .whereNull('deleted')
         .update({
           ...tableFields,
           updated: new Date(),
@@ -101,6 +117,7 @@ export class HomeRepository {
         .from<HomeRaw>(HomeRepository.TABLE_NAME)
         .select(HomeRepository.BASE_SELECT)
         .where('id', homeId)
+        .whereNull('deleted')
         .first();
 
       return success(updated);
@@ -115,6 +132,7 @@ export class HomeRepository {
         .query()
         .from<HomeRaw>(HomeRepository.TABLE_NAME)
         .where('id', homeId)
+        .whereNull('deleted')
         .update({
           deleted: new Date(),
           updated: new Date(),

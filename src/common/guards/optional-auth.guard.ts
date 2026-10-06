@@ -1,6 +1,12 @@
+import { Optional } from '@nestjs/common';
+import { DbService } from '../services/db.service';
+import { activeTokenAccount } from './token-account';
+import { ForbiddenException } from '@nestjs/common';
+import { isAccountOrigin } from './account-origin.guard';
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 import { LoggerService } from '../services/logger.service';
+import { nurseryAccount } from './nursery-account';
 
 /**
  * Like AuthGuard but does not reject unauthenticated requests.
@@ -10,7 +16,10 @@ import { LoggerService } from '../services/logger.service';
 export class OptionalAuthGuard implements CanActivate {
   private readonly logger: LoggerService;
 
-  constructor(private readonly loggerService: LoggerService) {
+  constructor(
+    private readonly loggerService: LoggerService,
+    @Optional() private readonly db?: DbService,
+  ) {
     this.logger = this.loggerService.createChildLogger('OptionalAuthGuard');
   }
 
@@ -18,23 +27,23 @@ export class OptionalAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const token = request.headers.authorization?.replace('Bearer ', '');
 
+    if (token && !isAccountOrigin(request.headers.origin))
+      throw new ForbiddenException(
+        'Published pages require visitor credentials',
+      );
+
     if (token) {
       try {
-        request.account = jwt.verify(token, process.env.JWT_SECRET);
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        if (await activeTokenAccount(this.db, payload))
+          request.account = payload;
       } catch (e) {
         this.logger.warn('JWT verification failed (optional)', {
           error: e.message,
         });
       }
-    } else if (process.env.NURSERY_MODE === 'true') {
-      request.account = {
-        id: 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96',
-        email: 'keeper@crux.garden',
-        role: 'keeper',
-        grantId: 'nursery-mode-grant',
-        exp: Math.floor(Date.now() / 1000) + 86400,
-        iat: Math.floor(Date.now() / 1000),
-      };
+    } else {
+      request.account = nurseryAccount();
     }
 
     return true;

@@ -81,14 +81,14 @@ describe('HomeService', () => {
       );
     });
 
-    it('should throw NotFoundException on repository error', async () => {
+    it('should throw InternalServerErrorException on repository error', async () => {
       repository.findBy.mockResolvedValue({
         data: null,
         error: new Error('DB Error'),
       });
 
       await expect(service.findById('home-id')).rejects.toThrow(
-        NotFoundException,
+        InternalServerErrorException,
       );
     });
   });

@@ -16,13 +16,12 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
-  ForbiddenException,
   PayloadTooLargeException,
   Query,
   Header,
   StreamableFile,
 } from '@nestjs/common';
-import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { AuthRequest } from '../common/types/interfaces';
 import { CruxService } from './crux.service';
@@ -35,7 +34,6 @@ import { AuthorService } from '../author/author.service';
 import { CreateDimensionDto } from '../dimension/dto/create-dimension.dto';
 import Crux from './entities/crux.entity';
 import CruxRaw from './entities/crux-raw.entity';
-import Author from '../author/entities/author.entity';
 import Dimension from '../dimension/entities/dimension.entity';
 import DimensionRaw from '../dimension/entities/dimension-raw.entity';
 import { DimensionType, DimensionEmbed } from '../common/types/enums';
@@ -45,6 +43,7 @@ import { HomeService } from '../home/home.service';
 import { UploadArtifactDto } from '../artifact/dto/upload-artifact.dto';
 import { MAX_ARTIFACT_SIZE, MAX_PUBLISH_SIZE } from '../common/types/constants';
 import Artifact from '../artifact/entities/artifact.entity';
+import { PublishUploadInterceptor } from '../common/publish/upload.interceptor';
 
 @Controller('cruxes')
 @UseGuards(AuthGuard)
@@ -57,30 +56,9 @@ export class CruxController {
     private readonly homeService: HomeService,
   ) {}
 
-  async canManageCrux(id: string, author: Author): Promise<boolean> {
-    const crux = await this.cruxService.findById(id);
-    if (crux.authorId !== author.id) {
-      throw new ForbiddenException(
-        'You do not have permission to manage this crux',
-      );
-    }
-    return true;
-  }
-
-  async getAuthor(req: AuthRequest): Promise<Author> {
+  private async ownedCrux(id: string, req: AuthRequest): Promise<Crux> {
     const author = await this.authorService.findByAccountId(req.account.id);
-    if (!author) {
-      throw new NotFoundException('Author not found for this account');
-    }
-    return author;
-  }
-
-  async getCruxById(id: string): Promise<Crux> {
-    const crux = await this.cruxService.findById(id);
-    if (!crux) {
-      throw new NotFoundException('Crux not found');
-    }
-    return crux;
+    return this.cruxService.findOwnedById(id, author.id);
   }
 
   @Get()
@@ -89,7 +67,7 @@ export class CruxController {
     @Req() req: AuthRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<Crux[]> {
-    const author = await this.getAuthor(req);
+    const author = await this.authorService.findByAccountId(req.account.id);
     const query = this.cruxService.findAllByAuthorQuery(author.id);
     return this.dbService.paginate<CruxRaw, Crux>({
       model: Crux,
@@ -103,8 +81,10 @@ export class CruxController {
   @CruxSwagger.GetByIdentifier()
   async getByIdentifier(
     @Param('identifier') identifier: string,
+    @Req() req: AuthRequest,
   ): Promise<Crux> {
-    return this.cruxService.findByIdentifier(identifier);
+    const author = await this.authorService.findByAccountId(req.account.id);
+    return this.cruxService.findOwnedByIdentifier(identifier, author.id);
   }
 
   @Post()
@@ -113,7 +93,7 @@ export class CruxController {
     @Body() createCruxDto: CreateCruxDto,
     @Req() req: AuthRequest,
   ): Promise<Crux> {
-    const author = await this.getAuthor(req);
+    const author = await this.authorService.findByAccountId(req.account.id);
     const home = await this.homeService.primary();
     createCruxDto.authorId = author.id;
     createCruxDto.homeId = home.id;
@@ -127,8 +107,8 @@ export class CruxController {
     @Body() updateCruxDto: UpdateCruxDto,
     @Req() req: AuthRequest,
   ): Promise<Crux> {
-    const author = await this.getAuthor(req);
-    await this.canManageCrux(id, author);
+    const author = await this.authorService.findByAccountId(req.account.id);
+    await this.cruxService.findOwnedById(id, author.id);
     return this.cruxService.update(id, updateCruxDto);
   }
 
@@ -139,8 +119,8 @@ export class CruxController {
     @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<null> {
-    const author = await this.getAuthor(req);
-    await this.canManageCrux(id, author);
+    const author = await this.authorService.findByAccountId(req.account.id);
+    await this.cruxService.findOwnedById(id, author.id);
     return this.cruxService.delete(id);
   }
 
@@ -155,7 +135,7 @@ export class CruxController {
     @Query('type') type?: DimensionType,
     @Query('embed') embed?: string,
   ): Promise<Dimension[]> {
-    const sourceCrux = await this.getCruxById(id);
+    const sourceCrux = await this.ownedCrux(id, req);
 
     // Parse embed parameter (default: target only)
     let embedSource = false;
@@ -173,12 +153,16 @@ export class CruxController {
       }
     }
 
-    const query = this.cruxService.getDimensionsQuery(
-      sourceCrux.id,
-      type,
-      embedSource,
-      embedTarget,
-    );
+    const query = this.cruxService
+      .getDimensionsQuery(sourceCrux.id, type, embedSource, embedTarget)
+      .where('dimensions.author_id', sourceCrux.authorId)
+      .whereIn(
+        'dimensions.target_id',
+        this.cruxService
+          .findAllByAuthorQuery(sourceCrux.authorId)
+          .clearSelect()
+          .select('id'),
+      );
 
     return this.dbService.paginate<DimensionRaw, Dimension>({
       model: Dimension,
@@ -195,9 +179,13 @@ export class CruxController {
     @Body() createDimensionDto: CreateDimensionDto,
     @Req() req: AuthRequest,
   ): Promise<Dimension> {
-    const author = await this.getAuthor(req);
+    const author = await this.authorService.findByAccountId(req.account.id);
+    await this.cruxService.findOwnedById(id, author.id);
+    await this.cruxService.findOwnedById(
+      createDimensionDto.targetId,
+      author.id,
+    );
     const home = await this.homeService.primary();
-    await this.canManageCrux(id, author);
     createDimensionDto.authorId = author.id;
     createDimensionDto.homeId = home.id;
     return this.cruxService.createDimension(id, createDimensionDto);
@@ -211,8 +199,10 @@ export class CruxController {
   @CruxSwagger.GetTags()
   async getTags(
     @Param('id') id: string,
+    @Req() req: AuthRequest,
     @Query('filter') filter?: string,
   ): Promise<Tag[]> {
+    await this.ownedCrux(id, req);
     return this.cruxService.getTags(id, filter);
   }
 
@@ -223,8 +213,8 @@ export class CruxController {
     @Body() syncTagsDto: SyncTagsDto,
     @Req() req: AuthRequest,
   ): Promise<Tag[]> {
-    const author = await this.getAuthor(req);
-    await this.canManageCrux(id, author);
+    const author = await this.authorService.findByAccountId(req.account.id);
+    await this.cruxService.findOwnedById(id, author.id);
     return this.cruxService.syncTags(id, syncTagsDto.labels, author.id);
   }
 
@@ -234,21 +224,29 @@ export class CruxController {
 
   @Get(':id/artifacts')
   @CruxSwagger.GetArtifacts()
-  async getArtifacts(@Param('id') id: string): Promise<Artifact[]> {
+  async getArtifacts(
+    @Param('id') id: string,
+    @Req() req: AuthRequest,
+  ): Promise<Artifact[]> {
+    await this.ownedCrux(id, req);
     return this.cruxService.getArtifacts(id);
   }
 
   @Post(':id/artifacts')
   @CruxSwagger.CreateArtifact()
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_ARTIFACT_SIZE, files: 1, fields: 10 },
+    }),
+  )
   async createArtifact(
     @Param('id') id: string,
     @Body() uploadDto: UploadArtifactDto,
     @UploadedFile() file: Express.Multer.File,
     @Req() req: AuthRequest,
   ): Promise<Artifact> {
-    const author = await this.getAuthor(req);
-    await this.canManageCrux(id, author);
+    const author = await this.authorService.findByAccountId(req.account.id);
+    await this.cruxService.findOwnedById(id, author.id);
 
     return this.cruxService.createArtifact(id, uploadDto, file, author.id);
   }
@@ -259,9 +257,10 @@ export class CruxController {
   async downloadArtifact(
     @Param('id') id: string,
     @Param('artifactId') artifactId: string,
+    @Req() req: AuthRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    await this.getCruxById(id); // Verify crux exists and apply access control
+    await this.ownedCrux(id, req);
     const file = await this.cruxService.downloadArtifact(id, artifactId);
 
     if (!file) {
@@ -283,19 +282,15 @@ export class CruxController {
 
   @Post(':id/publish')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(
-    FilesInterceptor('files', 500, {
-      limits: { fileSize: MAX_ARTIFACT_SIZE },
-    }),
-  )
+  @UseInterceptors(PublishUploadInterceptor)
   async publish(
     @Param('id') id: string,
     @UploadedFiles() files: Express.Multer.File[],
     @Body('meta') metaJson: string,
     @Req() req: AuthRequest,
   ): Promise<Crux> {
-    const author = await this.getAuthor(req);
-    await this.canManageCrux(id, author);
+    const author = await this.authorService.findByAccountId(req.account.id);
+    await this.cruxService.findOwnedById(id, author.id);
 
     const totalSize = (files || []).reduce((sum, f) => sum + f.size, 0);
     if (totalSize > MAX_PUBLISH_SIZE) {
@@ -328,8 +323,8 @@ export class CruxController {
     @Param('id') id: string,
     @Req() req: AuthRequest,
   ): Promise<Crux> {
-    const author = await this.getAuthor(req);
-    await this.canManageCrux(id, author);
+    const author = await this.authorService.findByAccountId(req.account.id);
+    await this.cruxService.findOwnedById(id, author.id);
     return this.cruxService.unpublishCrux(id);
   }
 

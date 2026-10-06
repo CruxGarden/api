@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 import { AuthCodeDto } from './dto/auth-code.dto';
 import { AuthLoginDto } from './dto/auth-login.dto';
@@ -21,6 +21,24 @@ const GRANT_EXPIRE = 60 * 60 * 24 * 365; // 1 year
 const TOKEN_EXPIRE = 60 * 60; // 1 hour
 const AUTH_TOKEN_LENGTH = 16;
 
+// Abuse limits, counted per email in Redis so they hold across API instances
+// and restarts. They apply to every address alike, so a refusal never says
+// whether an account exists. Per-IP ceilings live on the controller routes.
+export const CODE_REQUESTS_PER_EMAIL = 5;
+export const CODE_REQUEST_WINDOW = 60 * 15; // 15 minutes
+export const LOGIN_ATTEMPTS_PER_EMAIL = 5;
+export const LOGIN_ATTEMPT_WINDOW = 60 * 15; // 15 minutes
+export const CODE_REQUESTS_LIMITED =
+  'Too many sign-in codes requested for this email. Please wait 15 minutes and try again.';
+export const LOGIN_ATTEMPTS_LIMITED =
+  'Too many incorrect codes. Please request a new sign-in code and try again.';
+
+const tooMany = (message: string) =>
+  new HttpException(
+    { statusCode: HttpStatus.TOO_MANY_REQUESTS, message },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
+
 const lower = (str) => str?.toLowerCase() || '';
 
 @Injectable()
@@ -41,6 +59,14 @@ export class AuthService {
 
   codeKey(code: string): string {
     return `crux:auth:code:${code}`;
+  }
+
+  codeRequestsKey(email: string): string {
+    return `crux:auth:code-requests:${email}`;
+  }
+
+  loginAttemptsKey(email: string): string {
+    return `crux:auth:login-attempts:${email}`;
   }
 
   grantEmailKey(email: string): string {
@@ -126,9 +152,21 @@ export class AuthService {
   }
 
   async code(authCodeDto: AuthCodeDto): Promise<string> {
-    const uid = this.keyMaster.generateToken(AUTH_TOKEN_LENGTH);
     const email = lower(authCodeDto.email);
+    const requests = await this.redisService.incr(
+      this.codeRequestsKey(email),
+      CODE_REQUEST_WINDOW,
+    );
+    if (requests > CODE_REQUESTS_PER_EMAIL) {
+      this.logger.warn('Sign-in code request limit hit', { email });
+      throw tooMany(CODE_REQUESTS_LIMITED);
+    }
+
+    const uid = this.keyMaster.generateToken(AUTH_TOKEN_LENGTH);
     await this.redisService.set(this.codeKey(uid), email, CODE_EXPIRE);
+    // A fresh code lifts the wrong-code lockout; the request limit above
+    // bounds how often that can happen.
+    await this.remove(this.loginAttemptsKey(email));
     await this.emailService.send({
       email,
       subject: 'Auth Code',
@@ -138,9 +176,25 @@ export class AuthService {
   }
 
   async login(authLoginDto: AuthLoginDto): Promise<AuthCredentials | null> {
+    // 0) refuse further guesses for this email until a new code is requested
+    const claimed = lower(authLoginDto.email);
+    const attempts = Number(
+      await this.redisService.get(this.loginAttemptsKey(claimed)),
+    );
+    if (attempts >= LOGIN_ATTEMPTS_PER_EMAIL) {
+      this.logger.warn('Sign-in attempt limit hit', { email: claimed });
+      throw tooMany(LOGIN_ATTEMPTS_LIMITED);
+    }
+
     // 1) lookup email by code
     const email = await this.getEmailByCode(authLoginDto.code);
-    if (email !== lower(authLoginDto.email)) return null;
+    if (email !== claimed) {
+      await this.redisService.incr(
+        this.loginAttemptsKey(claimed),
+        LOGIN_ATTEMPT_WINDOW,
+      );
+      return null;
+    }
 
     // 2) lookup existing grant by email or create new grant
     const grantId =
@@ -149,6 +203,20 @@ export class AuthService {
     // 3) create refresh token
     const refreshToken = await this.genRefreshToken(grantId);
 
+    const account = await this.findOrCreateAccount(email);
+
+    // 5) create jwt access token for account
+    const accessToken = this.genAccessToken(account, grantId);
+
+    // 5) cleanup
+    await this.remove(this.codeKey(authLoginDto.code));
+    await this.remove(this.loginAttemptsKey(email));
+
+    return this.genAuthCredentials(accessToken, refreshToken);
+  }
+
+  /** Shared identity creation; callers choose account or published visitor authority. */
+  async findOrCreateAccount(email: string): Promise<Account> {
     // 4) lookup account by email, create account if not found
     let account = null;
     try {
@@ -202,13 +270,7 @@ export class AuthService {
       }
     }
 
-    // 5) create jwt access token for account
-    const accessToken = this.genAccessToken(account, grantId);
-
-    // 5) cleanup
-    await this.remove(this.codeKey(authLoginDto.code));
-
-    return this.genAuthCredentials(accessToken, refreshToken);
+    return account;
   }
 
   async logout(email: string): Promise<{ message: string } | null> {

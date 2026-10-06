@@ -3,6 +3,7 @@ import type {
   BillingEvent,
   BillingProvider,
   CheckoutRequest,
+  InvoiceSummary,
   PriceInfo,
   SubscriptionSnapshot,
   SubscriptionStatus,
@@ -19,44 +20,133 @@ export class StripeBillingProvider implements BillingProvider {
   constructor(
     private readonly stripe: Stripe,
     private readonly webhookSecret: string,
-    private readonly automaticTax: boolean,
+    readonly automaticTax: boolean,
   ) {}
 
   async createCheckout(req: CheckoutRequest) {
-    const session = await this.stripe.checkout.sessions.create({
-      mode: 'subscription',
-      line_items: [{ price: req.priceId, quantity: 1 }],
-      ...(req.customerId
-        ? {
-            customer: req.customerId,
-            customer_update: { address: 'auto', name: 'auto' },
-          }
-        : { customer_email: req.email }),
-      client_reference_id: req.accountId,
-      success_url: req.successUrl,
-      cancel_url: req.cancelUrl,
-      allow_promotion_codes: true,
-      billing_address_collection: 'auto',
-      automatic_tax: { enabled: this.automaticTax },
-      subscription_data: {
-        metadata: { accountId: req.accountId },
-        ...(req.trialDays > 0
+    if (!req.idempotencyKey)
+      throw new Error('A durable checkout identity is required');
+    const session = await this.stripe.checkout.sessions.create(
+      {
+        mode: 'subscription',
+        line_items: [{ price: req.priceId, quantity: 1 }],
+        ...(req.customerId
           ? {
-              trial_period_days: req.trialDays,
-              // card-free trial: when it ends without a payment method, end it — never
-              // leave a paused subscription that reads as a paid plan
-              trial_settings: {
-                end_behavior: { missing_payment_method: 'cancel' as const },
-              },
+              customer: req.customerId,
+              customer_update: { address: 'auto', name: 'auto' },
             }
-          : {}),
+          : { customer_email: req.email }),
+        client_reference_id: req.accountId,
+        success_url: req.successUrl,
+        cancel_url: req.cancelUrl,
+        allow_promotion_codes: true,
+        billing_address_collection: 'auto',
+        automatic_tax: { enabled: this.automaticTax },
+        subscription_data: {
+          metadata: { accountId: req.accountId },
+          ...(req.trialDays > 0
+            ? {
+                trial_period_days: req.trialDays,
+                // card-free trial: when it ends without a payment method, end it — never
+                // leave a paused subscription that reads as a paid plan
+                trial_settings: {
+                  end_behavior: { missing_payment_method: 'cancel' as const },
+                },
+              }
+            : {}),
+        },
+        // A card-free trial when trials are on; otherwise collect up front.
+        payment_method_collection: req.trialDays > 0 ? 'if_required' : 'always',
+        metadata: { accountId: req.accountId, attemptId: req.idempotencyKey },
       },
-      // A card-free trial when trials are on; otherwise collect up front.
-      payment_method_collection: req.trialDays > 0 ? 'if_required' : 'always',
-      metadata: { accountId: req.accountId },
-    });
+      { idempotencyKey: req.idempotencyKey },
+    );
     if (!session.url) throw new Error('Stripe did not return a checkout URL');
     return { url: session.url, sessionId: session.id };
+  }
+
+  async closeAccount(input: {
+    accountId: string;
+    customerId?: string;
+    pendingSessionId?: string;
+  }) {
+    const customers = new Set(input.customerId ? [input.customerId] : []);
+    if (input.pendingSessionId) {
+      let session = await this.stripe.checkout.sessions.retrieve(
+        input.pendingSessionId,
+      );
+      if (session.client_reference_id !== input.accountId)
+        throw new Error('Checkout belongs to a different account');
+      if (session.status === 'open') {
+        try {
+          session = await this.stripe.checkout.sessions.expire(session.id);
+        } catch (error) {
+          session = await this.stripe.checkout.sessions.retrieve(session.id);
+          if (session.status === 'open') throw error;
+        }
+      }
+      const customer =
+        typeof session.customer === 'string'
+          ? session.customer
+          : session.customer?.id;
+      if (customer) customers.add(customer);
+    }
+    for (const id of customers) {
+      const customer = await this.stripe.customers.retrieve(id);
+      if (customer.deleted) continue;
+      // Cancel explicitly and immediately (no proration, no final invoice):
+      // the account is going away and remaining time is not refunded (ADR 0083).
+      const subscriptions = await this.stripe.subscriptions.list({
+        customer: id,
+        status: 'all',
+        limit: 100,
+      });
+      for (const sub of subscriptions.data)
+        if (!['canceled', 'incomplete_expired'].includes(sub.status))
+          await this.stripe.subscriptions.cancel(sub.id, {
+            invoice_now: false,
+            prorate: false,
+          });
+      await this.stripe.customers.del(id);
+    }
+  }
+
+  async invoices(customerId: string, limit: number): Promise<InvoiceSummary[]> {
+    try {
+      const list = await this.stripe.invoices.list({
+        customer: customerId,
+        limit: Math.min(100, Math.max(1, limit)),
+      });
+      return list.data
+        .filter((inv) => inv.status !== 'draft')
+        .slice(0, limit)
+        .map((inv) => ({
+          id: inv.id ?? '',
+          number: inv.number ?? null,
+          date: new Date(inv.created * 1000).toISOString(),
+          totalCents: inv.total,
+          currency: inv.currency,
+          status: inv.status ?? 'open',
+          hostedUrl: inv.hosted_invoice_url ?? null,
+          pdfUrl: inv.invoice_pdf ?? null,
+        }));
+    } catch (error) {
+      const failure = error as { code?: string; statusCode?: number };
+      if (failure.code === 'resource_missing' && failure.statusCode === 404)
+        return [];
+      throw error;
+    }
+  }
+
+  async hasSubscriptionHistory(customerId: string): Promise<boolean> {
+    const list = await this.stripe.subscriptions.list({
+      customer: customerId,
+      status: 'all',
+      limit: 100,
+    });
+    return list.data.some(
+      (s) => s.status !== 'incomplete' && s.status !== 'incomplete_expired',
+    );
   }
 
   async portalUrl(customerId: string, returnUrl: string) {
@@ -85,11 +175,15 @@ export class StripeBillingProvider implements BillingProvider {
             ? session.subscription
             : session.subscription?.id;
         if (!subId) return { id: event.id, type: 'ignored', raw: event.type };
-        const sub = await this.stripe.subscriptions.retrieve(subId);
         return {
           id: event.id,
-          type: 'subscription.changed',
-          subscription: snapshot(sub, session.client_reference_id ?? undefined),
+          type: 'checkout.completed',
+          subscriptionId: subId,
+          customerId:
+            typeof session.customer === 'string'
+              ? session.customer
+              : (session.customer?.id ?? ''),
+          accountId: session.client_reference_id ?? null,
         };
       }
       case 'customer.subscription.created':
@@ -145,8 +239,13 @@ export class StripeBillingProvider implements BillingProvider {
     try {
       const sub = await this.stripe.subscriptions.retrieve(subscriptionId);
       return snapshot(sub);
-    } catch {
-      return null;
+    } catch (error) {
+      // Absence is a fact; transport, credentials and provider failures must
+      // propagate so callers retry instead of applying stale webhook data.
+      const failure = error as { code?: string; statusCode?: number };
+      if (failure.code === 'resource_missing' && failure.statusCode === 404)
+        return null;
+      throw error;
     }
   }
 
@@ -171,8 +270,25 @@ export class StripeBillingProvider implements BillingProvider {
     return {
       customerId: id(s.customer),
       subscriptionId: id(s.subscription),
-      complete: s.status === 'complete',
+      status: s.status ?? 'open',
+      accountId: s.client_reference_id,
+      attemptId: s.metadata?.attemptId ?? null,
+      url: s.url,
     };
+  }
+
+  async expireCheckout(sessionId: string) {
+    let current = await this.fetchCheckoutSession(sessionId);
+    if (current.status === 'open') {
+      try {
+        await this.stripe.checkout.sessions.expire(sessionId);
+      } catch (error) {
+        current = await this.fetchCheckoutSession(sessionId);
+        if (current.status === 'open') throw error;
+      }
+      current = await this.fetchCheckoutSession(sessionId);
+    }
+    return current;
   }
 
   async prices(priceIds: string[]): Promise<PriceInfo[]> {
@@ -194,6 +310,7 @@ export class StripeBillingProvider implements BillingProvider {
           amount: p.unit_amount,
           currency: p.currency,
           interval: p.recurring?.interval === 'year' ? 'year' : 'month',
+          ...(p.tax_behavior ? { taxBehavior: p.tax_behavior } : {}),
         });
       } catch {
         /* a missing price just isn't offered */
@@ -210,10 +327,11 @@ function status(s: Stripe.Subscription.Status): SubscriptionStatus {
     case 'past_due':
     case 'canceled':
     case 'unpaid':
-      return s;
     case 'incomplete':
     case 'incomplete_expired':
-      return 'incomplete';
+      // kept distinct: incomplete/unpaid owe an invoice (Manage billing);
+      // incomplete_expired never started, so checkout may run again (ADR 0083)
+      return s;
     case 'paused':
       // a trial that ended without a card: no entitlement
       return 'none';
@@ -223,10 +341,7 @@ function status(s: Stripe.Subscription.Status): SubscriptionStatus {
 }
 
 /** Normalize a Stripe subscription; period fields moved onto items in newer API versions. */
-function snapshot(
-  sub: Stripe.Subscription,
-  accountIdHint?: string,
-): SubscriptionSnapshot {
+function snapshot(sub: Stripe.Subscription): SubscriptionSnapshot {
   const item = sub.items?.data?.[0];
   const legacy = sub as unknown as {
     current_period_start?: number;
@@ -248,8 +363,10 @@ function snapshot(
     currentPeriodStart: start ? new Date(start * 1000) : null,
     currentPeriodEnd: end ? new Date(end * 1000) : null,
     cancelAtPeriodEnd: !!sub.cancel_at_period_end,
+    // The portal may schedule a cancellation as a date rather than the flag.
+    cancelAt: sub.cancel_at ? new Date(sub.cancel_at * 1000) : null,
     trialEnd: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
-    accountId: sub.metadata?.accountId || accountIdHint || null,
+    accountId: sub.metadata?.accountId || null,
   };
 }
 
@@ -259,7 +376,7 @@ export function stripeProviderFromEnv(): StripeBillingProvider | null {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!key || !secret) return null;
   return new StripeBillingProvider(
-    new Stripe(key),
+    new Stripe(key, { timeout: 10_000, maxNetworkRetries: 0 }),
     secret,
     process.env.STRIPE_AUTOMATIC_TAX === '1',
   );

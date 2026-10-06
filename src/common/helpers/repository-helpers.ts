@@ -4,14 +4,24 @@ import { RepositoryResponse } from '../types/interfaces';
  * Converts undefined to null for repository responses
  */
 export function toNullable<T>(value: T | undefined): T | null {
-  return value || null;
+  return value ?? null;
 }
 
 /**
  * Converts unknown error to Error instance
  */
 export function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
+  if (error instanceof Error) return error;
+  // Native drivers can return errors constructed in another JS realm. Keep
+  // their machine-readable code so a constraint collision remains a conflict.
+  if (error && typeof error === 'object' && 'message' in error) {
+    const normalized = new Error(String(error.message));
+    if ('code' in error && typeof error.code === 'string') {
+      Object.assign(normalized, { code: error.code });
+    }
+    return normalized;
+  }
+  return new Error(String(error));
 }
 
 /**

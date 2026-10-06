@@ -1,161 +1,132 @@
 import {
+  BadRequestException,
+  ForbiddenException,
   Injectable,
-  NotFoundException,
   InternalServerErrorException,
+  NotFoundException,
 } from '@nestjs/common';
-import { Knex } from 'knex';
+import { isUUID } from 'class-validator';
 import { toEntityFields } from '../common/helpers/case-helpers';
 import { PathRepository } from './path.repository';
 import { CreatePathDto } from './dto/create-path.dto';
 import { UpdatePathDto } from './dto/update-path.dto';
-import { CreateMarkerDto } from './dto/create-marker.dto';
 import { MarkerInput } from './dto/sync-markers.dto';
 import { KeyMaster } from '../common/services/key.master';
-import { LoggerService } from '../common/services/logger.service';
 import { TagService } from '../tag/tag.service';
 import { CruxService } from '../crux/crux.service';
 import { HomeService } from '../home/home.service';
 import { PathType, PathVisibility, ResourceType } from '../common/types/enums';
-import PathRaw from './entities/path-raw.entity';
 import Path from './entities/path.entity';
-import MarkerRaw from './entities/marker-raw.entity';
 import Marker from './entities/marker.entity';
-import Tag from '../tag/entities/tag.entity';
 
 @Injectable()
 export class PathService {
-  // @ts-expect-error - logger
-  private readonly logger: LoggerService;
-
   constructor(
     private readonly pathRepository: PathRepository,
     private readonly keyMaster: KeyMaster,
-    private readonly loggerService: LoggerService,
     private readonly tagService: TagService,
     private readonly cruxService: CruxService,
     private readonly homeService: HomeService,
-  ) {
-    this.logger = this.loggerService.createChildLogger('PathService');
+  ) {}
+
+  findAllQuery(authorId: string) {
+    return this.pathRepository.findAllQuery(authorId);
   }
 
-  asPath(data: PathRaw): Path {
-    const entityFields = toEntityFields(data);
-    return new Path(entityFields);
-  }
-
-  asPaths(rows: PathRaw[]): Path[] {
-    return rows.map((data) => this.asPath(data));
-  }
-
-  findAllQuery(): Knex.QueryBuilder<PathRaw, PathRaw[]> {
-    return this.pathRepository.findAllQuery();
-  }
-
-  async findById(id: string): Promise<Path> {
+  async findOwnedById(id: string, authorId: string): Promise<Path> {
     const { data, error } = await this.pathRepository.findBy('id', id);
-
-    if (error || !data) {
-      throw new NotFoundException('Path not found');
-    }
-
-    return this.asPath(data);
+    if (error)
+      throw new InternalServerErrorException('Could not load Path', {
+        cause: error,
+      });
+    if (!data) throw new NotFoundException('Path not found');
+    if (data.author_id !== authorId)
+      throw new ForbiddenException('You do not own this Path');
+    return new Path(toEntityFields(data));
   }
 
-  async findBySlug(slug: string): Promise<Path> {
-    const { data, error } = await this.pathRepository.findBy('slug', slug);
-
-    if (error || !data) {
-      throw new NotFoundException('Path not found');
-    }
-
-    return this.asPath(data);
-  }
-
-  async findByIdentifier(identifier: string): Promise<Path> {
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (uuidPattern.test(identifier)) {
-      return this.findById(identifier);
-    }
-
-    return this.findBySlug(identifier);
-  }
-
-  async create(createPathDto: CreatePathDto): Promise<Path> {
-    createPathDto.id = this.keyMaster.generateId();
-
-    this.applyDefaults(createPathDto);
-
-    const created = await this.pathRepository.create(createPathDto);
-    if (created.error)
-      throw new InternalServerErrorException(
-        `Path creation error: ${created.error}`,
-      );
-
-    return this.asPath(created.data);
-  }
-
-  async update(pathId: string, updatePathDto: UpdatePathDto): Promise<Path> {
-    // 1) fetch path
-    const pathToUpdate = await this.findById(pathId);
-
-    // 2) update path
-    const updated = await this.pathRepository.update(
-      pathToUpdate.id,
-      updatePathDto,
+  async findOwnedByIdentifier(
+    identifier: string,
+    authorId: string,
+  ): Promise<Path> {
+    if (isUUID(identifier)) return this.findOwnedById(identifier, authorId);
+    const { data, error } = await this.pathRepository.findBy(
+      'slug',
+      identifier,
+      authorId,
     );
-    if (updated.error) {
-      throw new InternalServerErrorException(
-        `Path update error: ${updated.error}`,
-      );
-    }
-
-    return this.asPath(updated.data);
+    if (error)
+      throw new InternalServerErrorException('Could not load Path', {
+        cause: error,
+      });
+    if (!data) throw new NotFoundException('Path not found');
+    return new Path(toEntityFields(data));
   }
 
-  async delete(pathId: string): Promise<null> {
-    // 1) fetch path
-    const pathToDelete = await this.findById(pathId);
-    if (!pathToDelete) throw new NotFoundException('Path not found');
-
-    // 2) delete path
-    const { error: deleteError } = await this.pathRepository.delete(
-      pathToDelete.id,
-    );
-
-    if (deleteError) {
+  async create(dto: CreatePathDto, authorId: string): Promise<Path> {
+    const home = await this.homeService.primary();
+    const result = await this.pathRepository.create({
+      ...dto,
+      id: this.keyMaster.generateId(),
+      authorId,
+      homeId: home.id,
+      type: dto.type ?? PathType.LIVING,
+      visibility: dto.visibility ?? PathVisibility.UNLISTED,
+    });
+    if (result.error)
+      throw new InternalServerErrorException('Could not create Path', {
+        cause: result.error,
+      });
+    if (!result.data)
       throw new InternalServerErrorException(
-        `Path deletion error: ${deleteError}`,
+        'Path creation returned no record',
       );
-    }
+    return new Path(toEntityFields(result.data));
+  }
 
+  async update(
+    id: string,
+    dto: UpdatePathDto,
+    authorId: string,
+  ): Promise<Path> {
+    await this.findOwnedById(id, authorId);
+    if (dto.entry != null) {
+      const markers = await this.getMarkers(id, authorId);
+      if (!markers.some((marker) => marker.id === dto.entry))
+        throw new BadRequestException(
+          'Entry must be a live marker in this Path',
+        );
+    }
+    const result = await this.pathRepository.update(id, authorId, dto);
+    if (result.error)
+      throw new InternalServerErrorException('Could not update Path', {
+        cause: result.error,
+      });
+    if (!result.data) throw new NotFoundException('Path not found');
+    return new Path(toEntityFields(result.data));
+  }
+
+  async delete(id: string, authorId: string): Promise<null> {
+    await this.findOwnedById(id, authorId);
+    const result = await this.pathRepository.delete(id, authorId);
+    if (result.error)
+      throw new InternalServerErrorException('Could not delete Path', {
+        cause: result.error,
+      });
     return null;
   }
 
-  /* path markers */
-
-  asMarker(data: MarkerRaw): Marker {
-    const entityFields = toEntityFields(data);
-    return new Marker(entityFields);
-  }
-
-  asMarkers(rows: MarkerRaw[]): Marker[] {
-    return rows.map((data) => this.asMarker(data));
-  }
-
-  async getMarkers(pathId: string): Promise<Marker[]> {
-    const path = await this.findById(pathId);
-    const { data, error } = await this.pathRepository.findMarkersByPathId(
-      path.id,
+  async getMarkers(pathId: string, authorId: string): Promise<Marker[]> {
+    await this.findOwnedById(pathId, authorId);
+    const result = await this.pathRepository.findMarkersByPathId(
+      pathId,
+      authorId,
     );
-
-    if (error) {
-      throw new InternalServerErrorException(
-        `Error fetching markers: ${error}`,
-      );
-    }
-
-    return this.asMarkers(data || []);
+    if (result.error)
+      throw new InternalServerErrorException('Could not load markers', {
+        cause: result.error,
+      });
+    return result.data.map((row) => new Marker(toEntityFields(row)));
   }
 
   async syncMarkers(
@@ -163,75 +134,45 @@ export class PathService {
     markers: MarkerInput[],
     authorId: string,
   ): Promise<Marker[]> {
-    const path = await this.findById(pathId);
-    const home = await this.homeService.primary();
-
-    // 1) Delete all existing markers for this path
-    const { error: deleteError } =
-      await this.pathRepository.deleteMarkersByPathId(path.id);
-    if (deleteError) {
-      throw new InternalServerErrorException(
-        `Error deleting markers: ${deleteError}`,
+    await this.findOwnedById(pathId, authorId);
+    if (
+      markers.length > 1000 ||
+      new Set(markers.map((marker) => marker.order)).size !== markers.length
+    )
+      throw new BadRequestException(
+        'Use at most 1000 markers with distinct positions',
       );
+    // Validate every target before asking the repository to replace any records.
+    for (const cruxId of new Set(markers.map((marker) => marker.cruxId))) {
+      await this.cruxService.findOwnedById(cruxId, authorId);
     }
-
-    // 2) Create new markers
-    const createdMarkers: Marker[] = [];
-    for (const markerInput of markers) {
-      // Verify crux exists
-      const crux = await this.cruxService.findById(markerInput.cruxId);
-      if (!crux) {
-        throw new NotFoundException(`Crux not found: ${markerInput.cruxId}`);
-      }
-
-      const markerDto: CreateMarkerDto = {
-        id: this.keyMaster.generateId(),
-        pathId: path.id,
-        cruxId: crux.id,
-        order: markerInput.order,
-        note: markerInput.note,
-        authorId,
-        homeId: home.id,
-      };
-
-      const { data, error } = await this.pathRepository.createMarker(markerDto);
-      if (error) {
-        throw new InternalServerErrorException(
-          `Error creating marker: ${error}`,
-        );
-      }
-
-      createdMarkers.push(this.asMarker(data));
-    }
-
-    return createdMarkers;
+    const records = [...markers]
+      .sort((a, b) => a.order - b.order)
+      .map((marker) => ({ ...marker, id: this.keyMaster.generateId() }));
+    const result = await this.pathRepository.replaceMarkers(
+      pathId,
+      authorId,
+      records,
+    );
+    if (result.error)
+      throw new InternalServerErrorException('Could not replace markers', {
+        cause: result.error,
+      });
+    return result.data.map((row) => new Marker(toEntityFields(row)));
   }
 
-  /* ~path markers */
-
-  /* path tags */
-
-  async getTags(pathId: string, filter?: string): Promise<Tag[]> {
+  async getTags(pathId: string, authorId: string, filter?: string) {
+    await this.findOwnedById(pathId, authorId);
     return this.tagService.getTags(ResourceType.PATH, pathId, filter);
   }
 
-  async syncTags(
-    pathId: string,
-    labels: string[],
-    authorId: string,
-  ): Promise<Tag[]> {
+  async syncTags(pathId: string, labels: string[], authorId: string) {
+    await this.findOwnedById(pathId, authorId);
     return this.tagService.syncTags(
       ResourceType.PATH,
       pathId,
       labels,
       authorId,
     );
-  }
-
-  /* ~path tags */
-
-  private applyDefaults(dto: CreatePathDto): void {
-    if (!dto.type) dto.type = PathType.LIVING;
-    if (!dto.visibility) dto.visibility = PathVisibility.UNLISTED;
   }
 }

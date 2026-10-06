@@ -32,7 +32,7 @@ If applicable, add screenshots to help explain your problem.
 ## Environment
 
 - **OS**: [e.g., macOS, Ubuntu 20.04, Windows 10]
-- **Node.js Version**: [e.g., 18.17.0]
+- **Node.js Version**: [use .nvmrc; include the exact version]
 - **npm/yarn Version**: [e.g., npm 9.6.7]
 - **Database**: [e.g., local, cloud]
 - **Redis Version**: [e.g., 7.0.0]
@@ -47,7 +47,7 @@ Add any other context about the problem here.
 
 ## Logs
 
-If applicable, paste relevant logs here:
+Paste relevant logs with tokens, credentials, email addresses and private content removed. Report security vulnerabilities privately using SECURITY.md:
 
 ```
 Paste logs here

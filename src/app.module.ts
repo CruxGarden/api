@@ -22,19 +22,28 @@ import { ArtifactModule } from './artifact/artifact.module';
 import { AiModule } from './ai/ai.module';
 import { SyncModule } from './sync/sync.module';
 import { ExploreModule } from './explore/explore.module';
+import { ReportModule } from './report/report.module';
 import { StoreModule } from './crux-store/crux-store.module';
 import { UsageModule } from './usage/usage.module';
 import { DomainsModule } from './domains/domains.module';
 import { BillingModule } from './billing/billing.module';
+import { FunctionsModule } from './functions/functions.module';
+
+export const TOO_MANY_REQUESTS =
+  'Too many requests. Please wait a minute and try again.';
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([
-      {
-        ttl: parseInt(process.env.RATE_LIMIT_TTL || '60000', 10), // 1 minute
-        limit: parseInt(process.env.RATE_LIMIT_MAX || '100', 10), // 100 requests per minute
-      },
-    ]),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          ttl: parseInt(process.env.RATE_LIMIT_TTL || '60000', 10), // 1 minute
+          limit: parseInt(process.env.RATE_LIMIT_MAX || '100', 10), // 100 requests per minute
+        },
+      ],
+      // Shown to people, not only to clients: no exception class names.
+      errorMessage: TOO_MANY_REQUESTS,
+    }),
     LoggerModule,
     CommonModule,
     AuthModule,
@@ -49,10 +58,12 @@ import { BillingModule } from './billing/billing.module';
     AiModule,
     SyncModule,
     ExploreModule,
+    ReportModule,
     StoreModule,
     UsageModule,
     DomainsModule,
     BillingModule,
+    FunctionsModule,
     InferenceModule,
   ],
   controllers: [AppController],

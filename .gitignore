@@ -137,3 +137,6 @@ Thumbs.db
 # Build output
 dist/
 build/
+
+# The local store (no AWS): what this garden keeps on this machine
+.local-storage/

@@ -1,3 +1,4 @@
+import { createRequestValidationPipe } from '../src/common/validation/request-validation';
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
@@ -24,7 +25,15 @@ describe('Auth Integration Tests', () => {
   let mockAccountRepository: any;
   let mockAuthorRepository: any;
 
+  const env = { ...process.env };
+
   beforeAll(async () => {
+    // This suite signs in far more often than one address may in a minute;
+    // the limits themselves are covered in auth-limits.integration-spec.ts.
+    process.env.AUTH_CODE_PER_MINUTE_PER_IP = '1000';
+    process.env.AUTH_LOGIN_PER_MINUTE_PER_IP = '1000';
+    process.env.AUTH_TOKEN_PER_MINUTE_PER_IP = '1000';
+
     // Create mock instances
     mockRedis = new MockRedisService();
     mockEmail = new MockEmailService();
@@ -71,19 +80,14 @@ describe('Auth Integration Tests', () => {
     app = moduleFixture.createNestApplication();
 
     // Apply same validation pipe as production
-    const { ValidationPipe } = await import('@nestjs/common');
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
+    app.useGlobalPipes(createRequestValidationPipe());
 
-    await app.init();
+    // One listener per fixture; Supertest must not reopen it for each request.
+    await app.listen(0, '127.0.0.1');
   });
 
   afterAll(async () => {
+    process.env = env;
     await app.close();
   });
 
@@ -464,6 +468,7 @@ describe('Auth Integration Tests', () => {
       const jwt = require('jsonwebtoken');
 
       // Create a valid JWT token
+      mockDb.setTable('accounts', [{ id: 'test-account-id', deleted: null }]);
       const token = jwt.sign(
         {
           id: 'test-account-id',
@@ -528,6 +533,7 @@ describe('Auth Integration Tests', () => {
       await mockRedis.set(`crux:auth:grant:id:${grantId}`, testEmail);
 
       // Create a valid JWT token
+      mockDb.setTable('accounts', [{ id: 'test-account-id', deleted: null }]);
       const token = jwt.sign(
         {
           id: 'test-account-id',

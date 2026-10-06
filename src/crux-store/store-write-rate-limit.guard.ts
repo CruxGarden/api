@@ -43,7 +43,7 @@ export class StoreWriteRateLimitGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthRequest>();
-    const accountId = req.account?.id;
+    const accountId = req.publishedVisitor?.accountId ?? req.account?.id;
     if (!accountId) return true;
 
     const limit = storeWritesPerMinute();

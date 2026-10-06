@@ -1,16 +1,25 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-// import { Knex, knex } from 'knex';
-import { types } from 'pg';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import knex, { Knex } from 'knex';
-import knexConfig from '../../../knexfile';
 import { attachPaginate } from 'knex-paginate';
 import { URL } from 'url';
 import { Request, Response } from 'express';
 import * as formatLink from 'format-link-header';
 import { LoggerService } from './logger.service';
 import { toEntityFields } from '../helpers/case-helpers';
+import { AsyncLocalStorage } from 'async_hooks';
+import { positiveIntegerQuery } from '../validation/positive-integer-query';
 
 attachPaginate();
+
+/** A deployment supplies its database; repositories keep the same contract. */
+export const DATABASE_CONFIG = Symbol('DATABASE_CONFIG');
 
 export interface PaginationOptions<TRaw = any, TModel = any> {
   model?: new (data: TRaw) => TModel;
@@ -24,19 +33,25 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   private client: Knex;
   private readonly logger: LoggerService;
   private hasLoggedConnectionError = false;
+  private readonly transactionScope = new AsyncLocalStorage<Knex.Transaction>();
 
-  constructor(private readonly loggerService: LoggerService) {
+  constructor(
+    private readonly loggerService: LoggerService,
+    @Optional() @Inject(DATABASE_CONFIG) databaseConfig?: Knex.Config,
+  ) {
     this.logger = this.loggerService.createChildLogger('DbService');
 
-    const config =
-      process.env.NODE_ENV === 'production'
-        ? knexConfig.production
-        : knexConfig.development;
+    // Load hosted environment/config only when no deployment adapter is given.
+    // A local API must not discover credentials from a developer's .env file.
+    const config = databaseConfig ?? this.hostedConfig();
 
     // DATE columns (usage_daily.day, usage_periods.period_start…) are calendar
     // days in UTC. node-pg would turn them into local-midnight Date objects and
     // shift them across time zones; keep them as 'YYYY-MM-DD' strings.
-    types.setTypeParser(1082, (v: string) => v);
+    if (!databaseConfig) {
+      const { types } = require('pg');
+      types.setTypeParser(1082, (v: string) => v);
+    }
     this.client = knex(config);
 
     // Set up connection pool event listeners
@@ -54,6 +69,13 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private hostedConfig(): Knex.Config {
+    const knexConfig = require('../../../knexfile').default;
+    return process.env.NODE_ENV === 'production'
+      ? knexConfig.production
+      : knexConfig.development;
+  }
+
   async onModuleInit() {
     try {
       // Test the connection
@@ -66,92 +88,69 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   }
 
   query(): Knex {
-    return this.client;
+    return this.transactionScope.getStore() ?? this.client;
+  }
+
+  /** All repositories called by this operation use the same transaction. */
+  async transaction<T>(operation: () => Promise<T>): Promise<T> {
+    return this.query().transaction((trx) =>
+      this.transactionScope.run(trx, operation),
+    );
   }
 
   async paginate<TRaw = any, TModel = any>(
     opts: PaginationOptions<TRaw, TModel>,
   ): Promise<TModel[] | TRaw[]> {
-    const pageDefault = 1;
-    const perPageDefault = 25;
-    const pageQueryName = 'page';
-    const perPageQueryName = opts.request.query['perPage']
-      ? 'perPage'
-      : 'per_page';
-    const linkHeaderName = 'Link';
-    const paginationHeaderName = 'Pagination';
-
-    const page = parseInt(opts.request.query[pageQueryName]?.toString(), 10);
-    const perPage = parseInt(
-      opts.request.query[perPageQueryName]?.toString(),
-      10,
+    const perPageName =
+      opts.request.query.perPage !== undefined ? 'perPage' : 'per_page';
+    const currentPage = positiveIntegerQuery(
+      opts.request.query.page,
+      'page',
+      1,
     );
-
+    if (currentPage > 1_000_000)
+      throw new BadRequestException('page must not exceed 1000000');
+    const perPage = Math.min(
+      100,
+      positiveIntegerQuery(opts.request.query[perPageName], perPageName, 25),
+    );
     const r = await opts.query.paginate({
-      perPage: perPage || perPageDefault,
-      currentPage: page || pageDefault,
+      perPage,
+      currentPage,
       isLengthAware: true,
     });
-
+    const lastPage = Math.max(1, r.pagination.lastPage);
     const url = new URL(`${process.env.BASE_URL}${opts.request.originalUrl}`);
-    if (perPage)
-      url.searchParams.set(perPageQueryName, r.pagination.perPage.toString());
-
-    const link: any = {};
-
-    // first
-    const firstPage = 1;
-    url.searchParams.set(pageQueryName, firstPage.toString());
-    link.first = {
-      [pageQueryName]: firstPage,
-      [perPageQueryName]: r.pagination.perPage,
-      rel: 'first',
-      url: url.toString(),
+    url.searchParams.set(perPageName, String(perPage));
+    const pages = {
+      first: 1,
+      prev: Math.max(1, Math.min(lastPage, currentPage - 1)),
+      next: Math.min(lastPage, currentPage + 1),
+      last: lastPage,
     };
-    // ~first
-
-    // prev
-    let prevPage = r.pagination.currentPage - 1;
-    if (prevPage < 1) prevPage = 1;
-    url.searchParams.set(pageQueryName, prevPage.toString());
-    link.prev = {
-      [pageQueryName]: prevPage,
-      [perPageQueryName]: r.pagination.perPage,
-      rel: 'prev',
-      url: url.toString(),
-    };
-    // ~prev
-
-    // next
-    let nextPage = r.pagination.currentPage + 1;
-    if (nextPage > r.pagination.lastPage) nextPage = r.pagination.lastPage;
-    url.searchParams.set(pageQueryName, nextPage.toString());
-    link.next = {
-      [pageQueryName]: nextPage,
-      [perPageQueryName]: r.pagination.perPage,
-      rel: 'next',
-      url: url.toString(),
-    };
-    // ~next
-
-    // last
-    const lastPage = r.pagination.lastPage;
-    url.searchParams.set(pageQueryName, lastPage.toString());
-    link.last = {
-      [pageQueryName]: lastPage,
-      [perPageQueryName]: r.pagination.perPage,
-      rel: 'last',
-      url: url.toString(),
-    };
-    // ~last
-
-    opts.response.setHeader(linkHeaderName, formatLink(link));
+    const links = Object.fromEntries(
+      Object.entries(pages).map(([rel, page]) => {
+        const target = new URL(url);
+        target.searchParams.set('page', String(page));
+        return [
+          rel,
+          {
+            page: String(page),
+            [perPageName]: String(perPage),
+            rel,
+            url: target.toString(),
+          },
+        ];
+      }),
+    );
+    opts.response.setHeader('Link', formatLink(links));
     opts.response.setHeader(
-      paginationHeaderName,
+      'Pagination',
       JSON.stringify({
-        currentPage: r.pagination.currentPage,
-        perPage: r.pagination.perPage,
+        currentPage,
+        perPage,
         total: r.pagination.total,
+        lastPage,
       }),
     );
 

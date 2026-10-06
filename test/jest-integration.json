@@ -1,5 +1,5 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleFileExtensions": ["js", "json", "ts", "node"],
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".integration-spec.ts$",
@@ -15,6 +15,7 @@
   ],
   "testTimeout": 30000,
   "maxWorkers": 1,
+  "watchman": false,
   "forceExit": true,
   "detectOpenHandles": true
 }

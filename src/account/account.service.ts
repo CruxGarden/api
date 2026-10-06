@@ -1,3 +1,6 @@
+import { BillingService } from '../billing/billing.service';
+import { CruxService } from '../crux/crux.service';
+import { SyncAccountCleanup } from '../sync/sync-account-cleanup';
 import {
   Injectable,
   NotFoundException,
@@ -17,6 +20,7 @@ import { CruxRepository } from '../crux/crux.repository';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
+import type { AccountSearchRow } from './account.repository';
 import Account from './entities/account.entity';
 import AccountRaw from './entities/account-raw.entity';
 
@@ -32,6 +36,9 @@ export class AccountService {
     private readonly redisService: RedisService,
     private readonly keyMaster: KeyMaster,
     private readonly loggerService: LoggerService,
+    private readonly billing: BillingService,
+    private readonly publications: CruxService,
+    private readonly sync: SyncAccountCleanup,
   ) {
     this.logger = this.loggerService.createChildLogger('AccountService');
   }
@@ -56,7 +63,9 @@ export class AccountService {
   async findById(accountId: string): Promise<Account> {
     const found = await this.accountRepository.findById(accountId);
     if (found.error)
-      throw new InternalServerErrorException(`database error: ${found.error}`);
+      throw new InternalServerErrorException('database error', {
+        cause: found.error,
+      });
     if (!found.data) throw new NotFoundException('Account not found');
 
     return this.asAccount(found.data);
@@ -78,7 +87,9 @@ export class AccountService {
     const formattedEmail = this.formatEmail(email);
     const found = await this.accountRepository.findByEmail(formattedEmail);
     if (found.error)
-      throw new InternalServerErrorException(`Database error: ${found.error}`);
+      throw new InternalServerErrorException('Database error', {
+        cause: found.error,
+      });
 
     return found.data ? this.asAccount(found.data) : null;
   }
@@ -96,9 +107,9 @@ export class AccountService {
     // 2) create account
     const created = await this.accountRepository.create(createAccountDto);
     if (created.error) {
-      throw new InternalServerErrorException(
-        `Account creation error: ${created.error}`,
-      );
+      throw new InternalServerErrorException('Account creation error', {
+        cause: created.error,
+      });
     }
 
     return this.asAccount(created.data);
@@ -134,9 +145,9 @@ export class AccountService {
       updateAccountDto,
     );
     if (updated.error) {
-      throw new InternalServerErrorException(
-        `Account update error: ${updated.error}`,
-      );
+      throw new InternalServerErrorException('Account update error', {
+        cause: updated.error,
+      });
     }
 
     // 5) if email changed, invalidate tokens (requires re-login)
@@ -177,43 +188,40 @@ export class AccountService {
       accountToDelete.id,
     );
     if (authorResult.error) {
-      throw new InternalServerErrorException(
-        `Error fetching author: ${authorResult.error}`,
-      );
+      throw new InternalServerErrorException('Error fetching author', {
+        cause: authorResult.error,
+      });
     }
 
-    // 4) Cascade delete all associated data in a transaction
+    const cruxes = authorResult.data
+      ? await this.cruxRepository.findAllByAuthorId(authorResult.data.id)
+      : { data: [], error: null };
+    if (cruxes.error)
+      throw new InternalServerErrorException('Error fetching cruxes', {
+        cause: cruxes.error,
+      });
+
+    // External cleanup is acknowledged before removing the account. These steps
+    // are retryable: a failed close may already have canceled billing or unshared
+    // some sites, but must leave the account available to finish the operation.
+    await this.billing.closeAccount(accountId);
+    for (const crux of cruxes.data || [])
+      await this.publications.removePublication(crux.id);
+    await this.sync.closeAccount(accountId);
+    const grantId = await this.redisService.get(
+      this.grantEmailKey(accountToDelete.email),
+    );
+    if (grantId) await this.redisService.del(this.grantIdKey(String(grantId)));
+    await this.redisService.del(this.grantEmailKey(accountToDelete.email));
+
     const trx = await this.dbService.query().transaction();
-
     try {
-      // If account has an author, delete all their content
-      if (authorResult.data) {
-        const author = authorResult.data;
-
-        // Get all cruxes by this author
-        const cruxesResult = await this.cruxRepository.findAllByAuthorId(
-          author.id,
-        );
-        if (cruxesResult.error) {
-          throw new InternalServerErrorException(
-            `Error fetching cruxes: ${cruxesResult.error}`,
-          );
-        }
-
-        // Delete each crux (which also deletes associated dimensions)
-        if (cruxesResult.data && cruxesResult.data.length > 0) {
-          for (const crux of cruxesResult.data) {
-            const deleteCruxResult = await this.cruxRepository.delete(
-              crux.id,
-              trx,
-            );
-            if (deleteCruxResult.error) {
-              throw new InternalServerErrorException(
-                `Error deleting crux: ${deleteCruxResult.error}`,
-              );
-            }
-          }
-        }
+      for (const crux of cruxes.data || []) {
+        const removed = await this.cruxRepository.delete(crux.id, trx);
+        if (removed.error)
+          throw new InternalServerErrorException('Error deleting crux', {
+            cause: removed.error,
+          });
       }
 
       // Delete all authors for this account
@@ -222,9 +230,9 @@ export class AccountService {
         trx,
       );
       if (deleteAuthorsResult.error) {
-        throw new InternalServerErrorException(
-          `Error deleting authors: ${deleteAuthorsResult.error}`,
-        );
+        throw new InternalServerErrorException('Error deleting authors', {
+          cause: deleteAuthorsResult.error,
+        });
       }
 
       // Delete the account
@@ -233,9 +241,9 @@ export class AccountService {
         trx,
       );
       if (deleteAccountResult.error) {
-        throw new InternalServerErrorException(
-          `Error deleting account: ${deleteAccountResult.error}`,
-        );
+        throw new InternalServerErrorException('Error deleting account', {
+          cause: deleteAccountResult.error,
+        });
       }
 
       // Commit the transaction
@@ -248,4 +256,93 @@ export class AccountService {
       throw error;
     }
   }
+
+  // ── Suspension (ADR 0083, operator only) ────────────────────────────────
+  /**
+   * Hold an account: sign-in, reads and export keep working; publishing, sync
+   * push, checkout, included inference and Store/Function writes are refused
+   * (LimitsService/BillingService.assertNotSuspended). Nothing is unpublished —
+   * a takedown is the separate operator action for that.
+   */
+  async suspend(
+    accountId: string,
+    reason: string,
+    operatorId: string,
+  ): Promise<AccountAdminView> {
+    if (accountId === operatorId)
+      throw new BadRequestException('You cannot suspend your own account');
+    const trimmed = reason?.trim();
+    if (!trimmed) throw new BadRequestException('A reason is required');
+    const result = await this.accountRepository.setSuspension(accountId, {
+      reason: trimmed,
+      operatorId,
+    });
+    if (result.error)
+      throw new InternalServerErrorException('Could not suspend account', {
+        cause: result.error,
+      });
+    if (!result.data) throw new NotFoundException('Account not found');
+    this.logger.info('Account suspended', { accountId, operatorId });
+    return adminView(result.data);
+  }
+
+  async unsuspend(
+    accountId: string,
+    operatorId: string,
+  ): Promise<AccountAdminView> {
+    const result = await this.accountRepository.setSuspension(accountId, null);
+    if (result.error)
+      throw new InternalServerErrorException('Could not lift suspension', {
+        cause: result.error,
+      });
+    if (!result.data) throw new NotFoundException('Account not found');
+    this.logger.info('Account suspension lifted', { accountId, operatorId });
+    return adminView(result.data);
+  }
+
+  async search(query = ''): Promise<AccountAdminView[]> {
+    if (query.length > 320)
+      throw new BadRequestException('Search for an email or username');
+    const result = await this.accountRepository.search(query);
+    if (result.error)
+      throw new InternalServerErrorException('Account search failed', {
+        cause: result.error,
+      });
+    const seen = new Set<string>();
+    return result.data
+      .filter((row) => !seen.has(row.id) && !!seen.add(row.id))
+      .map(adminView);
+  }
+}
+
+/** What an operator sees of an account: enough to find and hold it. */
+export interface AccountAdminView {
+  id: string;
+  email: string;
+  username: string | null;
+  role: string;
+  created: string | null;
+  suspended: string | null;
+  suspendedReason: string | null;
+}
+
+function adminView(
+  row: Pick<AccountSearchRow, 'id' | 'email' | 'role'> & {
+    username?: string | null;
+    created?: Date | string | null;
+    suspended?: Date | string | null;
+    suspended_reason?: string | null;
+  },
+): AccountAdminView {
+  const iso = (v: Date | string | null | undefined) =>
+    v ? new Date(v).toISOString() : null;
+  return {
+    id: row.id,
+    email: row.email,
+    username: row.username ?? null,
+    role: row.role,
+    created: iso(row.created),
+    suspended: iso(row.suspended),
+    suspendedReason: row.suspended_reason ?? null,
+  };
 }

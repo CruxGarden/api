@@ -37,6 +37,16 @@ describe('ExploreRepository query composition', () => {
     expect((sql.match(/exists \(select \*/g) ?? []).length).toBe(3); // search-in-tags + 2 tag filters
   });
 
+  it('the sitemap lists only discoverable public cruxes of live authors, capped', () => {
+    const { sql, bindings } = repo().findSitemapQuery(50000).toSQL().toNative();
+    expect(sql).toContain('"c"."visibility" = $1');
+    expect(sql).toContain('"c"."discoverable" = $2');
+    expect(sql).toContain('"c"."deleted" is null');
+    expect(sql).toContain('"a"."deleted" is null');
+    expect(sql).toContain('order by "c"."updated" desc limit $3');
+    expect(bindings).toEqual(['public', true, 50000]);
+  });
+
   it('sorts newest by created and alpha by title', () => {
     expect(repo().findCruxesQuery({ sort: 'newest' }).toSQL().sql).toContain(
       'order by "c"."created" desc',
@@ -74,5 +84,13 @@ describe('ExploreRepository query composition', () => {
     const hash = repo().findCruxesQuery({ q: '#ambient' }).toSQL().toNative();
     expect(hash.bindings).toEqual(expect.arrayContaining(['ambient']));
     expect(hash.sql).not.toContain('"c"."title" ilike');
+  });
+
+  it('ADR 0084: a link-only Mood is never listed — Mood searches and tags still require Discoverable', () => {
+    const moods = repo().findCruxesQuery({ kind: 'mood' }).toSQL().toNative();
+    expect(moods.sql).toContain('"c"."discoverable" = $2');
+    expect(moods.bindings.slice(0, 2)).toEqual(['public', true]);
+    const authors = repo().findAuthorsQuery({}).toSQL().toNative();
+    expect(authors.sql).toContain('"c"."discoverable" = ');
   });
 });

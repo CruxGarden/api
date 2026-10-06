@@ -21,6 +21,29 @@ export type NoticeKind =
 
 const GB = 1024 ** 3;
 
+/**
+ * Included collaboration allowance notices (ADR 0082): the rolling 30-day
+ * window passing 80 %, and reaching the point where not even a minimal next
+ * request fits. Each kind at most once in any 30 days.
+ */
+export type IncludedNoticeKind = 'included_80' | 'included_full';
+export interface IncludedAllowance {
+  planName: string;
+  usedMicrodollars: number;
+  limitMicrodollars: number;
+  /** The smallest request the allowance admits; below this it is effectively full. */
+  minimumMicrodollars: number;
+}
+const DAY = 86_400_000;
+const INCLUDED_NOTICE_DAYS = 30;
+/** The notice's ledger period: fixed 30-day buckets, so concurrent claims collide. */
+export function includedNoticePeriod(now: Date): string {
+  const bucket = Math.floor(now.getTime() / (INCLUDED_NOTICE_DAYS * DAY));
+  return new Date(bucket * INCLUDED_NOTICE_DAYS * DAY)
+    .toISOString()
+    .slice(0, 10);
+}
+
 @Injectable()
 export class NotificationsService {
   private readonly logger: LoggerService;
@@ -102,6 +125,59 @@ export class NotificationsService {
     return sent;
   }
 
+  /** Which included-allowance notice this window warrants (pure); full supersedes 80 %. */
+  static includedDue(a: IncludedAllowance): IncludedNoticeKind | null {
+    if (a.limitMicrodollars <= 0) return null;
+    if (a.usedMicrodollars + a.minimumMicrodollars > a.limitMicrodollars)
+      return 'included_full';
+    if (a.usedMicrodollars >= 0.8 * a.limitMicrodollars) return 'included_80';
+    return null;
+  }
+
+  /**
+   * After an included request settles. The ledger row is still the lock (the
+   * period is a fixed 30-day bucket so concurrent settles collide), and a
+   * notice sent in the previous 30 days — including a full notice, which
+   * supersedes 80 % — keeps the bucket boundary from sending it twice.
+   */
+  async afterIncludedUsage(
+    accountId: string,
+    allowance: IncludedAllowance,
+    now = new Date(),
+  ): Promise<IncludedNoticeKind | null> {
+    try {
+      const kind = NotificationsService.includedDue(allowance);
+      if (!kind) return null;
+      const covering: IncludedNoticeKind[] =
+        kind === 'included_80'
+          ? ['included_80', 'included_full']
+          : ['included_full'];
+      const recent = await this.repo.notificationSentSince(
+        accountId,
+        covering,
+        new Date(now.getTime() - INCLUDED_NOTICE_DAYS * DAY),
+      );
+      if (recent.error || recent.data !== false) return null;
+      const email = (await this.repo.accountEmailFor(accountId)).data;
+      if (!email) return null;
+      const period = includedNoticePeriod(now);
+      const claimed = await this.repo.markNotified(accountId, kind, period);
+      if (!claimed.data) return null;
+      const msg = includedNotice(kind, allowance);
+      try {
+        await this.email.send({ email, subject: msg.subject, body: msg.body });
+      } catch (err) {
+        await this.repo.unmarkNotified(accountId, kind, period);
+        throw err;
+      }
+      this.logger.info('Included allowance notice sent', { accountId, kind });
+      return kind;
+    } catch (err) {
+      this.logger.error(`afterIncludedUsage failed: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
   /** Bandwidth arrives from logs, not from a user action — sweep every few hours. */
   async sweep(now = new Date()): Promise<number> {
     const period = { start: now.toISOString().slice(0, 8) + '01', end: '' };
@@ -169,6 +245,32 @@ export function notice(
       return {
         subject: `Crux Store: 80 % of this month's requests`,
         body: `Your published cruxes have made ${u.store.requests.toLocaleString()} of the ${u.plan.storeRequestsPerPeriod.toLocaleString()} store requests included this month on the ${plan} plan. Requests are not cut off.${foot}`,
+      };
+  }
+}
+
+function dollars(microdollars: number): string {
+  return `$${(Math.max(0, microdollars) / 1_000_000).toFixed(2)}`;
+}
+
+export function includedNotice(
+  kind: IncludedNoticeKind,
+  a: IncludedAllowance,
+): { subject: string; body: string } {
+  const used = `${dollars(a.usedMicrodollars)} of ${dollars(a.limitMicrodollars)}`;
+  const foot =
+    `\n\nThe allowance is a rolling 30 days: each request frees up again 30 days after it was made, so there is no reset date to wait for.` +
+    `\nYour own API key keeps working at any time, and Crux Garden → Settings → Usage shows the next release.\n\n— Crux Garden`;
+  switch (kind) {
+    case 'included_80':
+      return {
+        subject: `You've used 80 % of your included collaboration`,
+        body: `In the last 30 days your included collaboration on the ${a.planName} plan has used ${used}.${foot}`,
+      };
+    case 'included_full':
+      return {
+        subject: `Your included collaboration is used up for now`,
+        body: `In the last 30 days your included collaboration on the ${a.planName} plan has used ${used}, so there is not enough left to start another request. Nothing you made is affected.${foot}`,
       };
   }
 }

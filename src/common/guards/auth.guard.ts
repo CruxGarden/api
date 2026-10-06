@@ -1,3 +1,8 @@
+import { Optional } from '@nestjs/common';
+import { DbService } from '../services/db.service';
+import { activeTokenAccount } from './token-account';
+import { ForbiddenException } from '@nestjs/common';
+import { isAccountOrigin } from './account-origin.guard';
 import {
   CanActivate,
   ExecutionContext,
@@ -7,29 +12,27 @@ import {
 } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 import { LoggerService } from '../services/logger.service';
+import { nurseryAccount } from './nursery-account';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   private readonly logger: LoggerService;
 
-  constructor(private readonly loggerService: LoggerService) {
+  constructor(
+    private readonly loggerService: LoggerService,
+    @Optional() private readonly db?: DbService,
+  ) {
     this.logger = this.loggerService.createChildLogger('AuthGuard');
-  }
-
-  private generateNurseryModeAccount() {
-    return {
-      id: 'd7f5c645-6b4e-4c3b-a5cb-3fd81c652b96',
-      email: 'keeper@crux.garden',
-      role: 'keeper',
-      grantId: 'nursery-mode-grant',
-      exp: Math.floor(Date.now() / 1000) + 86400, // 24 hours from now
-      iat: Math.floor(Date.now() / 1000),
-    };
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const token = request.headers.authorization?.replace('Bearer ', '');
+
+    if (token && !isAccountOrigin(request.headers.origin))
+      throw new ForbiddenException(
+        'Published pages require visitor credentials',
+      );
 
     if (token) {
       let payload = null;
@@ -41,20 +44,15 @@ export class AuthGuard implements CanActivate {
           tokenPrefix: token.substring(0, 10) + '...',
         });
       }
-      if (!payload)
+      if (!payload || !(await activeTokenAccount(this.db, payload)))
         throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
       request.account = payload;
       return true;
-    } else {
-      if (process.env.NURSERY_MODE === 'true') {
-        this.logger.debug(
-          'NURSERY_MODE enabled - using Keeper account for unauthenticated request',
-        );
-        request.account = this.generateNurseryModeAccount();
-        return true;
-      } else {
-        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-      }
     }
+    const account = nurseryAccount();
+    if (!account)
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    request.account = account;
+    return true;
   }
 }

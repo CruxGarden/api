@@ -6,6 +6,10 @@ export default class Account {
   created: Date;
   updated: Date;
   deleted?: Date;
+  /** set while an operator has suspended the account (ADR 0083) */
+  suspended?: Date | null;
+  suspendedReason?: string | null;
+  suspendedBy?: string | null;
 
   constructor(partial: Partial<Account>) {
     Object.assign(this, partial);
@@ -13,7 +17,7 @@ export default class Account {
 
   toJSON() {
     /* eslint-disable @typescript-eslint/no-unused-vars */
-    const { deleted, ...rest } = this;
+    const { deleted, suspendedBy, ...rest } = this;
     return rest;
   }
 }

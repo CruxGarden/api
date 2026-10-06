@@ -1,9 +1,25 @@
-import { Controller, Get, Query, Req, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Header,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { withPublicMeta } from '../common/publish/public-meta';
-import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { DbService } from '../common/services/db.service';
 import { ExploreService } from './explore.service';
+import { positiveIntegerQuery } from '../common/validation/positive-integer-query';
 
 @ApiTags('explore')
 @Controller('explore')
@@ -83,6 +99,23 @@ export class ExploreController {
     return rows.map((r) => withPublicMeta(r));
   }
 
+  @Get('cruxes/:id')
+  @ApiOperation({
+    summary:
+      'A published Crux Tool or Mood by id, Discoverable or link-only, in the shape of one Explore result (install links, ADR 0085)',
+  })
+  @ApiParam({ name: 'id', description: 'Published crux id (UUID)' })
+  @ApiResponse({ status: 200, description: 'The Tool or Mood' })
+  @ApiResponse({ status: 400, description: 'The id is not a UUID' })
+  @ApiResponse({
+    status: 404,
+    description:
+      'Not a published, live Tool or Mood (creations are reached by their address, not by id)',
+  })
+  async publishedPackage(@Param('id', ParseUUIDPipe) id: string) {
+    return this.exploreService.getPublishedPackage(id);
+  }
+
   @Get('tags')
   @ApiOperation({ summary: 'Popular tags across discoverable cruxes' })
   @ApiQuery({
@@ -97,8 +130,47 @@ export class ExploreController {
     description: 'Only tags on cruxes of this kind',
   })
   async tags(@Query('limit') limit?: string, @Query('kind') kind?: string) {
-    const n = limit ? Math.min(parseInt(limit, 10) || 50, 200) : 50;
+    const n = Math.min(200, positiveIntegerQuery(limit, 'limit', 50));
     const data = await this.exploreService.getPopularTags(n, kind || undefined);
     return { data };
+  }
+
+  @Get('preview-html')
+  @ApiOperation({
+    summary:
+      'Link-preview HTML (title, description, Open Graph, Twitter card) for a public website path; the edge sends chat/social crawlers here (ADR 0084)',
+  })
+  @ApiQuery({
+    name: 'path',
+    required: true,
+    description: 'The website path, e.g. /alice/my-site',
+  })
+  async previewHtml(
+    @Query('path') path: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { status, html } = await this.exploreService.getPreview(path);
+    res
+      .status(status)
+      .setHeader('Content-Type', 'text/html; charset=utf-8')
+      .setHeader(
+        'Cache-Control',
+        status === 200
+          ? 'public, max-age=300, s-maxage=600'
+          : status === 404
+            ? 'public, max-age=60'
+            : 'no-store',
+      )
+      .send(html);
+  }
+
+  @Get('sitemap.xml')
+  @Header('Content-Type', 'application/xml; charset=utf-8')
+  @Header('Cache-Control', 'public, max-age=3600')
+  @ApiOperation({
+    summary: 'XML sitemap of discoverable cruxes and their authors',
+  })
+  async sitemap(): Promise<string> {
+    return this.exploreService.getSitemap();
   }
 }

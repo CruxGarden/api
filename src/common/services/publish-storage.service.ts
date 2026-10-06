@@ -8,6 +8,7 @@ import {
   PutBucketPolicyCommand,
   PutBucketTaggingCommand,
   PutObjectCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
   DeleteBucketCommand,
@@ -42,7 +43,7 @@ export class PublishStorageService {
   readonly mockMode: boolean;
   readonly config: PublishStorageConfig;
   /** mock mode only: bucket → set of keys */
-  private readonly mockBuckets = new Map<string, Map<string, number>>();
+  private readonly mockBuckets = new Map<string, Map<string, Buffer>>();
 
   // The S3 client is injectable only so tests can hand in a fake; Nest has no
   // provider for it, so it must be optional or the API cannot boot.
@@ -112,7 +113,11 @@ export class PublishStorageService {
   }
 
   /** Create the crux's bucket if needed and (re)apply website config, policy, tags. Idempotent. */
-  async ensureBucket(cruxId: string, authorId: string): Promise<string> {
+  async ensureBucket(
+    cruxId: string,
+    authorId: string,
+    ownerCruxId = cruxId,
+  ): Promise<string> {
     const bucket = this.bucketName(cruxId);
     if (this.mockMode) {
       if (!this.mockBuckets.has(bucket))
@@ -174,7 +179,7 @@ export class PublishStorageService {
         Tagging: {
           TagSet: [
             { Key: 'crux-garden:author', Value: authorId },
-            { Key: 'crux-garden:crux', Value: cruxId },
+            { Key: 'crux-garden:crux', Value: ownerCruxId },
             { Key: 'crux-garden:role', Value: 'publish' },
           ],
         },
@@ -195,8 +200,8 @@ export class PublishStorageService {
     const bucket = this.bucketName(cruxId);
     const bytes = files.reduce((n, f) => n + f.data.length, 0);
     if (this.mockMode) {
-      const keys = new Map<string, number>();
-      for (const f of files) keys.set(f.path, f.data.length);
+      const keys = new Map<string, Buffer>();
+      for (const f of files) keys.set(f.path, f.data);
       this.mockBuckets.set(bucket, keys);
       this.logger.info('Files published (mock)', {
         bucket,
@@ -233,7 +238,11 @@ export class PublishStorageService {
         }
       },
     );
-    await Promise.all(workers);
+    const results = await Promise.allSettled(workers);
+    const refused = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (refused) throw refused.reason;
     const stale = (await this.listKeys(bucket)).filter((k) => !wanted.has(k));
     if (stale.length) await this.deleteKeys(bucket, stale);
     this.logger.info('Files published', {
@@ -256,8 +265,9 @@ export class PublishStorageService {
     const s3 = this.s3!;
     try {
       await s3.send(new HeadBucketCommand({ Bucket: bucket }));
-    } catch {
-      return; // already gone
+    } catch (error) {
+      if (error?.$metadata?.httpStatusCode === 404) return; // already gone
+      throw error; // permission/network failures do not mean the site is gone
     }
     const keys = await this.listKeys(bucket);
     if (keys.length) await this.deleteKeys(bucket, keys);
@@ -268,7 +278,23 @@ export class PublishStorageService {
   /** mock mode: what's in a bucket (tests) */
   mockContents(cruxId: string): Record<string, number> | null {
     const m = this.mockBuckets.get(this.bucketName(cruxId));
-    return m ? Object.fromEntries(m) : null;
+    return m
+      ? Object.fromEntries([...m].map(([path, data]) => [path, data.length]))
+      : null;
+  }
+
+  async downloadFile(cruxId: string, path: string): Promise<Buffer> {
+    const bucket = this.bucketName(cruxId);
+    if (this.mockMode) {
+      const bytes = this.mockBuckets.get(bucket)?.get(path);
+      if (!bytes) throw new Error('Published file not found');
+      return bytes;
+    }
+    const result = await this.s3!.send(
+      new GetObjectCommand({ Bucket: bucket, Key: path }),
+    );
+    if (!result.Body) throw new Error('Published file not found');
+    return Buffer.from(await result.Body.transformToByteArray());
   }
 
   private async listKeys(bucket: string): Promise<string[]> {
@@ -288,7 +314,7 @@ export class PublishStorageService {
   private async deleteKeys(bucket: string, keys: string[]): Promise<void> {
     const s3 = this.s3!;
     for (let i = 0; i < keys.length; i += 1000) {
-      await s3.send(
+      const result = await s3.send(
         new DeleteObjectsCommand({
           Bucket: bucket,
           Delete: {
@@ -297,6 +323,8 @@ export class PublishStorageService {
           },
         }),
       );
+      if (result.Errors?.length)
+        throw new Error('Could not delete all published objects');
     }
   }
 }

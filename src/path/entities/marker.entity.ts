@@ -5,7 +5,6 @@ export default class Marker {
   order: number;
   note?: string;
   authorId: string;
-  homeId: string;
   created: Date;
   updated: Date;
   deleted?: Date;

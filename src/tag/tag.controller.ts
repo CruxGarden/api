@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -18,16 +17,16 @@ import { AuthRequest } from '../common/types/interfaces';
 import { TagService } from './tag.service';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { AuthGuard } from '../common/guards/auth.guard';
+import { AdminGuard } from '../common/guards/admin.guard';
 import { DbService } from '../common/services/db.service';
 import { TagSwagger } from './tag.swagger';
 import { LoggerService } from '../common/services/logger.service';
-import { isAdmin } from '../common/helpers/role-helpers';
 import { ResourceType } from '../common/types/enums';
 import Tag from './entities/tag.entity';
 import TagRaw from './entities/tag-raw.entity';
 
 @Controller('tags')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, AdminGuard)
 @TagSwagger.Controller()
 export class TagController {
   // @ts-expect-error - logger
@@ -39,12 +38,6 @@ export class TagController {
     private readonly loggerService: LoggerService,
   ) {
     this.logger = this.loggerService.createChildLogger('TagController');
-  }
-
-  async canManageTag(req: AuthRequest): Promise<void> {
-    if (!isAdmin(req.account.role)) {
-      throw new ForbiddenException('Admin access required');
-    }
   }
 
   @Get()
@@ -82,20 +75,14 @@ export class TagController {
   async update(
     @Param('id') id: string,
     @Body() updateTagDto: UpdateTagDto,
-    @Req() req: AuthRequest,
   ): Promise<Tag> {
-    await this.canManageTag(req);
     return this.tagService.update(id, updateTagDto);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @TagSwagger.DeleteTag()
-  async delete(
-    @Param('id') id: string,
-    @Req() req: AuthRequest,
-  ): Promise<null> {
-    await this.canManageTag(req);
+  async delete(@Param('id') id: string): Promise<null> {
     return this.tagService.delete(id);
   }
 }

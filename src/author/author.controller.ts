@@ -1,3 +1,5 @@
+import { isReservedUsername } from '../common/helpers/reserved-usernames';
+import { MAX_ARTIFACT_SIZE } from '../common/types/constants';
 import {
   Controller,
   Get,
@@ -85,6 +87,13 @@ export class AuthorController {
     return true;
   }
 
+  /** The directory of people, for inviting into a garden: `?q=` matches @username or a name. */
+  @Get('search')
+  @UseGuards(AuthGuard)
+  async search(@Query('q') q: string) {
+    return this.authorService.search(q ?? '');
+  }
+
   @Get('check-username')
   @UseGuards(AuthGuard)
   @AuthorSwagger.CheckUsername()
@@ -92,6 +101,7 @@ export class AuthorController {
     @Query('username') username: string,
     @Req() req: AuthRequest,
   ): Promise<{ available: boolean }> {
+    if (isReservedUsername(username ?? '')) return { available: false };
     const existingAuthor =
       await this.authorService.checkUsernameExists(username);
 
@@ -100,7 +110,8 @@ export class AuthorController {
     let currentAuthor = null;
     try {
       currentAuthor = await this.authorService.findByAccountId(req.account.id);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) throw error;
       // No author for this account yet
     }
 
@@ -132,11 +143,12 @@ export class AuthorController {
     @Param('identifier') identifier: string,
     @Query('embed') embed?: AuthorEmbed,
   ): Promise<Author> {
-    let author = await this.resolveAuthor(identifier);
+    const author = await this.resolveAuthor(identifier);
 
     if (embed === AuthorEmbed.ROOT && author.rootId) {
       const rootCrux = await this.cruxService.findById(author.rootId);
-      author.root = rootCrux;
+      if (this.isPublicCrux(rootCrux, author.id))
+        author.root = withPublicMeta(rootCrux);
     }
 
     return author;
@@ -149,6 +161,9 @@ export class AuthorController {
     @Body() createAuthorDto: CreateAuthorDto,
     @Req() req: AuthRequest,
   ): Promise<Author> {
+    if (createAuthorDto.rootId) {
+      throw new BadRequestException('Choose a root after creating the author');
+    }
     createAuthorDto.accountId = req.account.id;
     return this.authorService.create(createAuthorDto);
   }
@@ -162,6 +177,9 @@ export class AuthorController {
     @Req() req: AuthRequest,
   ): Promise<Author> {
     await this.canManageAuthor(id, req);
+    if (updateAuthorDto.rootId) {
+      await this.cruxService.findOwnedById(updateAuthorDto.rootId, id);
+    }
     return this.authorService.update(id, updateAuthorDto);
   }
 
@@ -179,7 +197,11 @@ export class AuthorController {
 
   @Post(':id/avatar')
   @UseGuards(AuthGuard)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_ARTIFACT_SIZE, files: 1, fields: 10 },
+    }),
+  )
   async uploadAvatar(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
@@ -232,7 +254,20 @@ export class AuthorController {
   ): Promise<Crux[]> {
     const author = await this.resolveAuthor(identifier);
 
-    const query = this.cruxService.findPublicByAuthorQuery(author.id);
+    const kind = req.query?.kind;
+    if (
+      kind !== undefined &&
+      kind !== 'tool' &&
+      kind !== 'mood' &&
+      kind !== 'creations'
+    )
+      throw new BadRequestException('kind must be tool, mood or creations');
+    const query = this.cruxService.findPublicByAuthorQuery(
+      author.id,
+      kind === 'tool' || kind === 'mood' || kind === 'creations'
+        ? kind
+        : undefined,
+    );
     const cruxes = (await this.dbService.paginate<CruxRaw, Crux>({
       model: Crux,
       query,
@@ -247,13 +282,7 @@ export class AuthorController {
     @Param('identifier') identifier: string,
     @Param('slug') slug: string,
   ) {
-    // Get author by username (strip @ prefix if present)
-    const author = await this.resolveAuthor(identifier);
-
-    // Get crux by author ID and slug — public read: working state stays private
-    return withPublicMeta(
-      await this.cruxService.findByAuthorAndSlug(author.id, slug),
-    );
+    return withPublicMeta(await this.resolvePublicCrux(identifier, slug));
   }
 
   @Get(':identifier/graph')
@@ -311,6 +340,13 @@ export class AuthorController {
     return new StreamableFile(file.data);
   }
 
+  private isPublicCrux(crux: Crux, authorId: string): boolean {
+    return (
+      crux.authorId === authorId &&
+      (crux.visibility === 'public' || crux.visibility === 'unlisted')
+    );
+  }
+
   private async resolvePublicCrux(identifier: string, slugOrId: string) {
     const author = await this.resolveAuthor(identifier);
 
@@ -323,7 +359,7 @@ export class AuthorController {
       ? await this.cruxService.findById(slugOrId)
       : await this.cruxService.findByAuthorAndSlug(author.id, slugOrId);
 
-    if (crux.visibility === 'private') {
+    if (!this.isPublicCrux(crux, author.id)) {
       throw new NotFoundException('Crux not found');
     }
 
