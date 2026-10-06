@@ -148,6 +148,10 @@ npm run start:dev   # Start development server
 
 The API will be available at `http://localhost:3000`. Visit `http://localhost:3000/docs` for interactive API documentation.
 
+## Production builds
+
+For Render, use `npm run build:prod` as the build command and `npm run start:prod` as the start command. The production build installs dependencies, runs lint and unit tests, and compiles the API without requiring Docker. Docker-backed integration tests remain mandatory in CI through `npm run verify` before release.
+
 ## Running Tests
 
 The suite includes real SQLite file, archive and restart workflows. Jest uses two workers and a 30-second default budget for these operations; tests of runtime deadlines keep their explicit limits. Integration tests run serially.

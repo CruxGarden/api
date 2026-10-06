@@ -33,7 +33,7 @@
     "prepare": "npm run build",
     "build": "nest build",
     "build:ci": "npm ci --include=dev --legacy-peer-deps && npm run build",
-    "build:prod": "npm ci --include=dev && npm run lint && npm run test:all && npm run build",
+    "build:prod": "npm ci --include=dev && npm run lint && npm test && npm run build",
     "start": "node --no-node-snapshot node_modules/@nestjs/cli/bin/nest.js start --exec \"node --no-node-snapshot\"",
     "openapi": "ts-node -r tsconfig-paths/register scripts/emit-openapi.ts",
     "start:dev": "node --no-node-snapshot node_modules/@nestjs/cli/bin/nest.js start --watch --exec \"node --no-node-snapshot\"",
