@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { withPublicMeta } from '../common/publish/public-meta';
 import { Knex } from 'knex';
 import { LoggerService } from '../common/services/logger.service';
 import { webOrigin } from '../common/helpers/web-origin';
@@ -17,6 +18,8 @@ import {
   ExploreRepository,
   ExploreCruxFilters,
   ExploreAuthorFilters,
+  ExploreCruxRow,
+  PUBLISHED_PACKAGE_KINDS,
 } from './explore.repository';
 
 @Injectable()
@@ -41,6 +44,25 @@ export class ExploreService {
 
   async getPopularTags(limit?: number, kind?: string) {
     return this.exploreRepository.findPopularTags(limit, kind);
+  }
+
+  /**
+   * A published Crux Tool or Mood by id, for install links (ADR 0085), in the
+   * shape of one `GET /explore` result. Link-only (non-Discoverable) items
+   * resolve; creations, private, unpublished, deleted and taken-down items all
+   * answer the same 404, so the route cannot enumerate creations by id.
+   */
+  async getPublishedPackage(cruxId: string): Promise<ExploreCruxRow> {
+    const row = await this.exploreRepository.findPublishedPackage(cruxId);
+    const kinds: readonly string[] = PUBLISHED_PACKAGE_KINDS;
+    if (
+      !row ||
+      !kinds.includes(row.kind ?? '') ||
+      (await this.exploreRepository.hasActiveTakedown(row.id))
+    )
+      throw new NotFoundException('Not found');
+    // Public read: the crux's working state stays private, as in Explore.
+    return withPublicMeta(row);
   }
 
   /**

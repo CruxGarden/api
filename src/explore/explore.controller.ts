@@ -1,6 +1,21 @@
-import { Controller, Get, Header, Query, Req, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Header,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { withPublicMeta } from '../common/publish/public-meta';
-import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { DbService } from '../common/services/db.service';
 import { ExploreService } from './explore.service';
@@ -82,6 +97,23 @@ export class ExploreController {
     })) as { meta?: Record<string, unknown> | null }[];
     // Public read: a crux's working state (model, prompts, queues, local paths) stays private
     return rows.map((r) => withPublicMeta(r));
+  }
+
+  @Get('cruxes/:id')
+  @ApiOperation({
+    summary:
+      'A published Crux Tool or Mood by id, Discoverable or link-only, in the shape of one Explore result (install links, ADR 0085)',
+  })
+  @ApiParam({ name: 'id', description: 'Published crux id (UUID)' })
+  @ApiResponse({ status: 200, description: 'The Tool or Mood' })
+  @ApiResponse({ status: 400, description: 'The id is not a UUID' })
+  @ApiResponse({
+    status: 404,
+    description:
+      'Not a published, live Tool or Mood (creations are reached by their address, not by id)',
+  })
+  async publishedPackage(@Param('id', ParseUUIDPipe) id: string) {
+    return this.exploreService.getPublishedPackage(id);
   }
 
   @Get('tags')
